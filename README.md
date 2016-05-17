@@ -1,2 +1,3 @@
-# sgnmt
-Neural machine translation toolbox, e.g. for syntactically guided neural machine translation
+# SGNMT
+SGNMT is a toolbox for neural machine translation. 
+
