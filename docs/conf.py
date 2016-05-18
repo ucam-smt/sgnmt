@@ -34,7 +34,6 @@ extensions = [
     'sphinx.ext.autodoc', 
     'sphinxcontrib.napoleon',
     'sphinx.ext.coverage',
-    'sphinx.ext.imgmath',
     'sphinx.ext.viewcode',
     'sphinx.ext.githubpages',
     'sphinxarg.ext',

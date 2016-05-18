@@ -4,14 +4,14 @@ are implemented in a monotonic left-to-right way which works well in
 the predictors paradigm. If we use features which do not have natural
 left-to-right semantics, we
 
-1) Restrict it to a accept/not-accept decision or
-2) Change it s.t. it does have left-to-right semantics
+* Restrict it to a accept/not-accept decision or
+* Change it s.t. it does have left-to-right semantics
 
 For example, to use synchronous grammars, we could
 
-1.) Keep track of all parse trees which match the partial prefix 
-    sequence
-2.) Transform the grammar into Greibach normal form
+* Keep track of all parse trees which match the partial prefix 
+  sequence
+* Transform the grammar into Greibach normal form
 
 The reason for this design decision is the emphasis on NMT: The neural 
 decoder decodes the sequence from left to right, all other features

@@ -24,6 +24,7 @@ Contents
    Predictors <cam.sgnmt.predictors>
    Decoders <cam.sgnmt.decoding>
    All modules <cam.sgnmt>
+   publications
 
 Quickstart
 ------------
