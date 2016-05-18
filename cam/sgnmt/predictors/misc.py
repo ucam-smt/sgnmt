@@ -114,7 +114,7 @@ class IdxmapPredictor(Predictor):
                                                     for idx in src_sentence])
 
     def set_current_sen_id(self, cur_sen_id):
-        """We need to override this method to propagate current_
+        """We need to override this method to propagate current\_
         sentence_id to the slave predictor
         """
         super(IdxmapPredictor, self).set_current_sen_id(cur_sen_id)

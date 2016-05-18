@@ -1,5 +1,5 @@
 """This is the main runner script for SGNMT decoding based on blocks. 
-GNMT can run in three different modes. The standard mode 'file' reads
+SGNMT can run in three different modes. The standard mode 'file' reads
 sentences to translate from a plain text file. The mode 'stdin' can be
 used to parse stdin. The last mode 'shell' enables interactive inter-
 action with SGNMT via keyboard. Note that SGNMT exclusively operates on 
@@ -37,10 +37,10 @@ from cam.sgnmt.decoding.decoder import GreedyDecoder, \
 from cam.sgnmt.decoding.heuristics import GreedyHeuristic, \
                                          PredictorHeuristic, \
                                          ScorePerWordHeuristic
-from cam.sgnmt.io import TextOutputHandler, \
-                        NBestOutputHandler, \
-                        FSTOutputHandler, \
-                        StandardFSTOutputHandler
+from cam.sgnmt.output import TextOutputHandler, \
+                             NBestOutputHandler, \
+                             FSTOutputHandler, \
+                             StandardFSTOutputHandler
 from cam.sgnmt.predictors import blocks_neural
 from cam.sgnmt.predictors.automata import FstPredictor, \
                                          RtnPredictor, \

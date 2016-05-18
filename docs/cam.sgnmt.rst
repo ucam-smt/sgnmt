@@ -13,10 +13,10 @@ Subpackages
 Submodules
 ----------
 
-cam.sgnmt.io module
--------------------
+cam.sgnmt.output module
+-----------------------
 
-.. automodule:: cam.sgnmt.io
+.. automodule:: cam.sgnmt.output
     :members:
     :undoc-members:
     :show-inheritance:

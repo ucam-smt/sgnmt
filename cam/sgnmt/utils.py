@@ -11,25 +11,25 @@ import operator
 # Reserved IDs
 
 
+PAD_ID = None
 """ Reserved word ID for padding. Relict from the TensorFlow 
 implementation. """
-PAD_ID = None
 
 
-""" Reserved word ID for the start-of-sentence symbol. """
 GO_ID = 1
+""" Reserved word ID for the start-of-sentence symbol. """
 
 
-""" Reserved word ID for the end-of-sentence symbol. """
 EOS_ID = 2
+""" Reserved word ID for the end-of-sentence symbol. """
 
 
-""" Reserved word ID for the unknown word (UNK). """
 UNK_ID = 0
+""" Reserved word ID for the unknown word (UNK). """
 
 
-""" Reserved word ID which is currently not used. """
 NOTAPPLICABLE_ID = 3
+""" Reserved word ID which is currently not used. """
 
 
 def switch_to_old_indexing():
@@ -70,8 +70,8 @@ def log_sum_log_semiring(vals):
 
 
 #log_sum = log_sum_log_semiring
-"""Defines which log summation function to use. """
 log_sum = log_sum_log_semiring
+"""Defines which log summation function to use. """
 
 
 # Maximum functions

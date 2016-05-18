@@ -23,19 +23,20 @@ their vocabulary. The following flags decide (as argument to
 when combining them with open vocabulary predictors in that way. This
 can be changed with the --closed_vocab_norm argument """
 
-"""None: Do not apply any normalization. """
+
 CLOSED_VOCAB_SCORE_NORM_NONE = 1
+"""None: Do not apply any normalization. """
 
 
+CLOSED_VOCAB_SCORE_NORM_EXACT = 2
 """Exact: Normalize by 1 plus the number of words outside the 
 vocabulary to make it a valid distribution again"""
-CLOSED_VOCAB_SCORE_NORM_EXACT = 2
 
 
+CLOSED_VOCAB_SCORE_NORM_REDUCED = 3
 """Reduced: Always normalize the closed vocabulary scores to the 
 vocabulary which is defined by the open vocabulary predictors at each
 time step. """
-CLOSED_VOCAB_SCORE_NORM_REDUCED = 3
 
 
 class Predictor(object):

@@ -28,14 +28,6 @@ cam.sgnmt.blocks.ui module
     :undoc-members:
     :show-inheritance:
 
-cam.sgnmt.blocks.utils module
------------------------------
-
-.. automodule:: cam.sgnmt.blocks.utils
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 cam.sgnmt.blocks.vanilla_decoder module
 ---------------------------------------
 

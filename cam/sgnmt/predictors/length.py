@@ -33,20 +33,24 @@ class NBLengthPredictor(Predictor):
     the Matlab script ``estimate_length_model.m`` 
     
     Let w be the model_weights. All features are extracted from the
-    src sentence.
-    r = w0 * #char
-        + w1 * #words
-        + w2 * #punctuation
-        + w3 * #char/#words
-        + w4 * #punct/#words
-        + w10
-    p = logistic(w5 * #char
-        + w6 * #words
-        + w7 * #punctuation
-        + w8 * #char/#words
-        + w9 * #punct/#words
-        + w11)
-    target_length ~ NB(r,p)
+    src sentence::
+    
+      r = w0 * #char
+      + w1 * #words
+      + w2 * #punctuation
+      + w3 * #char/#words
+      + w4 * #punct/#words
+      + w10
+      
+      p = logistic(w5 * #char
+      + w6 * #words
+      + w7 * #punctuation
+      + w8 * #char/#words
+      + w9 * #punct/#words
+      + w11)
+      
+      target_length ~ NB(r,p)
+      
     The biases w10 and w11 are optional.
     
     The predictor predicts EOS with NB(#consumed_words,r,p)

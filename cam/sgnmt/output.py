@@ -52,7 +52,7 @@ class NBestOutputHandler(OutputHandler):
     """Produces a n-best file in Moses format. The third part of each 
     entry is used to store the separated unnormalized predictor scores.
     Note that the sentence IDs are shifted: Moses n-best files start 
-    with the index 0, but in GNMT and HiFST we usually refer to the 
+    with the index 0, but in SGNMT and HiFST we usually refer to the 
     first sentence with 1 (e.g. in lattice directories or --range)
     """
     
@@ -140,7 +140,7 @@ class FSTOutputHandler(OutputHandler):
         are not optimized in any way: We create a distinct path for
         each entry in ``all_hypos``. We advise you to determinize/
         minimize them if you are planning to use them for further 
-        processing. However, keep in mind that GNMT uses the id 0 for 
+        processing. However, keep in mind that SGNMT uses the id 0 for 
         UNK, and OpenFST marks epsilon arcs that way. You can resolve 
         this clash by using fstrelabel after fstcompile.
         
@@ -212,7 +212,7 @@ class StandardFSTOutputHandler(OutputHandler):
         optimized in any way: We create a distinct path for each entry 
         in ``all_hypos``. We advise you to determinize/minimize them if
         you are planning to use them for further processing. However, 
-        keep in mind that GNMT uses the id 0 for UNK, and OpenFST marks
+        keep in mind that SGNMT uses the id 0 for UNK, and OpenFST marks
         epsilon arcs that way. You can resolve this clash by using 
         fstrelabel after fstcompile.
         

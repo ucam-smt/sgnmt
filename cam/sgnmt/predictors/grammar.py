@@ -6,10 +6,10 @@ The Hiero predictor follows are the LRHiero implementation from
 
 https://github.com/sfu-natlang/lrhiero
 
-Efficient Left-to-Right Hierarchical Phrase-based Translation with 
-Improved Reordering. 
-Maryam Siahbani, Baskaran Sankaran and Anoop Sarkar. 
-EMNLP 2013. Oct 18-21, 2013. Seattle, USA.
+  Efficient Left-to-Right Hierarchical Phrase-based Translation with 
+  Improved Reordering. 
+  Maryam Siahbani, Baskaran Sankaran and Anoop Sarkar. 
+  EMNLP 2013. Oct 18-21, 2013. Seattle, USA.
 
 However, note that we modified the code to 
 a) deal with an arbitrary number of non-terminals
@@ -414,20 +414,20 @@ class RuleSet:
         Alg. 1 in (Siahbani, 2013) combined. Gets all rules which match
         the given span. 
         
-        - If the p parameter of the span is a single non-terminal, we 
-        return hypotheses resulting from productions of this non-
-        terminal. Note that rules might be applicable in many different
-        ways: X-> A the B can be applied to foo the bar the baz in two 
-        ways. In this case, we add the translation prefix, but leave the 
-        borders of the span untouched, and change the ``p`` value to 
-        ``thr rhs`` of the production (i.e. "A the B"). If p consists
-        of multiple characters, the spans store the minimum and maximum
-        *length*, not the begin and end since the exact begin and end
-        positions are variable.
+        * If the p parameter of the span is a single non-terminal, we 
+          return hypotheses resulting from productions of this non-
+          terminal. Note that rules might be applicable in many different
+          ways: X-> A the B can be applied to foo the bar the baz in two 
+          ways. In this case, we add the translation prefix, but leave the
+          borders of the span untouched, and change the ``p`` value to 
+          ``thr rhs`` of the production (i.e. "A the B"). If p consists
+          of multiple characters, the spans store the minimum and maximum
+          *length*, not the begin and end since the exact begin and end
+          positions are variable.
+        * If the p parameter of the span has length > 1, we return a 
+          set of hypotheses in which the first subspan has a single NT
+          as p parameter.
         
-        - If the p parameter of the span has length > 1, we return a 
-        set of hypotheses in which the first subspan has a single NT
-        as p parameter.
         
         Through this contract we can e.g. handle spurious ambiguity, if 
         two NT are on the source side. However, resolving this 
@@ -786,9 +786,9 @@ class RuleXtractPredictor(Predictor):
     hypotheses from which we can derive all full hypotheses which are 
     consistent with the current target prefix (i.e. the prefix of the
     target sentence which has already been translated). This set is
-    updated when calling either consume_word or predict_next: consume_
+    updated when calling either consume_word or predict_next: consume\_
     word deletes all hypotheses which become inconsistent with the new 
-    word. ``predict_next`` requires all hypotheses to have a target_
+    word. ``predict_next`` requires all hypotheses to have a target\_
     prefix length of at least one plus the number of consumed words. 
     Therefore, ``predict_next`` expands hypotheses as long as they are
     shorter. This fits nicely with grouping hypotheses in bins of same
@@ -798,10 +798,10 @@ class RuleXtractPredictor(Predictor):
     
     Note that this predictor is similar to the decoding algorithm in
     
-    Efficient Left-to-Right Hierarchical Phrase-based Translation with
-    Improved Reordering. 
-    Maryam Siahbani, Baskaran Sankaran and Anoop Sarkar. 
-    EMNLP 2013. Oct 18-21, 2013. Seattle, USA.
+      Efficient Left-to-Right Hierarchical Phrase-based Translation with
+      Improved Reordering. 
+      Maryam Siahbani, Baskaran Sankaran and Anoop Sarkar. 
+      EMNLP 2013. Oct 18-21, 2013. Seattle, USA.
     
     without cube pruning, but it is extended to an arbitrary number of
     non-terminals as produced with ruleXtract.

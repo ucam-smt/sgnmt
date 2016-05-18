@@ -27,7 +27,6 @@ blocks-examples/machine_translation.
 """
 
 import sys
-sys.path.insert(0, '../')
 
 import argparse
 import logging
@@ -39,7 +38,8 @@ from fuel.transformers import Merge, Batch, Filter, SortMapping, Unpack, Mapping
 from fuel.schemes import ConstantScheme,ShuffledExampleScheme
 from fuel.streams import DataStream
 from machine_translation.org__init__ import main
-import utils
+from cam.sgnmt import utils
+from cam.sgnmt.blocks.ui import get_train_parser
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s')
@@ -237,27 +237,7 @@ def get_sgnmt_dev_stream(val_set=None, src_vocab=None, src_vocab_size=30000,
     return dev_stream
 
 
-# Get the arguments
-def str2bool(v):
-    return v.lower() in ("yes", "true", "t", "1")
-parser = argparse.ArgumentParser()
-parser.register('type','bool',str2bool)
-parser.add_argument("--proto",  default="get_config_gnmt",
-                    help="Prototype config to use for config")
-parser.add_argument("--bokeh",  default=False, action="store_true",
-                    help="Use bokeh server for plotting")
-parser.add_argument("--reshuffle",  default=False, action="store_true",
-                    help="Reshuffle before each epoch")
-default_config = configurations.get_config_gnmt()
-for k in default_config:
-    arg_type = type(default_config[k])
-    if arg_type == bool:
-        arg_type = 'bool'
-    parser.add_argument(
-                "--%s" % k,
-                default=default_config[k],
-                type=arg_type,
-                help="See cam.sgnmt.blocks.machine_translation.configuration")
+parser = get_train_parser()
 args = parser.parse_args()
 
 # Get configuration
