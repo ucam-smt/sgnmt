@@ -163,6 +163,7 @@ def add_predictors(decoder, nmt_config):
             logging.fatal("Specified %d predictors, but %d weights. Please "
                       "revise the --predictors and --predictor_weights "
                       "arguments" % (len(preds), len(weights)))
+            return
     
     pred_weight = 1.0
     nmt_pred_count = 0
@@ -191,9 +192,10 @@ def add_predictors(decoder, nmt_config):
                 nmt_pred_count += 1
                 if nmt_pred_count > 1:
                     add_config = getattr(args, "nmt_config%d" % nmt_pred_count)
-                    for pair in add_config.split(","):
-                        (k,v) = pair.split("=", 1)
-                        nmt_config[k] = type(nmt_config[k])(v)
+                    if add_config:
+                        for pair in add_config.split(","):
+                            (k,v) = pair.split("=", 1)
+                            nmt_config[k] = type(nmt_config[k])(v)
                 nmt_model_path = get_nmt_model_path(nmt_config)
             if pred == 'fst' or pred == 'nfst':
                 # Update FST config in case --fst_pathX has been used
@@ -255,6 +257,8 @@ def add_predictors(decoder, nmt_config):
             else:
                 logging.fatal("Predictor '%s' not available. Please check "
                               "--predictors for spelling errors." % pred)
+                decoder.remove_predictors()
+                return
             for wrapper_idx,wrapper in enumerate(wrappers):
                 # Embed predictor ``p`` into wrapper predictors if necessary
                 # TODO: Use wrapper_weights (okay for now because idxmap only)
@@ -272,15 +276,28 @@ def add_predictors(decoder, nmt_config):
                     logging.fatal("Predictor wrapper '%s' not available. "
                                   "Please double-check --predictors for "
                                   "spelling errors." % wrapper)
+                    decoder.remove_predictors()
+                    return
             decoder.add_predictor(pred, p, pred_weight)
+    except IOError as e:
+        logging.fatal("One of the files required for setting up the "
+                      "predictors could not be read: %s" % e)
+        decoder.remove_predictors()
+    except NameError as e:
+        logging.fatal("Could not find external library: %s. Please make sure "
+                      "that your PYTHONPATH and LD_LIBRARY_PATH contains all "
+                      "paths required for the predictors." % e)
+        decoder.remove_predictors()
     except ValueError as e:
-        logging.fatal("A number format error (%d) while configuring the "
+        logging.fatal("A number format error while configuring the "
                       "predictors: %s. Please double-check all integer- or "
                       "float-valued parameters such as --predictor_weights and "
-                      "try again." % (e.errno, e.strerror))
-    except:
-        logging.fatal("An unexpected error occurred while setting up the "
-                      "predictors: %s" % sys.exc_info()[0])
+                      "try again." % e)
+        decoder.remove_predictors()
+    except Exception as e:
+        logging.fatal("An unexpected %s has occurred while setting up the "
+                      "predictors: %s" % (sys.exc_info()[0], e))
+        decoder.remove_predictors()
 
 
 def get_nmt_model_path(nmt_config):
@@ -350,7 +367,7 @@ def create_decoder(nmt_config):
     
     # Add heuristics for search strategies like A*
     if args.heuristics:
-        decoder = add_heuristics(decoder, closed_vocab_norm)
+        add_heuristics(decoder, closed_vocab_norm)
     
     # Update start sentence id if necessary
     if args.range:
@@ -420,9 +437,13 @@ def create_output_handlers(nmt_config):
             outputs.append(NBestOutputHandler(path, args.predictors.split(","),
                                               start_sen_id))
         elif name == "fst":
-            outputs.append(FSTOutputHandler(path, start_sen_id))
+            outputs.append(FSTOutputHandler(path,
+                                            start_sen_id,
+                                            args.output_fst_unk_id))
         elif name == "sfst":
-            outputs.append(StandardFSTOutputHandler(path, start_sen_id))
+            outputs.append(StandardFSTOutputHandler(path,
+                                                    start_sen_id,
+                                                    args.output_fst_unk_id))
         else:
             logging.fatal("Output format %s not available. Please double-check"
                           " the --outputs parameter." % name)
@@ -488,6 +509,10 @@ def do_decode(decoder, output_handlers, src_sentences):
                                translate (e.g. '1 123 432 2')
         nmt_config (dict):  NMT configuration, see ``get_nmt_config()``
     """
+    if not decoder.has_predictors():
+        logging.fatal("Decoding cancelled because of an error in the "
+                      "predictor configuration.")
+        return
     start_time = time.time()
     logging.info("Start time: %s" % start_time)
     all_hypos = []
@@ -532,17 +557,17 @@ def do_decode(decoder, output_handlers, src_sentences):
                                         time.time() - start_hypo_time))
             all_hypos.append(hypos)
         except ValueError as e:
-            logging.error("Number format error (%d) at sentence id %d: %s"
-                      % (e.errno, sen_idx+1, e.strerror))
-        except:
-            logging.error("An unexpected error occurred at sentence id %d: %s"
-                          % (sen_idx+1, sys.exc_info()[0]))
+            logging.error("Number format error at sentence id %d: %s"
+                      % (sen_idx+1, e))
+        except Exception as e:
+            logging.error("An unexpected %s error has occurred at sentence "
+                          "id %d: %s" % (sys.exc_info()[0], sen_idx+1, e))
     try:
         for output_handler in  output_handlers:
             output_handler.write_hypos(all_hypos)
     except IOError as e:
         logging.error("I/O error %d occurred when creating output files: %s"
-                      % (e.errno, e.strerror))
+                      % (sys.exc_info()[0], e))
     logging.info("Decoding finished. Time: %.2f" % (time.time() - start_time))
 
 

@@ -1,6 +1,6 @@
-"""This module encapsulates the interface to OpenFST. This is the only
-module with dependency to OpenFST. To enable python support in OpenFST,
-use a recent version (>=1.5.2) and compile with --enable_python. 
+"""This module encapsulates the predictor interface to OpenFST. This
+module depends on OpenFST. To enable Python support in OpenFST, use a 
+recent version (>=1.5.2) and compile with ``--enable_python``. 
 Further information can be found here:
 
 http://www.openfst.org/twiki/bin/view/FST/PythonExtension 
@@ -29,14 +29,20 @@ from cam.sgnmt import utils
 from cam.sgnmt.decoding.core import Predictor
 
 
-"""OpenFST's reserved ID for epsilon arcs. """
 EPS_ID = 0
+"""OpenFST's reserved ID for epsilon arcs. """
 
 
 NEG_INF = float("-inf")
 
-"""Temporary file name to use if a FST file is zipped. """
+
 TMP_FILENAME = '/tmp/sgnmt.%s.fst' % os.getpid()
+"""Temporary file name to use if a FST file is zipped. """
+
+
+def w2f(fstweight):
+    """Converts an arc weight to float """
+    return float(str(fstweight))
 
 
 def load_fst(path):
@@ -59,9 +65,9 @@ def load_fst(path):
             ret = fst.Fst.read(path)
         logging.debug("Read fst from %s" % path)
         return ret
-    except:
-        logging.error("Error reading fst from %s: %s" %
-            (path, sys.exc_info()[1]))
+    except Exception as e:
+        logging.error("%s error reading fst from %s: %s" %
+            (sys.exc_info()[1], path, e))
     return None
 
 
@@ -127,7 +133,7 @@ class FstPredictor(Predictor):
         """
         if not self.cur_node:
             return {}
-        scores = {arc.olabel: self.weight_factor*float(arc.weight)
+        scores = {arc.olabel: self.weight_factor*w2f(arc.weight)
                 for arc in self.cur_fst.arcs(self.cur_node)}
         if utils.EOS_ID in scores and self.add_bos_to_eos_score:
             scores[utils.EOS_ID] += self.bos_score
@@ -167,7 +173,7 @@ class FstPredictor(Predictor):
         for arc in self.cur_fst.arcs(from_state):
             if arc.olabel == word:
                 self.cur_node = arc.nextstate
-                return self.weight_factor*float(arc.weight)
+                return self.weight_factor*w2f(arc.weight)
     
     def get_state(self):
         """Returns the current node. """
@@ -184,8 +190,7 @@ class FstPredictor(Predictor):
     
     def initialize_heuristic(self, src_sentence):
         """Creates a matrix of shortest distances between nodes. """
-        # TODO: Update to use OpenFST instead of PyFST
-        self.distances = self.cur_fst.shortest_distance(reverse=True)
+        self.distances = fst.shortestdistance(self.cur_fst, reverse=True)
     
     def estimate_future_cost(self, hypo):
         """The FST predictor comes with its own heuristic function. We
@@ -195,7 +200,7 @@ class FstPredictor(Predictor):
         last_word = hypo.trgt_sentence[-1]
         for arc in self.cur_fst.arcs(self.cur_node):
             if arc.olabel == last_word:
-                return float(self.distances[arc.nextstate])
+                return w2f(self.distances[arc.nextstate])
         return 0.0
 
 
@@ -258,7 +263,7 @@ class NondeterministicFstPredictor(Predictor):
                 if arc.olabel != EPS_ID:
                     scorelst[arc.olabel] = scorelst.get(arc.olabel, []) + [
                                         weight
-                                        + self.weight_factor*float(arc.weight)] 
+                                        + self.weight_factor*w2f(arc.weight)] 
         scores = {word: utils.log_sum(weights) 
                     for word,weights in scorelst.iteritems()}
         return self.finalize_posterior(scores,
@@ -294,7 +299,7 @@ class NondeterministicFstPredictor(Predictor):
                 if arc.olabel == word:
                     d[arc.nextstate] = d.get(arc.nextstate, []) + [
                                         weight
-                                        + self.weight_factor*float(arc.weight)]
+                                        + self.weight_factor*w2f(arc.weight)]
         # Add epsilon reachable states
         prev_d = {}
         while len(prev_d) != len(d):
@@ -305,7 +310,7 @@ class NondeterministicFstPredictor(Predictor):
                     if arc.olabel == EPS_ID:
                         d[arc.nextstate] = d.get(arc.nextstate, []) + [
                                         weight
-                                        + self.weight_factor*float(arc.weight)]
+                                        + self.weight_factor*w2f(arc.weight)]
         self.cur_nodes = [(utils.log_sum(weights), n) 
                             for n,weights in d.iteritems()]
     
@@ -324,8 +329,7 @@ class NondeterministicFstPredictor(Predictor):
     
     def initialize_heuristic(self, src_sentence):
         """Creates a matrix of shortest distances between all nodes """
-        # TODO: Update to use OpenFST instead of PyFST
-        self.distances = self.cur_fst.shortest_distance(reverse=True)
+        self.distances = fst.shortestdistance(self.cur_fst, reverse=True)
     
     def estimate_future_cost(self, hypo):
         """The FST predictor comes with its own heuristic function. We
@@ -335,7 +339,7 @@ class NondeterministicFstPredictor(Predictor):
         for n in self.cur_nodes:
             for arc in self.cur_fst[n].arcs:
                 if arc.olabel == last_word:
-                    dists.append(float(self.distances[arc.nextstate]))
+                    dists.append(w2f(self.distances[arc.nextstate]))
                     break
         return 0.0 if not dists else min(dists)
 
@@ -427,6 +431,8 @@ class RtnPredictor(Predictor):
                 if not candidates:
                     logging.error("Could not find root fst in %s" % 
                                     search_pattern)
+                    self.cur_fst = None
+                    return
                 if len(candidates) > 1:
                     logging.warn("Ambiguous root fst for %s. Take the one "
                                  "with largest span." % search_pattern)
@@ -434,12 +440,13 @@ class RtnPredictor(Predictor):
                 file_name = candidates[-1]
             self.cur_fst = fst.Fst.read(file_name) 
             logging.debug("Read (root)fst from %s" % file_name)
-        except:
-            logging.error("Error reading fst from %s: %s" %
-                (file_name, sys.exc_info()[1]))
+        except Exception as e:
+            logging.error("%s error reading fst from %s: %s" %
+                (sys.exc_info()[1], file_name, e))
             self.cur_fst = None
-        self.cur_history = []
-        self.sub_fsts = {}
+        finally:
+            self.cur_history = []
+            self.sub_fsts = {}
         self.consume(utils.GO_ID)
     
     def expand_rtn(self, func):
@@ -450,13 +457,12 @@ class RtnPredictor(Predictor):
         the prefix ``cur_history`` in the RTN have at least one more 
         terminal token. Then, we apply ``func`` to all reachable nodes.
         """
-        # TODO: Update this to make it work with OpenFST instead of PyFST
         updated = True
         while updated:
             updated = False
             label_fst_map = {}
             self.visited_nodes = {}
-            self.cur_fst.arc_sort_output()
+            self.cur_fst.arcsort(sort_type="olabel")
             self.add_to_label_fst_map_recursive(label_fst_map,
                                                 {},
                                                 self.cur_fst.start, 
@@ -466,23 +472,18 @@ class RtnPredictor(Predictor):
                 logging.debug("Replace %d NT arcs for history %s" % (
                                                             len(label_fst_map),
                                                             self.cur_history))
-                # This requires fiddling around with osyms because pyfst uses
-                # it for some stupid reason but fst._fst.read doesn't create 
-                # even a null-object implementation
-                self.cur_fst.osyms = fst.SymbolTable()
-                for label in label_fst_map:
-                    self.cur_fst.osyms[label] = int(label)
-                self.cur_fst.osyms['__ROOT__'] = len(label_fst_map) + 2000000000
-                self.cur_fst.isyms = self.cur_fst.osyms
-                replaced_fst = self.cur_fst.replace(label_fst_map, True)
+                # First in the list is the root FST and label
+                replaced_fst = fst.replace(
+                        [(len(label_fst_map) + 2000000000, self.cur_fst)] 
+                        + [(nt_label, f) 
+                            for (nt_label, f) in label_fst_map.iteritems()],
+                        epsilon_on_replace=True)
                 self.cur_fst = replaced_fst
-                self.cur_fst.osyms = None
-                self.cur_fst.isyms = None
                 updated = True
         if self.rmeps or self.minimize_rtns:
-            self.cur_fst.remove_epsilon()
+            self.cur_fst.rmepsilon()
         if self.minimize_rtns:
-            tmp = self.cur_fst.determinize()
+            tmp = fst.determinize(self.cur_fst.determinize)
             self.cur_fst = tmp
             self.cur_fst.minimize()
     
@@ -498,20 +499,14 @@ class RtnPredictor(Predictor):
           
         Note: visited_nodes is maintained for each history separately
         """
-        # TODO: Update this to make it work with OpenFST instead of PyFST
         if root_node in visited_nodes:
             # This introduces some error as we take the score of the first best
             # path with a certain history, not the globally best path. For now,
             # this error should not be significant
             return
         visited_nodes[root_node] = True
-        try:
-            arcs = self.cur_fst[root_node].arcs
-        except:
-            logging.debug("invalid state id %d" % root_node)
-            return
-        for arc in arcs:
-            arc_acc_weight = acc_weight + self.weight_factor*float(arc.weight)
+        for arc in self.cur_fst.arcs(root_node):
+            arc_acc_weight = acc_weight + self.weight_factor*w2f(arc.weight)
             if arc.olabel == EPS_ID: # Follow epsilon edges
                 self.add_to_label_fst_map_recursive(label_fst_map,
                                                     visited_nodes,
@@ -522,7 +517,7 @@ class RtnPredictor(Predictor):
             elif not history:
                 if self.is_nt_label(arc.olabel): # Add to label_fst_map
                     replace_label = len(label_fst_map) + 2000000000
-                    label_fst_map[str(replace_label)] = self.get_sub_fst(
+                    label_fst_map[replace_label] = self.get_sub_fst(
                                                                     arc.olabel)
                     arc.ilabel = replace_label
                     arc.olabel = replace_label
@@ -556,8 +551,9 @@ class RtnPredictor(Predictor):
             logging.debug("Read sub fst from %s" % sub_fst_path)
             self.sub_fsts[fst_id] = sub_fst
             return sub_fst
-        except:
-            logging.error("Could not load sub fst %s" % sub_fst_path)
+        except Exception as e:
+            logging.error("%s error reading sub fst from %s: %s" %
+                (sys.exc_info()[1], sub_fst_path, e))
         
     def _add_to_cur_posterior(self, node, label, weight):
         """Can be used as ``func`` argument in ``expand_rtn`` to build

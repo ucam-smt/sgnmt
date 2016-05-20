@@ -7,8 +7,12 @@ http://nlg.isi.edu/software/nplm/
 
 from cam.sgnmt.decoding.core import UnboundedVocabularyPredictor
 from cam.sgnmt import utils
-import nplm
 import logging
+
+try:
+    import nplm
+except ImportError:
+    pass # Deal with it in decode.py
 
 NEG_INF = float("-inf")
 
@@ -31,6 +35,9 @@ class NPLMPredictor(UnboundedVocabularyPredictor):
             normalize_scores (bool): Whether to renormalize scores s.t.
                                      scores returned by ``predict_next``
                                      sum up to 1
+        
+        Raises:
+            NameError. If NPLM is not installed
         """
         super(NPLMPredictor, self).__init__()
         self.model = nplm.NeuralLM.from_file(path)

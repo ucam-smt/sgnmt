@@ -1,9 +1,0 @@
-div#command-line-reference table.docutils {
-  table-layout: fixed;
-  width: 95%;
-}
-
-
-div#command-line-reference table.docutils td {
-  white-space: normal
-}

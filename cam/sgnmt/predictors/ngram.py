@@ -9,10 +9,12 @@ https://github.com/desilinguist/swig-srilm
 """
 
 from cam.sgnmt.decoding.core import UnboundedVocabularyPredictor
-import logging
-import sys
 from cam.sgnmt import utils
-from srilm import readLM, initLM, getNgramProb # requires swig-srilm
+
+try:
+    from srilm import readLM, initLM, getNgramProb # requires swig-srilm
+except ImportError:
+    pass # Deal with it in decode.py
 
 
 class SRILMPredictor(UnboundedVocabularyPredictor):
@@ -30,6 +32,9 @@ class SRILMPredictor(UnboundedVocabularyPredictor):
         Args:
             path (string): Path to the ARPA language model file
             ngram_order (int): Order of the language model
+            
+        Raises:
+            NameError. If srilm-swig is not installed
         """
         super(SRILMPredictor, self).__init__()
         self.history_len = ngram_order-1

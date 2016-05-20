@@ -448,6 +448,11 @@ class Decoder(object):
         self.predictors.append((predictor, weight))
         self.predictor_names.append(name)
     
+    def remove_predictors(self):
+        """Removes all predictors of this decoder. """
+        self.predictors = []
+        self.predictor_names = []
+    
     def set_heuristic_predictors(self, heuristic_predictors):
         """Define the list of predictors used by heuristics. This needs
         to be called before adding heuristics with ``add_heuristic()``
@@ -492,6 +497,10 @@ class Decoder(object):
             float. Future cost
         """
         return sum([h.estimate_future_cost(hypo) for h in  self.heuristics])
+    
+    def has_predictors(self):
+        """Returns true if predictors have been added to the decoder. """
+        return len(self.predictors) > 0
     
     def consume(self, word):
         """Calls ``consume()`` on all predictors. """

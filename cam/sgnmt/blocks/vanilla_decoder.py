@@ -208,3 +208,8 @@ class BlocksVanillaDecoder(cam.sgnmt.decoding.core.Decoder):
 
     def _oov_to_unk(self, seq, vocab_size, unk_idx):
         return [x if x < vocab_size else unk_idx for x in seq]
+    
+    
+    def has_predictors(self):
+        """Always returns true. """
+        return True
