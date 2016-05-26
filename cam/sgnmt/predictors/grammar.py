@@ -568,9 +568,7 @@ class RuleSet:
                     and self._is_compatible(
                                     p,
                                     src_seq[src_idx:src_idx+span_len_sum])):
-                return [previous_spans + [Span(p,
-                                               (src_idx,
-                                                src_idx+span_len_sum))]]
+                return [previous_spans + [span]]
             return []
         else:
             ret = []
@@ -833,13 +831,15 @@ class RuleXtractPredictor(Predictor):
         if not 'S' in self.rules.nt2id:
             logging.fatal("No rule with start symbol S found!") 
         self.start_nt = self.rules.nt2id['S']
+        logging.debug("Grammar start symbol: S (ID: %d)" % self.start_nt)
 
     def get_unk_probability(self, posterior):
         """Returns negative infinity if the posterior is not empty as
         words outside the grammar are not possible according this
         predictor. If ``posterior`` is empty, return 0 (= log 1)
         """
-        return float("-inf") if len(posterior) > 0 else 0.0 
+        #return float("-inf") if len(posterior) > 0 else 0.0 
+        return float("-inf")
     
     def predict_next(self):
         """For predicting the distribution of the next target tokens, 
@@ -860,15 +860,23 @@ class RuleXtractPredictor(Predictor):
                 for new_hypo in new_hypos:
                     n_covered = len(new_hypo.trgt_prefix)
                     if new_hypo.is_final():
-                        #print("FOUND FINAL HYPOTHESIS: %s" % new_hypo)
                         while len(self.finals) <= n_covered:
                             self.finals.append(Cell())
+                        # Make sure that it ends with EOS
+                        new_hypo.trgt_prefix[-1] = utils.EOS_ID
                         self.finals[n_covered].add(new_hypo)
                     else:
                         while len(self.stacks) <= n_covered:
                             self.stacks.append(Cell())
                         #print("ADD TO STACK %d: %s" % (n_covered, new_hypo))
                         self.stacks[n_covered].add(new_hypo)
+        logging.debug("Predict next (consumed: %d)" % self.n_consumed)
+        for idx,c in enumerate(self.stacks):
+            if c.hypos:
+                logging.debug("Stack %d: %d" % (idx, len(c.hypos)))
+        for idx,c in enumerate(self.finals):
+            if c.hypos:
+                logging.debug("Finals %d: %s" % (idx, c.hypos))
         return self.build_posterior()
     
     def build_posterior(self):
@@ -882,20 +890,22 @@ class RuleXtractPredictor(Predictor):
             for hypo in self.stacks[stack_idx].hypos:
                 symb = hypo.trgt_prefix[self.n_consumed]
                 posterior[symb] = max(posterior.get(symb, 0), hypo.cost)
-        if self.n_consumed < len(self.finals) and self.finals[self.n_consumed]:
+        if self.n_consumed+1 < len(self.finals) and self.finals[self.n_consumed+1]:
             posterior[utils.EOS_ID] = max([hypo.cost
-                            for hypo in self.finals[self.n_consumed].hypos])
-        return posterior
+                            for hypo in self.finals[self.n_consumed+1].hypos])
+        return self.finalize_posterior(posterior, self.use_weights, False)
     
     def initialize(self, src_sentence):
         """Delete all bins and add the initial cell to the first bin """
         self.reset()
-        self.src_seq = src_sentence
+        self.src_seq = [utils.GO_ID] + src_sentence + [utils.EOS_ID]
         self.src_len = len(self.src_seq)
-        span = Span([self.start_nt], (0, self.src_len))
+        span = Span([-self.start_nt], (0, self.src_len))
         init_hypo = LRHieroHypothesis([], [span], 0)
         self.stacks = [Cell(init_hypo)]
         self.finals = []
+        self.predict_next()
+        self.consume(utils.GO_ID)
     
     def consume(self, word):
         """Remove all hypotheses with translation prefixes which do not
