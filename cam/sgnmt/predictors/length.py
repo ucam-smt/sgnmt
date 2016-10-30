@@ -10,7 +10,7 @@ using a language model.
 import logging
 import math
 
-from cam.sgnmt.decoding.core import Predictor
+from cam.sgnmt.predictors.core import Predictor
 import numpy as np
 from cam.sgnmt import utils
 from scipy.special import gammaln
@@ -56,7 +56,7 @@ class NBLengthPredictor(Predictor):
     The predictor predicts EOS with NB(#consumed_words,r,p)
     """
     
-    def __init__(self, text_file, model_weights, use_point_probs):
+    def __init__(self, text_file, model_weights, use_point_probs, offset = 0):
         """Creates a new target sentence length model predictor.
         
         Args:
@@ -68,9 +68,12 @@ class NBLengthPredictor(Predictor):
                                   information
             use_point_probs (bool): Use point estimates for EOS token,
                                     0.0 otherwise 
+            offset (int): Subtract this from hypothesis length before
+                          applying the NB model
         """
         super(NBLengthPredictor, self).__init__()
         self.use_point_probs = use_point_probs
+        self.offset = offset
         if len(model_weights) == 2*NUM_FEATURES: # add biases
             model_weights.append(0.0)
             model_weights.append(0.0)
@@ -109,6 +112,8 @@ class NBLengthPredictor(Predictor):
         the 1-p(EOS), with p(EOS) fetched from ``posterior``
         """
         if self.use_point_probs:
+            if self.n_consumed == 0:
+                return self.max_eos_prob
             return 0.0
         if self.n_consumed == 0:
             return 0.0
@@ -122,13 +127,11 @@ class NBLengthPredictor(Predictor):
     
     def _get_eos_prob(self):
         """Get loglikelihood according cur_p, cur_r, and n_consumed """
-        eos_point_prob = gammaln(self.n_consumed+self.cur_r) \
-            - gammaln(self.n_consumed+1) \
-            - gammaln(self.cur_r) \
-            + self.n_consumed * np.log(self.cur_p) \
-            + self.cur_r * np.log(1.0-self.cur_p);
+        eos_point_prob = self._get_eos_point_prob(max(
+                                              1, 
+                                              self.n_consumed - self.offset))
         if self.use_point_probs:
-            return eos_point_prob
+            return eos_point_prob - self.max_eos_prob
         if not self.prev_eos_probs:
             self.prev_eos_probs.append(eos_point_prob)
             return eos_point_prob
@@ -137,6 +140,26 @@ class NBLengthPredictor(Predictor):
         self.prev_eos_probs.append(eos_point_prob)
         # Desired prob is eos_point_prob / (1-last_eos_probs_sum)
         return eos_point_prob - np.log(1.0-np.exp(prev_sum))
+    
+    def _get_eos_point_prob(self, n):
+        return gammaln(n + self.cur_r) \
+                - gammaln(n + 1) \
+                - gammaln(self.cur_r) \
+                + n * np.log(self.cur_p) \
+                + self.cur_r * np.log(1.0-self.cur_p)
+    
+    def _get_max_eos_prob(self):
+        """Get the maximum loglikelihood according cur_p, cur_r 
+        TODO: replace this brute force impl. with something smarter
+        """
+        max_prob = NEG_INF
+        n_prob = max_prob
+        n = 0
+        while n_prob == max_prob:
+            n += 1
+            n_prob = self._get_eos_point_prob(n)
+            max_prob = max(max_prob, n_prob)
+        return max_prob
     
     def initialize(self, src_sentence):
         """Extract features for the source sentence. Note that this
@@ -153,6 +176,8 @@ class NBLengthPredictor(Predictor):
         self.cur_p = max(EPS_P, min(1.0 - EPS_P, p))
         self.n_consumed = 0
         self.prev_eos_probs = []
+        if self.use_point_probs:
+            self.max_eos_prob = self._get_max_eos_prob()
     
     def consume(self, word):
         """Increases the current history length
@@ -176,31 +201,121 @@ class NBLengthPredictor(Predictor):
     def reset(self):
         """Empty method. """
         pass
-
+    
+    def is_equal(self, state1, state2):
+        """Returns true if the number of consumed words is the same """
+        n1,_ = state1
+        n2,_ = state2
+        return n1 == n2
 
 
 class WordCountPredictor(Predictor):
-    """This predictor adds the number of words as feature """
+    """This predictor adds the number of words as feature. """
     
-    def __init__(self):
+    def __init__(self, word = -1):
+        """Creates a new word count predictor instance.
+        
+        Args:
+            word (int): If this is non-negative we count only the
+                        number of the specified word. If its
+                        negative, count all words
+        """
         super(WordCountPredictor, self).__init__()
+        if word < 0:
+            self.posterior = {utils.EOS_ID : 0.0}
+            self.unk_prob = 1.0
+        else:
+            self.posterior = {word : 1.0}
+            self.unk_prob = 0.0 
         
     def get_unk_probability(self, posterior):
-        """Always returns 0 (= log 1) """
-        return 0.0
+        return self.unk_prob
     
     def predict_next(self):
         """Set score for EOS to the number of consumed words """
-        return {utils.EOS_ID : self.n_consumed}
+        return self.posterior
     
     def initialize(self, src_sentence):
-        """Resets the internal counter for consumed words.
+        """Empty
+        """
+        pass
+    
+    def consume(self, word):
+        """Empty
+        """
+        pass
+    
+    def get_state(self):
+        """Returns true """
+        return True
+    
+    def set_state(self, state):
+        """Empty """
+        pass
+
+    def reset(self):
+        """Empty method. """
+        pass
+    
+    def is_equal(self, state1, state2):
+        """Returns true """
+        return True
+
+
+class ExternalLengthPredictor(Predictor):
+    """This predictor loads the distribution over target sentence
+    lengths from an external file. The file contains blank separated
+    length:score pairs in each line which define the length 
+    distribution. The predictor adds the specified scores directly
+    to the EOS score.
+    """
+    
+    def __init__(self, path):
+        """Creates a external length distribution predictor.
         
         Args:
-            src_sentence (list): Not used
+            path (string): Path to the file with target sentence length
+                           distributions.
         """
-        self.n_consumed = 0
+        super(ExternalLengthPredictor, self).__init__()
+        self.trg_lengths = []
+        with open(path) as f:
+            for line in f:
+                scores = {}
+                for pair in line.strip().split():
+                    length,score = pair.split(':')
+                    scores[int(length)] = float(score)
+                self.trg_lengths.append(scores)
+        
+    def get_unk_probability(self, posterior):
+        """Returns 0=log 1 if the partial hypothesis does not exceed
+        max length. Otherwise, predict next returns an empty set,
+        and we set everything else to -inf.
+        """
+        if self.n_consumed < self.max_length:
+            return 0.0
+        return NEG_INF
     
+    def predict_next(self):
+        """Returns a dictionary with one entry and value 0 (=log 1). The
+        key is either the next word in the target sentence or (if the
+        target sentence has no more words) the end-of-sentence symbol.
+        """
+        if self.n_consumed in self.cur_scores: 
+            return {utils.EOS_ID : self.cur_scores[self.n_consumed]}
+        return {utils.EOS_ID : NEG_INF} 
+    
+    def initialize(self, src_sentence):
+        """Fetches the corresponding target sentence length 
+        distribution and resets the word counter.
+        
+        Args:
+            src_sentence (list):  Not used
+        """
+        self.cur_scores = self.trg_lengths[self.current_sen_id]
+        self.max_length = max(self.cur_scores)
+        self.n_consumed = 0
+
     def consume(self, word):
         """Increases word counter by one.
         
@@ -220,3 +335,8 @@ class WordCountPredictor(Predictor):
     def reset(self):
         """Empty method. """
         pass
+    
+    def is_equal(self, state1, state2):
+        """Returns true if the number of consumed words is the same """
+        return state1 == state2
+    

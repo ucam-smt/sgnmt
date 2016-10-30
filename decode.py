@@ -1,2 +1,2 @@
-"""Redirect to ``cam.sgnmt.blocks.decode`` """
-import cam.sgnmt.blocks.decode
+"""Redirect to ``cam.sgnmt.decode`` """
+import cam.sgnmt.decode

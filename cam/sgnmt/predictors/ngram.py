@@ -8,11 +8,12 @@ This module is based on the swig-srilm package.
 https://github.com/desilinguist/swig-srilm
 """
 
-from cam.sgnmt.decoding.core import UnboundedVocabularyPredictor
+from cam.sgnmt.predictors.core import UnboundedVocabularyPredictor
 from cam.sgnmt import utils
 
 try:
-    from srilm import readLM, initLM, getNgramProb # requires swig-srilm
+    # Requires swig-srilm
+    from srilm import readLM, initLM, getNgramProb, getIndexForWord, howManyNgrams
 except ImportError:
     pass # Deal with it in decode.py
 
@@ -40,6 +41,7 @@ class SRILMPredictor(UnboundedVocabularyPredictor):
         self.history_len = ngram_order-1
         self.lm = initLM(ngram_order)
         readLM(self.lm, path)
+        self.vocab_size = howManyNgrams(self.lm, 1)
     
     def initialize(self, src_sentence):
         """Initializes the history with the start-of-sentence symbol.
@@ -91,4 +93,11 @@ class SRILMPredictor(UnboundedVocabularyPredictor):
     def reset(self):
         """Resets the current history to <S> """
         self.history = ['<s>'] if self.history_len > 0 else []
-        
+
+    def _replace_unks(self, hist):
+        return ['<unk>' if getIndexForWord(w) > self.vocab_size else w for w in hist]
+    
+    def is_equal(self, state1, state2):
+        """Returns true if the ngram history is the same"""
+        return self._replace_unks(state1) == self._replace_unks(state2)
+    

@@ -4,13 +4,13 @@ mathematical functions, and helper functions to deal with the small
 quirks python sometimes has.
 """
 
-from scipy.misc import logsumexp
+from abc import abstractmethod
 import numpy
 import operator
+from scipy.misc import logsumexp
+
 
 # Reserved IDs
-
-
 PAD_ID = None
 """ Reserved word ID for padding. Relict from the TensorFlow 
 implementation. """
@@ -30,6 +30,12 @@ UNK_ID = 0
 
 NOTAPPLICABLE_ID = 3
 """ Reserved word ID which is currently not used. """
+
+
+NEG_INF = float("-inf")
+
+
+INF = float("inf")
 
 
 def switch_to_old_indexing():
@@ -73,6 +79,9 @@ def log_sum_log_semiring(vals):
 log_sum = log_sum_log_semiring
 """Defines which log summation function to use. """
 
+
+def oov_to_unk(seq, vocab_size, unk_idx=UNK_ID):
+    return [x if x < vocab_size else unk_idx for x in seq]
 
 # Maximum functions
 
@@ -171,53 +180,85 @@ def common_contains(obj, key):
         return key < len(obj)
 
 
-# Basic Trie implementation
+# Miscellaneous
 
 
-class SimpleNode:
-    """Helper class representing a node in a ``SimpleTrie`` """
-    def __init__(self):
-        """Creates an empty node without children. """
-        self.edges = {} # outgoing edges with terminal symbols
-        self.element = None # Elements stored at this node
+def get_path(tmpl, sub = 1):
+    """Replaces the %d placeholder in ``tmpl`` with ``sub``. If ``tmpl``
+    does not contain %d, return ``tmpl`` unmodified.
+    
+    Args:
+        tmpl (string): Path, potentially with %d placeholder
+        sub (int): Substitution for %d
+    
+    Return:
+        string. ``tmpl`` with %d replaced with ``sub`` if present
+    """
+    if "%d" in tmpl:
+        return tmpl % sub
+    return tmpl
 
 
-class SimpleTrie:
-    """This is a very simple Trie implementation. It is simpler than 
-    the one in ``cam.sgnmt.predictors.grammar`` because it does not 
-    support non-terminals or removal. The only supported operations are
-    ``add`` and ``get``, but those are implemented very efficiently. 
-    For many applications (e.g. the cache in the greedy heuristic) this
-    is already enough.
+MESSAGE_TYPE_DEFAULT = 1
+"""Default message type for observer messages """
+
+
+MESSAGE_TYPE_POSTERIOR = 2
+"""This message is sent by the decoder after ``apply_predictors`` was
+called. The message includes the new posterior distribution and the
+score breakdown. 
+"""
+
+
+MESSAGE_TYPE_FULL_HYPO = 3
+"""This message type is used by the decoder when a new complete 
+hypothesis was found. Note that this is not necessarily the best hypo
+so far, it is just the latest hypo found which ends with EOS.
+"""
+
+
+class Observer(object):
+    """Super class for classes which observe (GoF design patten) other
+    classes.
     """
     
-    def __init__(self):
-        """Creates an empty Trie data structure. """
-        self.root = SimpleNode()
-    
-    def _get_node(self, seq):
-        """Get the ```SimpleNode``` for the given sequence ``seq``. If
-        the path for ``seq`` does not exist yet in the Trie, add it and
-        return a reference to the newly created node. """
-        cur_node = self.root
-        for token_id in seq:
-            children = cur_node.edges
-            if not token_id in children:
-                children[token_id] = SimpleNode()
-            cur_node = children[token_id]
-        return cur_node
-    
-    def add(self, seq, element):
-        """Add an element to the Trie for the key ``seq``. If ``seq`` 
-        already exists, override.
+    @abstractmethod
+    def notify(self, message, message_type = MESSAGE_TYPE_DEFAULT):
+        """Get a notification from an observed object.
         
         Args:
-            seq (list): Key
-            element (object): The object to store for key ``seq``
+            message (object): the message sent by observed object
+            message_type (int): The type of the message. One of the
+                                ``MESSAGE_TYPE_*`` variables
         """
-        self._get_node(seq).element = element
+        raise NotImplementedError
+    
+
+class Observable(object):
+    """For the GoF design pattern observer """
+    
+    def __init__(self):
+        """Initializes the list of observers with an empty list """
+        self.observers = []
+    
+    def add_observer(self, observer):
+        """Add a new observer which is notified when this class fires
+        a notification
         
-    def get(self, seq):
-        """Retrieve the element for a key ``seq``. If the key does not
-        exist, return ``None``. """
-        return self._get_node(seq).element
+        Args:
+            observer (Observer): the observer class to add
+        """
+        self.observers.append(observer)
+    
+    def notify_observers(self, message, message_type = MESSAGE_TYPE_DEFAULT):
+        """Sends the given message to all registered observers.
+        
+        Args:
+            message (object): The message to send
+            message_type (int): The type of the message. One of the
+                                ``MESSAGE_TYPE_*`` variables
+        """
+        for observer in self.observers:
+            observer.notify(message, message_type)
+    
+    

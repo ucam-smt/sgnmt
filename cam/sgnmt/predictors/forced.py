@@ -4,12 +4,11 @@ multiple references in form of a n-best list (forcedlst
 ``ForcedLstPredictor``). 
 """
 
-from cam.sgnmt.decoding.core import Predictor
-from cam.sgnmt import utils
 import logging
 
-
-NEG_INF = float("-inf")
+from cam.sgnmt import utils
+from cam.sgnmt.predictors.core import Predictor
+from cam.sgnmt.utils import NEG_INF
 
 
 class ForcedPredictor(Predictor):
@@ -89,6 +88,12 @@ class ForcedPredictor(Predictor):
     def reset(self):
         """Empty method. """
         pass
+
+    def is_equal(self, state1, state2):
+        """Returns true if the state is the same """
+        n1,s1 = state1
+        n2,s2 = state2
+        return n1 == n2 and s1 == s2
 
 
 class ForcedLstPredictor(Predictor):
@@ -217,3 +222,9 @@ class ForcedLstPredictor(Predictor):
     def reset(self):
         """Empty method. """
         pass
+    
+    def is_equal(self, state1, state2):
+        """Returns true if the history is the same """
+        return state1 == state2
+
+

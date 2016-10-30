@@ -7,7 +7,7 @@ http://www.openfst.org/twiki/bin/view/FST/PythonExtension
 
 This file includes the fst, nfst, and rtn predictors.
 
-Note: If we ise arc weights in FSTs, we multiply them by -1 as 
+Note: If we use arc weights in FSTs, we multiply them by -1 as 
 everything in SGNMT is logprob, not -logprob as in FSTs log 
 or tropical semirings. You can disable this behavior with --fst_to_log
 
@@ -21,12 +21,11 @@ import glob
 import logging
 import os
 import sys
-import copy
 from subprocess import call
 from shutil import copyfile
 
 from cam.sgnmt import utils
-from cam.sgnmt.decoding.core import Predictor
+from cam.sgnmt.predictors.core import Predictor
 
 
 EPS_ID = 0
@@ -81,7 +80,7 @@ class FstPredictor(Predictor):
                  fst_path,
                  use_weights,
                  normalize_scores,
-                 add_bos_to_eos_score = False,
+                 skip_bos_weight = True,
                  to_log = True):
         """Creates a new fst predictor.
         
@@ -92,12 +91,12 @@ class FstPredictor(Predictor):
             normalize_scores (bool): If true, we normalize the weights
                                      on all outgoing arcs such that
                                      they sum up to 1
-            add_bos_to_eos_score (bool): Add the score at the <S> arc
-                                         to the </S> arc. This results
-                                         in scores consistent with 
-                                         OpenFST's replace operation,
-                                         as <S> scores are normally
-                                         ignored by SGNMT.
+            skip_bos_weight (bool): Add the score at the <S> arc to the
+                                    </S> arc if this is false. This results
+                                    in scores consistent with 
+                                    OpenFST's replace operation,
+                                    as <S> scores are normally
+                                    ignored by SGNMT.
             to_log (bool): SGNMT uses normal log probs (scores) while
                            arc weights in FSTs normally have cost (i.e.
                            neg. log values) semantics. Therefore, if
@@ -109,7 +108,7 @@ class FstPredictor(Predictor):
         self.use_weights = use_weights
         self.normalize_scores = normalize_scores
         self.cur_fst = None
-        self.add_bos_to_eos_score = add_bos_to_eos_score
+        self.add_bos_to_eos_score = not skip_bos_weight
         self.cur_node = -1
         
     def get_unk_probability(self, posterior):
@@ -147,11 +146,17 @@ class FstPredictor(Predictor):
         Args:
             src_sentence (list):  Not used
         """
-        self.cur_fst = load_fst(self.fst_path % (self.current_sen_id+1))
+        self.cur_fst = load_fst(utils.get_path(self.fst_path,
+                                               self.current_sen_id+1))
         self.cur_node = self.cur_fst.start if self.cur_fst else None
         self.bos_score = self.consume(utils.GO_ID)
         if not self.bos_score: # Override None
             self.bos_score = 0.0
+        if self.cur_node is None:
+            logging.warn("The lattice for sentence %d does not contain any "
+                         "valid path. Please double-check that the lattice "
+                         "is not empty and that paths start with the begin-of-"
+                         "sentence symbol." % (self.current_sen_id+1))
     
     def consume(self, word):
         """Updates the current node by following the arc labelled with
@@ -202,6 +207,10 @@ class FstPredictor(Predictor):
             if arc.olabel == last_word:
                 return w2f(self.distances[arc.nextstate])
         return 0.0
+    
+    def is_equal(self, state1, state2):
+        """Returns true if the current node is the same """
+        return state1 == state2
 
 
 class NondeterministicFstPredictor(Predictor):
@@ -211,7 +220,12 @@ class NondeterministicFstPredictor(Predictor):
     the start node through the current history.
     """
     
-    def __init__(self, fst_path, use_weights, normalize_scores, to_log = True):
+    def __init__(self, 
+                 fst_path, 
+                 use_weights, 
+                 normalize_scores, 
+                 skip_bos_weight = True, 
+                 to_log = True):
         """Creates a new nfst predictor.
         
         Args:
@@ -221,6 +235,8 @@ class NondeterministicFstPredictor(Predictor):
             normalize_scores (bool): If true, we normalize the weights
                                      on all outgoing arcs such that
                                      they sum up to 1
+            skip_bos_weight (bool): If true, set weights on <S> arcs
+                                    to 0 (= log1)
             to_log (bool): SGNMT uses normal log probs (scores) while
                            arc weights in FSTs normally have cost (i.e.
                            neg. log values) semantics. Therefore, if
@@ -229,7 +245,9 @@ class NondeterministicFstPredictor(Predictor):
         super(NondeterministicFstPredictor, self).__init__()
         self.fst_path = fst_path
         self.weight_factor = -1.0 if to_log else 1.0
+        self.score_max_func = max if to_log else min
         self.use_weights = use_weights
+        self.skip_bos_weight = skip_bos_weight
         self.normalize_scores = normalize_scores
         self.cur_fst = None
         self.cur_nodes = []
@@ -257,15 +275,16 @@ class NondeterministicFstPredictor(Predictor):
             together with their scores, or an empty set if we currently
             have no active nodes or fst.
         """
-        scorelst = {}
+        scores = {}
         for weight,node in self.cur_nodes:
             for arc in self.cur_fst.arcs(node): 
                 if arc.olabel != EPS_ID:
-                    scorelst[arc.olabel] = scorelst.get(arc.olabel, []) + [
-                                        weight
-                                        + self.weight_factor*w2f(arc.weight)] 
-        scores = {word: utils.log_sum(weights) 
-                    for word,weights in scorelst.iteritems()}
+                    score = weight + self.weight_factor*w2f(arc.weight) 
+                    if arc.olabel in scores:
+                        scores[arc.olabel] = self.score_max_func(
+                                        scores[arc.olabel], score)
+                    else:
+                        scores[arc.olabel] = score 
         return self.finalize_posterior(scores,
                 self.use_weights, self.normalize_scores)
     
@@ -276,9 +295,17 @@ class NondeterministicFstPredictor(Predictor):
         Args:
             src_sentence (list):  Not used
         """
-        self.cur_fst = load_fst(self.fst_path % (self.current_sen_id+1))
-        self.cur_nodes = [(0.0, self.cur_fst.start)] if self.cur_fst else []
+        self.cur_fst = load_fst(utils.get_path(self.fst_path,
+                                               self.current_sen_id+1))
+        self.cur_nodes = []
+        if self.cur_fst:
+            self.cur_nodes = self._follow_eps({self.cur_fst.start: 0.0})
         self.consume(utils.GO_ID)
+        if not self.cur_nodes:
+            logging.warn("The lattice for sentence %d does not contain any "
+                         "valid path. Please double-check that the lattice "
+                         "is not empty and that paths start with the begin-of-"
+                         "sentence symbol." % (self.current_sen_id+1))
     
     def consume(self, word):
         """Updates the current nodes by searching for all nodes which
@@ -291,29 +318,52 @@ class NondeterministicFstPredictor(Predictor):
         Args:
             word (int): Word on an outgoing arc from the current node
         """
-        # Add all epsilon reachable states
-        d = {}
+        d_unconsumed = {}
         # Collect distances to nodes reachable by word
         for weight,node in self.cur_nodes:
             for arc in self.cur_fst.arcs(node):
                 if arc.olabel == word:
-                    d[arc.nextstate] = d.get(arc.nextstate, []) + [
-                                        weight
-                                        + self.weight_factor*w2f(arc.weight)]
+                    next_node = arc.nextstate
+                    next_score = weight + self.weight_factor*w2f(arc.weight)
+                    if d_unconsumed.get(next_node, NEG_INF) < next_score:
+                        d_unconsumed[next_node] = next_score
+        # Subtract the word score from the last predict_next 
+        consumed_score = self.score_max_func(d_unconsumed.itervalues()) \
+             if (word != utils.GO_ID or self.skip_bos_weight) else 0.0
         # Add epsilon reachable states
-        prev_d = {}
-        while len(prev_d) != len(d):
-            prev_d = copy.copy(d)
-            for node,weights in prev_d.iteritems():
-                for arc in self.cur_fst.arcs(node):
-                    weight = utils.log_sum(weights)
-                    if arc.olabel == EPS_ID:
-                        d[arc.nextstate] = d.get(arc.nextstate, []) + [
-                                        weight
-                                        + self.weight_factor*w2f(arc.weight)]
-        self.cur_nodes = [(utils.log_sum(weights), n) 
-                            for n,weights in d.iteritems()]
+        self.cur_nodes = self._follow_eps({node: score - consumed_score
+                    for node,score in d_unconsumed.iteritems()})
     
+    def _follow_eps(self, roots):
+        """BFS to find nodes reachable from root through eps arcs. This
+        traversal strategy is efficient if the triangle inquality holds 
+        for weights in the graphs, i.e. for all vertices v1,v2,v3: 
+        (v1,v2),(v2,v3),(v1,v3) in E => d(v1,v2)+d(v2,v3) >= d(v1,v3).
+        The method still returns the correct results if the triangle
+        inequality does not hold, but edges may be traversed multiple
+        times which makes it more inefficient.
+        """
+        open_nodes = dict(roots)
+        d = {}
+        visited = dict(roots)
+        while open_nodes:
+            next_open = {}
+            for node,score in open_nodes.iteritems():
+                has_noneps = False
+                for arc in self.cur_fst.arcs(node):
+                    if arc.olabel == EPS_ID:
+                        next_node = arc.nextstate
+                        next_score = score + self.weight_factor*w2f(arc.weight)
+                        if visited.get(next_node, NEG_INF) < next_score:
+                            visited[next_node] = next_score
+                            next_open[next_node] = next_score
+                    else:
+                        has_noneps = True
+                if has_noneps:
+                    d[node] = score
+            open_nodes = next_open
+        return [(weight, node) for node, weight in d.iteritems()]
+        
     def get_state(self):
         """Returns the set of current nodes """
         return self.cur_nodes
@@ -342,6 +392,10 @@ class NondeterministicFstPredictor(Predictor):
                     dists.append(w2f(self.distances[arc.nextstate]))
                     break
         return 0.0 if not dists else min(dists)
+    
+    def is_equal(self, state1, state2):
+        """Returns true if the current nodes are the same """
+        return sorted([n for _,n in state1]) == sorted([n for _,n in state2])
 
 
 class RtnPredictor(Predictor):

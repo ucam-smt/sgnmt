@@ -4,9 +4,15 @@ in the ``core`` module.
 """
 
 import copy
+import logging
+
 from cam.sgnmt import utils
 from cam.sgnmt.decoding.core import Heuristic, Decoder
-from cam.sgnmt.decoding.decoder import GreedyDecoder
+from cam.sgnmt.decoding.greedy import GreedyDecoder
+from cam.sgnmt.misc.trie import SimpleTrie
+from cam.sgnmt.misc.unigram import FileUnigramTable, BestStatsUnigramTable, \
+    FullStatsUnigramTable, AllStatsUnigramTable
+from cam.sgnmt.utils import MESSAGE_TYPE_DEFAULT
 
 
 class PredictorHeuristic(Heuristic):
@@ -26,6 +32,13 @@ class PredictorHeuristic(Heuristic):
         """Calls ``initialize_heuristic()`` on all predictors. """
         for (pred, _) in self.predictors:
             pred.initialize_heuristic(src_sentence)
+    
+    def notify(self, message, message_type = MESSAGE_TYPE_DEFAULT):
+        """This heuristic passes through notifications to the 
+        predictors.
+        """
+        for (pred, _) in self.predictors:
+            pred.notify(message, message_type)
 
 
 class ScorePerWordHeuristic(Heuristic):
@@ -57,7 +70,7 @@ class GreedyHeuristic(Heuristic):
     estimates. This is expensive but can lead to very close estimates.
     """
     
-    def __init__(self, closed_vocab_norm, cache_estimates = True):
+    def __init__(self, closed_vocab_norm, max_len_factor, cache_estimates = True):
         """Creates a new ``GreedyHeuristic`` instance. The greedy 
         heuristic performs full greedy decoding from the current
         state to get accurate cost estimates. However, this can be very
@@ -75,8 +88,8 @@ class GreedyHeuristic(Heuristic):
         """
         super(GreedyHeuristic, self).__init__()
         self.cache_estimates = cache_estimates
-        self.decoder = GreedyDecoder(closed_vocab_norm)
-        self.cache = utils.SimpleTrie()
+        self.decoder = GreedyDecoder(closed_vocab_norm, max_len_factor)
+        self.cache = SimpleTrie()
         
     def set_predictors(self, predictors):
         """Override ``Decoder.set_predictors`` to redirect the 
@@ -87,7 +100,7 @@ class GreedyHeuristic(Heuristic):
     
     def initialize(self, src_sentence):
         """Initialize the cache. """
-        self.cache = utils.SimpleTrie()
+        self.cache = SimpleTrie()
     
     def estimate_future_cost(self, hypo):
         """Estimate the future cost by full greedy decoding. If
@@ -137,3 +150,58 @@ class GreedyHeuristic(Heuristic):
         # Reset predictor states
         self.decoder.set_predictor_states(old_states)
         return -score
+
+
+class StatsHeuristic(Heuristic):
+    """This heuristic is based on the sum of unigram costs of consumed 
+    words. Unigram statistics are collected via a ``UnigramTable``.
+    """
+    
+    def __init__(self, heuristic_scores_file="", collect_stats_strategy='best'):
+        """Creates a new ``StatsHeuristic`` instance. The constructor
+        initializes the unigram table.
+        
+        Args:
+            heuristic_scores_file (string): Path to the unigram scores 
+                                            which are used if this 
+                                            predictor estimates future
+                                            costs
+            collect_stats_strategy (string): best, full, or all. Defines 
+                                             how unigram estimates are 
+                                             collected for heuristic
+        """
+        super(StatsHeuristic, self).__init__()
+        if heuristic_scores_file:
+            self.estimates = FileUnigramTable(heuristic_scores_file)
+        elif collect_stats_strategy == 'best':
+            self.estimates = BestStatsUnigramTable()
+        elif collect_stats_strategy == 'full':
+            self.estimates = FullStatsUnigramTable()
+        elif collect_stats_strategy == 'all':
+            self.estimates = AllStatsUnigramTable()
+        else:
+            logging.error("Unknown statistics collection strategy")
+    
+    def initialize(self, src_sentence):
+        """Calls ``reset`` to reset collected statistics from previous
+        sentences
+        
+        Args:
+            src_sentence (list): Not used
+        """
+        self.estimates.reset()
+    
+    def notify(self, message, message_type = MESSAGE_TYPE_DEFAULT):
+        """Passing through to the unigram table ``self.estimates``.
+        """
+        self.estimates.notify(message, message_type)
+    
+    def estimate_future_cost(self, hypo):
+        """Returns the sum of heuristic unigram estimates of the words
+        in the translation prefix of ``hypo``. Combined with the hypo
+        score, this leads to using the ratio between actual hypo score 
+        and an idealistic score (product of unigrams) to discriminate
+        partial hypotheses.
+        """
+        return sum([self.estimates.estimate(w, -1000.0)
+                            for w in hypo.trgt_sentence])

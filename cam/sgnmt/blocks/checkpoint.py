@@ -1,3 +1,7 @@
+"""This file is taken from the ``machine_translation`` example in 
+Blocks and handles storing and loading NMT models and iteration states
+during training. Note that this module is not used during decoding.
+"""
 
 import logging
 import numpy
@@ -39,7 +43,8 @@ class SaveLoadUtils(object):
             param_values = {}
             for name, value in source.items():
                 if name != 'pkl':
-                    # fs439: always use '-' to avoid issues with incompatible blocks versions
+                    # fs439: always use '-' to avoid issues with incompatible
+                    # blocks versions
                     #name_ = name.replace(BRICK_DELIMITER, '/')
                     name_ = name.replace('-', '/')
                     if not name_.startswith('/'):
@@ -60,20 +65,28 @@ class CheckpointNMT(SimpleExtension, SaveLoadUtils):
 
     """
 
-    def __init__(self, saveto, **kwargs):
+    def __init__(self, saveto, slim_iteration_state, **kwargs):
         self.folder = saveto
+        self.slim_iteration_state = slim_iteration_state
         kwargs.setdefault("after_training", True)
         super(CheckpointNMT, self).__init__(**kwargs)
 
     def dump_parameters(self, main_loop):
+        logger.info(" ...saving parameters")
         params_to_save = main_loop.model.get_parameter_values()
         self.save_parameter_values(params_to_save,
                                    self.path_to_parameters)
 
     def dump_iteration_state(self, main_loop):
-        secure_dump(main_loop.iteration_state, self.path_to_iteration_state)
+        if self.slim_iteration_state:
+            logger.info(" ...saving iteration state (slim)")
+            secure_dump(main_loop.epoch_iterator, self.path_to_iteration_state)
+        else:
+            logger.info(" ...saving iteration state (full)")
+            secure_dump(main_loop.iteration_state, self.path_to_iteration_state)
 
     def dump_log(self, main_loop):
+        logger.info(" ...saving log")
         secure_dump(main_loop.log, self.path_to_log, cPickle.dump)
 
     def dump(self, main_loop):
@@ -82,11 +95,8 @@ class CheckpointNMT(SimpleExtension, SaveLoadUtils):
         print("")
         logger.info(" Saving model")
         start = time.time()
-        logger.info(" ...saving parameters")
         self.dump_parameters(main_loop)
-        logger.info(" ...saving iteration state")
         self.dump_iteration_state(main_loop)
-        logger.info(" ...saving log")
         self.dump_log(main_loop)
         logger.info(" Model saved, took {} seconds.".format(time.time()-start))
 
@@ -105,8 +115,14 @@ class CheckpointNMT(SimpleExtension, SaveLoadUtils):
 class LoadNMT(TrainingExtension, SaveLoadUtils):
     """Loads parameters log and iterations state."""
 
-    def __init__(self, saveto, **kwargs):
+    def __init__(self,
+                 saveto, 
+                 slim_iteration_state, 
+                 reset_epoch = False, 
+                 **kwargs):
         self.folder = saveto
+        self.slim_iteration_state = slim_iteration_state
+        self.reset_epoch = reset_epoch
         super(LoadNMT, self).__init__(saveto, **kwargs)
 
     def before_training(self):
@@ -118,6 +134,9 @@ class LoadNMT(TrainingExtension, SaveLoadUtils):
         try:
             self.load_to(self.main_loop)
             self.main_loop.log.current_row[LOADED_FROM] = self.path_to_folder
+            if self.reset_epoch:
+                logger.info("Reset epoch...")
+                self.main_loop.status['epoch_started'] = False
         except Exception:
             reraise_as("Failed to load the state")
 
@@ -163,7 +182,21 @@ class LoadNMT(TrainingExtension, SaveLoadUtils):
 
         try:
             logger.info(" Loading iteration state...")
-            main_loop.iteration_state = self.load_iteration_state()
+            iter_state = self.load_iteration_state()
+            if self.slim_iteration_state:
+                try:
+                    main_loop.epoch_iterator = iter_state
+                except:
+                    logger.warn("Stored iteration state not slim. "
+                                "Trying to load as full state")
+                    main_loop.iteration_state = iter_state
+            else:
+                try:
+                    main_loop.iteration_state = iter_state
+                except:
+                    logger.warn("Stored iteration state not full. "
+                                "Trying to load as slim state")
+                    main_loop.epoch_iterator = iter_state
         except Exception as e:
             logger.error(" Error {0}".format(str(e)))
 

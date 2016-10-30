@@ -19,11 +19,8 @@ c) allow spurious ambiguity
 ATTENTION: This implementation is experimental!!
 """
 
-from cam.sgnmt.decoding.core import Predictor
+from cam.sgnmt.predictors.core import Predictor
 from cam.sgnmt import utils
-#from lrhiero import settings
-#from lrhiero.phraseTable import PhraseTable
-#from lrhiero.lattice import Lattice
 import logging
 import re
 import gzip

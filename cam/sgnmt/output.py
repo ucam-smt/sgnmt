@@ -16,6 +16,7 @@ import os
 import errno
 import logging
 from cam.sgnmt import utils
+import numpy as np
 
 
 class OutputHandler(object):
@@ -267,3 +268,118 @@ class StandardFSTOutputHandler(OutputHandler):
             c.write("1\n")
             f = c.compile()
             f.write(self.file_pattern % fst_idx)
+
+
+class AlignmentOutputHandler(object):
+    """Interface for output handlers for alignments. """
+    
+    def __init__(self):
+        """ Empty constructor """
+        pass
+    
+    @abstractmethod
+    def write_alignments(self, alignments):
+        """This method writes output files to the file system. The
+        configuration parameters such as output paths should already
+        have been provided via constructor arguments.
+        
+        Args:
+            alignments (list): list of alignment matrices
+        
+        Raises:
+            IOError. If something goes wrong while writing to the disk
+        """
+        raise NotImplementedError
+
+
+class CSVAlignmentOutputHandler(AlignmentOutputHandler):
+    """Creates a directory with CSV files which store the alignment
+    matrices.
+    """
+    
+    def __init__(self, path):
+        self.path = path
+        self.file_pattern = path + "/%d.csv"
+    
+    def write_alignments(self, alignments):
+        """Writes CSV files for each alignment. 
+        
+        Args:
+            alignments (list): list of alignments
+        
+        Raises:
+            OSError. If the directory could not be created
+            IOError. If something goes wrong while writing to the disk
+        """
+        try:
+            os.makedirs(self.path)
+        except OSError as exception:
+            if exception.errno != errno.EEXIST:
+                raise
+            else:
+                logging.warn(
+                        "Output CSV directory %s already exists." % self.path)
+        idx = 1
+        for alignment in alignments:
+            np.savetxt(self.file_pattern % idx, alignment)
+            idx += 1
+
+
+class NPYAlignmentOutputHandler(AlignmentOutputHandler):
+    """Creates a directory with alignment matrices in numpy format npy
+    """
+    
+    def __init__(self, path):
+        self.path = path
+        self.file_pattern = path + "/%d.npy"
+    
+    def write_alignments(self, alignments):
+        """Writes NPY files for each alignment. 
+        
+        Args:
+            alignments (list): list of alignments
+        
+        Raises:
+            OSError. If the directory could not be created
+            IOError. If something goes wrong while writing to the disk
+        """
+        try:
+            os.makedirs(self.path)
+        except OSError as exception:
+            if exception.errno != errno.EEXIST:
+                raise
+            else:
+                logging.warn(
+                        "Output NPY directory %s already exists." % self.path)
+        idx = 1
+        for alignment in alignments:
+            np.save(self.file_pattern % idx, alignment)
+            idx += 1
+
+
+class TextAlignmentOutputHandler(AlignmentOutputHandler):
+    """Creates a single text alignment file (Pharaoh format).
+    """
+    
+    def __init__(self, path):
+        self.path = path
+    
+    def write_alignments(self, alignments):
+        """Writes an alignment file in standard text format. 
+        
+        Args:
+            alignments (list): list of alignments
+        
+        Raises:
+            IOError. If something goes wrong while writing to the disk
+        """
+        with open(self.path, "w") as f:
+            for alignment in alignments:
+                src_len,trg_len = alignment.shape
+                entries = []
+                for spos in xrange(src_len):
+                    for tpos in xrange(trg_len):
+                        entries.append("%d-%d:%f" % (spos,
+                                                     tpos,
+                                                     alignment[spos,tpos]))
+                f.write("%s\n" % ' '.join(entries))
