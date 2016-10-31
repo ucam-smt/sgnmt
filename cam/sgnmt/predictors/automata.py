@@ -1,6 +1,6 @@
 """This module encapsulates the predictor interface to OpenFST. This
 module depends on OpenFST. To enable Python support in OpenFST, use a 
-recent version (>=1.5.2) and compile with ``--enable_python``. 
+recent version (>=1.5.4) and compile with ``--enable_python``. 
 Further information can be found here:
 
 http://www.openfst.org/twiki/bin/view/FST/PythonExtension 
@@ -148,7 +148,7 @@ class FstPredictor(Predictor):
         """
         self.cur_fst = load_fst(utils.get_path(self.fst_path,
                                                self.current_sen_id+1))
-        self.cur_node = self.cur_fst.start if self.cur_fst else None
+        self.cur_node = self.cur_fst.start() if self.cur_fst else None
         self.bos_score = self.consume(utils.GO_ID)
         if not self.bos_score: # Override None
             self.bos_score = 0.0
@@ -299,7 +299,7 @@ class NondeterministicFstPredictor(Predictor):
                                                self.current_sen_id+1))
         self.cur_nodes = []
         if self.cur_fst:
-            self.cur_nodes = self._follow_eps({self.cur_fst.start: 0.0})
+            self.cur_nodes = self._follow_eps({self.cur_fst.start(): 0.0})
         self.consume(utils.GO_ID)
         if not self.cur_nodes:
             logging.warn("The lattice for sentence %d does not contain any "
@@ -519,7 +519,7 @@ class RtnPredictor(Predictor):
             self.cur_fst.arcsort(sort_type="olabel")
             self.add_to_label_fst_map_recursive(label_fst_map,
                                                 {},
-                                                self.cur_fst.start, 
+                                                self.cur_fst.start(), 
                                                 0.0,
                                                 self.cur_history, func)
             if label_fst_map:
