@@ -224,7 +224,7 @@ def add_predictors(decoder, nmt_config):
                 p = FstPredictor(_get_override_args("fst_path"),
                                  args.use_fst_weights,
                                  args.normalize_fst_weights,
-                                 skip_bos_weighte=args.fst_skip_bos_weight,
+                                 skip_bos_weight=args.fst_skip_bos_weight,
                                  to_log=args.fst_to_log)
             elif pred == "nfst":
                 p = NondeterministicFstPredictor(_get_override_args("fst_path"),
