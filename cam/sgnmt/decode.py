@@ -55,7 +55,7 @@ from cam.sgnmt.predictors.ffnnlm import NPLMPredictor
 from cam.sgnmt.predictors.forced import ForcedPredictor, ForcedLstPredictor
 from cam.sgnmt.predictors.grammar import RuleXtractPredictor
 from cam.sgnmt.predictors.length import WordCountPredictor, NBLengthPredictor, \
-    ExternalLengthPredictor
+    ExternalLengthPredictor, NgramCountPredictor
 from cam.sgnmt.predictors.misc import IdxmapPredictor, UnboundedIdxmapPredictor, \
     UnboundedAltsrcPredictor, AltsrcPredictor, Word2charPredictor
 from cam.sgnmt.predictors.misc import UnkCountPredictor
@@ -280,6 +280,8 @@ def add_predictors(decoder, nmt_config):
                 p = ChainerLstmPredictor(args.lstm_path)
             elif pred == "wc":
                 p = WordCountPredictor(args.wc_word)
+            elif pred == "ngramc":
+                p = NgramCountPredictor(args.ngramc_path)
             elif pred == "unkc":
                 p = UnkCountPredictor(
                          args.src_vocab_size, 

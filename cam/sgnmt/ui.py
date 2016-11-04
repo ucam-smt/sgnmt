@@ -522,6 +522,8 @@ def get_parser():
                         "        Options: wc_word.\n"
                         "* 'unkc': Poisson model for number of UNKs.\n"
                         "          Options: unk_count_lambdas.\n"
+                        "* 'ngramc': Number of ngram feature.\n"
+                        "            Options: ngramc_path.\n"
                         "* 'length': Target sentence length model\n"
                         "            Options: src_test_raw, "
                         "length_model_weights, use_length_point_probs\n"
@@ -666,6 +668,13 @@ def get_parser():
     group.add_argument("--wc_word", default=-1, type=int,
                        help="If negative, the wc predictor counts all "
                        "words. Otherwise, count only the specific word")
+    group.add_argument("--ngramc_path", default="ngramc/%d.txt",
+                        help="Only required for ngramc predictor. The ngramc "
+                        "predictor counts the number of ngrams and multiplies "
+                        "them with the factors defined in the files. The "
+                        "format is one ngram per line '<ngram> : <score>'. "
+                        "You can use the placeholder %%d for the sentence "
+                        "index.")
 
     # Forced predictors
     group = parser.add_argument_group('Forced decoding predictor options')

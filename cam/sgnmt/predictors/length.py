@@ -9,12 +9,13 @@ using a language model.
 
 import logging
 import math
+from scipy.misc import logsumexp
+from scipy.special import gammaln
 
+from cam.sgnmt import utils
+from cam.sgnmt.misc.trie import SimpleTrie
 from cam.sgnmt.predictors.core import Predictor
 import numpy as np
-from cam.sgnmt import utils
-from scipy.special import gammaln
-from scipy.misc import logsumexp
 
 
 NEG_INF = float("-inf")
@@ -338,5 +339,89 @@ class ExternalLengthPredictor(Predictor):
     
     def is_equal(self, state1, state2):
         """Returns true if the number of consumed words is the same """
+        return state1 == state2
+
+
+class NgramCountPredictor(Predictor):
+    """This predictor counts the number of n-grams in hypotheses. n-gram
+    posteriors are loaded from a file. The predictor score is the sum of
+    all n-gram posteriors in a hypothesis. """
+    
+    def __init__(self, path):
+        """Creates a new ngram count predictor instance.
+        
+        Args:
+            path (string): Path to the n-gram posteriors. File format:
+                           <ngram> : <score> (one ngram per line). Use
+                           placeholder %d for sentence id.
+        """
+        super(NgramCountPredictor, self).__init__()
+        self.path = path 
+        
+    def get_unk_probability(self, posterior):
+        """Always return 0.0 """
+        return 0.0
+    
+    def predict_next(self):
+        """Composes the posterior vector by collecting all ngrams which
+        are consistent with the current history.
+        """
+        posterior = {}
+        for i in reversed(range(len(self.cur_history)+1)):
+            scores = self.ngrams.get(self.cur_history[i:])
+            if scores:
+                posterior.update(scores)
+        return posterior
+    
+    def _load_posteriors(self, path):
+        """Sets up self.max_history_len and self.ngrams """
+        self.max_history_len = 0
+        self.ngrams = SimpleTrie()
+        with open(path) as f:
+            for line in f:
+                ngram,score = line.split(':')
+                words = [int(w) for w in ngram.strip().split()]
+                hist = words[:-1]
+                self.max_history_len = max(self.max_history_len, len(hist))
+                p = self.ngrams.get(hist)
+                if p:
+                    p[words[-1]] = float(score.strip())
+                else:
+                    self.ngrams.add(hist, {words[-1]: float(score.strip())})
+    
+    def initialize(self, src_sentence):
+        """Loads n-gram posteriors and resets history.
+        
+        Args:
+            src_sentence (list): not used
+        """
+        self._load_posteriors(utils.get_path(self.path, self.current_sen_id+1))
+        self.cur_history = []
+    
+    def consume(self, word):
+        """Adds ``word`` to the current history. Shorten if the extended
+        history exceeds ``max_history_len``.
+        
+        Args:
+            word (int): Word to add to the history.
+        """
+        self.history.append(word)
+        if len(self.history) > self.max_history_len:
+            self.history = self.history[-self.max_history_len:]
+    
+    def get_state(self):
+        """Current history is the predictor state """
+        return self.cur_history
+    
+    def set_state(self, state):
+        """Current history is the predictor state """
+        self.cur_history = state
+
+    def reset(self):
+        """Empty method. """
+        pass
+    
+    def is_equal(self, state1, state2):
+        """Returns if histories match """
         return state1 == state2
     
