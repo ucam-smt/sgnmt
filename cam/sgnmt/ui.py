@@ -270,6 +270,11 @@ def get_parser():
                         help="Activates hypothesis recombination. Has to be "
                         "supported by the decoder. Applicable to beam, "
                         "restarting, bow, bucket")
+    group.add_argument("--allow_unk_in_output", default=True, type='bool',
+                        help="If false, remove all UNKs in the final "
+                        "posteriors. Predictor distributions can still "
+                        "produce UNKs, but they have to be replaced by "
+                        "other words by other predictors")
     group.add_argument("--max_node_expansions", default=0, type=int,
                         help="This parameter allows to limit the total number "
                         "of search space expansions for a single sentence. "
@@ -523,7 +528,7 @@ def get_parser():
                         "* 'unkc': Poisson model for number of UNKs.\n"
                         "          Options: unk_count_lambdas.\n"
                         "* 'ngramc': Number of ngram feature.\n"
-                        "            Options: ngramc_path.\n"
+                        "            Options: ngramc_path, ngramc_order.\n"
                         "* 'length': Target sentence length model\n"
                         "            Options: src_test_raw, "
                         "length_model_weights, use_length_point_probs\n"
@@ -558,7 +563,7 @@ def get_parser():
                         "(empty string) means that each predictor gets "
                         "assigned the weight 1.")
     group.add_argument("--closed_vocabulary_normalization", default="none",
-                        choices=['none', 'exact', 'reduced'],
+                        choices=['none', 'exact', 'reduced', 'rescale_unk'],
                         help="This parameter specifies the way closed "
                         "vocabulary predictors (e.g. NMT) are normalized. "
                         "Closed vocabulary means that they have a predefined "
@@ -570,6 +575,9 @@ def get_parser():
                         "* 'exact': Renormalize scores depending on the "
                         "probability mass which they distribute to words "
                         "outside the vocabulary via the UNK probability.\n"
+                        "* 'rescale_unk': Rescale UNK probabilities and "
+                        "leave all other scores unmodified. Results in a "
+                        "distribution if predictor scores are stochastic.\n"
                         "* 'reduced': Normalize to vocabulary defined by the "
                         "open vocabulary predictors at each time step.")
     group.add_argument("--combination_scheme", default="sum",
@@ -675,6 +683,9 @@ def get_parser():
                         "format is one ngram per line '<ngram> : <score>'. "
                         "You can use the placeholder %%d for the sentence "
                         "index.")
+    group.add_argument("--ngramc_order", default=0, type=int,
+                       help="If positive, count only ngrams of the specified "
+                       "Order. Otherwise, count all ngrams")
 
     # Forced predictors
     group = parser.add_argument_group('Forced decoding predictor options')
@@ -852,6 +863,10 @@ def get_parser():
         group.add_argument("--forcedlst_sparse_feat%s" % n, default="",
                         help="Overrides --forcedlst_sparse_feat for the %s "
                         "forcedlst predictor" % w)
+        group.add_argument("--ngramc_path%s" % n, default="",
+                        help="Overrides --ngramc_path for the %s ngramc" % w)
+        group.add_argument("--ngramc_order%s" % n, default=0, type=int,
+                        help="Overrides --ngramc_order for the %s ngramc" % w)
     
     # Add NMT model options
     group = parser.add_argument_group('Neural model configuration')

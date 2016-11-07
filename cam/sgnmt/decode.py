@@ -32,7 +32,8 @@ from cam.sgnmt.decoding.bow import BOWDecoder
 from cam.sgnmt.decoding.bucket import BucketDecoder
 from cam.sgnmt.decoding.core import CLOSED_VOCAB_SCORE_NORM_NONE, \
                                    CLOSED_VOCAB_SCORE_NORM_EXACT, \
-                                   CLOSED_VOCAB_SCORE_NORM_REDUCED
+                                   CLOSED_VOCAB_SCORE_NORM_REDUCED, \
+                                   CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK
 from cam.sgnmt.decoding.core import UnboundedVocabularyPredictor
 from cam.sgnmt.decoding.dfs import DFSDecoder
 from cam.sgnmt.decoding.flip import FlipDecoder
@@ -281,7 +282,8 @@ def add_predictors(decoder, nmt_config):
             elif pred == "wc":
                 p = WordCountPredictor(args.wc_word)
             elif pred == "ngramc":
-                p = NgramCountPredictor(args.ngramc_path)
+                p = NgramCountPredictor(_get_override_args("ngramc_path"),
+                                        _get_override_args("ngramc_order"))
             elif pred == "unkc":
                 p = UnkCountPredictor(
                          args.src_vocab_size, 
@@ -379,6 +381,8 @@ def create_decoder(nmt_config):
         closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_EXACT
     elif args.closed_vocabulary_normalization == 'reduced':
         closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_REDUCED
+    elif args.closed_vocabulary_normalization == 'rescale_unk':
+        closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK
         
     # Create decoder instance and add predictors
     if args.decoder == "greedy":

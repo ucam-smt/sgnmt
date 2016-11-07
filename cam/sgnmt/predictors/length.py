@@ -347,16 +347,19 @@ class NgramCountPredictor(Predictor):
     posteriors are loaded from a file. The predictor score is the sum of
     all n-gram posteriors in a hypothesis. """
     
-    def __init__(self, path):
+    def __init__(self, path, order=0):
         """Creates a new ngram count predictor instance.
         
         Args:
             path (string): Path to the n-gram posteriors. File format:
                            <ngram> : <score> (one ngram per line). Use
                            placeholder %d for sentence id.
+            order (int): If positive, count n-grams of the specified
+                         order. Otherwise, count all n-grams
         """
         super(NgramCountPredictor, self).__init__()
         self.path = path 
+        self.order = order
         
     def get_unk_probability(self, posterior):
         """Always return 0.0 """
@@ -370,7 +373,8 @@ class NgramCountPredictor(Predictor):
         for i in reversed(range(len(self.cur_history)+1)):
             scores = self.ngrams.get(self.cur_history[i:])
             if scores:
-                posterior.update(scores)
+                for w,score in scores.iteritems():
+                    posterior[w] = posterior.get(w, 0.0) + score
         return posterior
     
     def _load_posteriors(self, path):
@@ -381,6 +385,8 @@ class NgramCountPredictor(Predictor):
             for line in f:
                 ngram,score = line.split(':')
                 words = [int(w) for w in ngram.strip().split()]
+                if self.order > 0 and len(words) != self.order:
+                    continue
                 hist = words[:-1]
                 self.max_history_len = max(self.max_history_len, len(hist))
                 p = self.ngrams.get(hist)
@@ -396,7 +402,7 @@ class NgramCountPredictor(Predictor):
             src_sentence (list): not used
         """
         self._load_posteriors(utils.get_path(self.path, self.current_sen_id+1))
-        self.cur_history = []
+        self.cur_history = [utils.GO_ID]
     
     def consume(self, word):
         """Adds ``word`` to the current history. Shorten if the extended
@@ -405,9 +411,9 @@ class NgramCountPredictor(Predictor):
         Args:
             word (int): Word to add to the history.
         """
-        self.history.append(word)
-        if len(self.history) > self.max_history_len:
-            self.history = self.history[-self.max_history_len:]
+        self.cur_history.append(word)
+        if len(self.cur_history) > self.max_history_len:
+            self.cur_history = self.cur_history[-self.max_history_len:]
     
     def get_state(self):
         """Current history is the predictor state """

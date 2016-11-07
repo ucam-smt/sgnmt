@@ -149,6 +149,11 @@ CLOSED_VOCAB_SCORE_NORM_REDUCED = 3
 vocabulary which is defined by the open vocabulary predictors at each
 time step. """
 
+CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK = 4
+"""Rescale UNK: Divide the UNK scores by the number of words outside the 
+vocabulary. Results in a valid distribution if predictor scores are
+stochastic. """
+
 
 class Heuristic(Observer):
     """A ``Heuristic`` instance can be used to estimate the future 
@@ -351,6 +356,7 @@ class Decoder(Observable):
         self.heuristics = []
         self.heuristic_predictors = []
         self.predictor_names = []
+        self.allow_unk_in_output = False
         self.nbest = 1 # length of n-best list
         self.combi_predictor_method = Decoder.combi_arithmetic_unnormalized
         self.combine_posteriors = self._combine_posteriors_norm_none
@@ -358,6 +364,8 @@ class Decoder(Observable):
             self.combine_posteriors = self._combine_posteriors_norm_exact
         elif closed_vocab_norm == CLOSED_VOCAB_SCORE_NORM_REDUCED:
             self.combine_posteriors = self._combine_posteriors_norm_reduced
+        elif closed_vocab_norm == CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK:
+            self.combine_posteriors = self._combine_posteriors_norm_rescale_unk
         self.current_sen_id = -1
         self.start_sen_id = 0
         self.apply_predictors_count = 0
@@ -491,6 +499,9 @@ class Decoder(Observable):
             posteriors.append(posterior)
             unk_probs.append(p.get_unk_probability(posterior))
         ret = self.combine_posteriors(non_zero_words, posteriors, unk_probs)
+        if not self.allow_unk_in_output and utils.UNK_ID in ret[0]:
+            del ret[0][utils.UNK_ID]
+            del ret[1][utils.UNK_ID]
         self.notify_observers(ret, message_type = MESSAGE_TYPE_POSTERIOR)
         return ret
     
@@ -522,6 +533,40 @@ class Decoder(Observable):
             combined[trgt_word] = self.combi_predictor_method(preds) 
             score_breakdown[trgt_word] = preds
         return combined, score_breakdown
+
+
+    def _combine_posteriors_norm_rescale_unk(self,
+                                             non_zero_words,
+                                             posteriors,
+                                             unk_probs):
+        """Combine predictor posteriors according the normalization
+        scheme ``CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK``. For more 
+        information on closed vocabulary predictor score normalization 
+        see the documentation on the ``CLOSED_VOCAB_SCORE_NORM_*`` vars.
+        
+        Args:
+            non_zero_words (set): All words with positive probability
+            posteriors: Predictor posterior distributions calculated
+                        with ``predict_next()``
+            unk_probs: UNK probabilities of the predictors, calculated
+                       with ``get_unk_probability``
+        
+        Returns:
+            combined,score_breakdown: like in ``apply_predictors()``
+        """
+        n_predictors = len(self.predictors)
+        unk_counts = [0.0] * n_predictors
+        for idx, (_,w) in enumerate(self.predictors):
+            if unk_probs[idx] >= -0.00001 or unk_probs[idx] == NEG_INF:
+                continue
+            for trgt_word in non_zero_words:
+                if not utils.common_contains(posteriors[idx], trgt_word):
+                    unk_counts[idx] += 1.0
+        return self._combine_posteriors_norm_none(
+                          non_zero_words,
+                          posteriors,
+                          [unk_probs[idx] - np.log(max(1.0, unk_counts[idx])) 
+                               for idx in xrange(n_predictors)])
     
     def _combine_posteriors_norm_exact(self,
                                        non_zero_words,
