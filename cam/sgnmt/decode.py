@@ -30,10 +30,6 @@ from cam.sgnmt.decoding.beam import BeamDecoder
 from cam.sgnmt.decoding.bigramgreedy import BigramGreedyDecoder
 from cam.sgnmt.decoding.bow import BOWDecoder
 from cam.sgnmt.decoding.bucket import BucketDecoder
-from cam.sgnmt.decoding.core import CLOSED_VOCAB_SCORE_NORM_NONE, \
-                                   CLOSED_VOCAB_SCORE_NORM_EXACT, \
-                                   CLOSED_VOCAB_SCORE_NORM_REDUCED, \
-                                   CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK
 from cam.sgnmt.decoding.core import UnboundedVocabularyPredictor
 from cam.sgnmt.decoding.dfs import DFSDecoder
 from cam.sgnmt.decoding.flip import FlipDecoder
@@ -283,7 +279,8 @@ def add_predictors(decoder, nmt_config):
                 p = WordCountPredictor(args.wc_word)
             elif pred == "ngramc":
                 p = NgramCountPredictor(_get_override_args("ngramc_path"),
-                                        _get_override_args("ngramc_order"))
+                                        _get_override_args("ngramc_order"),
+                                        args.ngramc_discount_factor)
             elif pred == "unkc":
                 p = UnkCountPredictor(
                          args.src_vocab_size, 

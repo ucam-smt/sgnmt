@@ -686,6 +686,9 @@ def get_parser():
     group.add_argument("--ngramc_order", default=0, type=int,
                        help="If positive, count only ngrams of the specified "
                        "Order. Otherwise, count all ngrams")
+    group.add_argument("--ngramc_discount_factor", default=-1.0, type=float,
+                       help="If this is non-negative, discount ngram counts "
+                       "by this factor each time the ngram is consumed")
 
     # Forced predictors
     group = parser.add_argument_group('Forced decoding predictor options')

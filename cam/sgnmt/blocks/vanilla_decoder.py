@@ -33,6 +33,8 @@ class BlocksNMTVanillaDecoder(Decoder):
         Args:
             nmt_model_path (string):  Path to the NMT model file (.npz)
             config (dict): NMT configuration
+            decoder_args (object): Decoder configuration passed through
+                                   from configuration API.
         """
         super(BlocksNMTVanillaDecoder, self).__init__(decoder_args)
         self.config = config
