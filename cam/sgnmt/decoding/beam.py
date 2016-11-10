@@ -12,8 +12,7 @@ class BeamDecoder(Decoder):
     """This decoder implements beam search without heuristics. """
     
     def __init__(self,
-                 closed_vocab_norm,
-                 max_len_factor,
+                 decoder_args,
                  hypo_recombination,
                  beam_size,
                  pure_heuristic_scores = False, 
@@ -22,13 +21,8 @@ class BeamDecoder(Decoder):
         """Creates a new beam decoder instance
         
         Args:
-            closed_vocab_norm (int): Defines the normalization behavior
-                                     for closed vocabulary predictor
-                                     scores. See the documentation to
-                                     the ``CLOSED_VOCAB_SCORE_NORM_*``
-                                     variables for more information
-            max_len_factor (int): Hypotheses are not longer than
-                                  source sentence length times this
+            decoder_args (object): Decoder configuration passed through
+                                   from the configuration API.
             hypo_recombination (bool): Activates hypo recombination 
             beam_size (int): Absolute beam size. A beam of 12 means
                              that we keep track of 12 active hypothesis
@@ -52,7 +46,7 @@ class BeamDecoder(Decoder):
                                    decoding result. If you want to 
                                    create full 12-best lists, disable
         """
-        super(BeamDecoder, self).__init__(closed_vocab_norm, max_len_factor)
+        super(BeamDecoder, self).__init__(decoder_args)
         self.diversity_factor = diversity_factor
         self.diverse_decoding = (diversity_factor > 0.0)
         if diversity_factor > 0.0:

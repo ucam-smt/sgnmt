@@ -18,21 +18,14 @@ class DFSDecoder(Decoder):
     """
     
     def __init__(self,
-                 closed_vocab_norm,
-                 max_len_factor,
+                 decoder_args,
                  early_stopping = True,
-                 lower_bounds_file = '',
                  max_expansions = 0):
         """Creates new DFS decoder instance.
         
         Args:
-            closed_vocab_norm (int): Defines the normalization behavior
-                                     for closed vocabulary predictor
-                                     scores. See the documentation to
-                                     the ``CLOSED_VOCAB_SCORE_NORM_*``
-                                     variables for more information
-            max_len_factor (int): Hypotheses are not longer than
-                                  source sentence length times this
+            decoder_args (object): Decoder configuration passed through
+                                   from the configuration API.
             early_stopping (bool): Enable safe (admissible) branch
                                    pruning if the accumulated score
                                    is already worse than the currently
@@ -41,9 +34,7 @@ class DFSDecoder(Decoder):
             max_expansions (int): Maximum number of node expansions for
                                   inadmissible pruning.
         """
-        super(DFSDecoder, self).__init__(closed_vocab_norm, 
-                                         max_len_factor,
-                                         lower_bounds_file)
+        super(DFSDecoder, self).__init__(decoder_args)
         self.early_stopping = early_stopping
         self.max_expansions_param = max_expansions
     

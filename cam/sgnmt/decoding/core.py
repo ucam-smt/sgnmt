@@ -328,19 +328,17 @@ class Decoder(Observable):
     are observing the decoder by default.
     """
     
-    def __init__(self,
-                 closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_NONE,
-                 max_len_factor = 2,
-                 lower_bounds_file = ''):
+    def __init__(self, decoder_args):
         """Initializes the decoder instance with no predictors or 
         heuristics.
         
         Args:
-            closed_vocab_norm (int): Defines the normalization behavior
-                                     for closed vocabulary predictor
-                                     scores. See the documentation to
-                                     the ``CLOSED_VOCAB_SCORE_NORM_*``
-                                     variables for more information
+            closed_vocabulary_normalization (string): Defines the 
+                                    normalization behavior for closed 
+                                    vocabulary predictor scores. See 
+                                    the documentation to the 
+                                    ``CLOSED_VOCAB_SCORE_NORM_*``
+                                    variables for more information
             max_len_factor (int): Hypotheses are not longer than
                                   source sentence length times this.
                                   Needs to be supported by the search
@@ -351,27 +349,32 @@ class Decoder(Observable):
                                         set to ``NEG_INF``.
         """
         super(Decoder, self).__init__()
-        self.max_len_factor = max_len_factor
+        self.max_len_factor = decoder_args.max_len_factor
         self.predictors = [] # Tuples (predictor, weight)
         self.heuristics = []
         self.heuristic_predictors = []
         self.predictor_names = []
-        self.allow_unk_in_output = False
+        self.allow_unk_in_output = decoder_args.allow_unk_in_output
         self.nbest = 1 # length of n-best list
         self.combi_predictor_method = Decoder.combi_arithmetic_unnormalized
         self.combine_posteriors = self._combine_posteriors_norm_none
-        if closed_vocab_norm == CLOSED_VOCAB_SCORE_NORM_EXACT:
+        self.closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_NONE
+        if decoder_args.closed_vocabulary_normalization == 'exact':
+            self.closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_EXACT
             self.combine_posteriors = self._combine_posteriors_norm_exact
-        elif closed_vocab_norm == CLOSED_VOCAB_SCORE_NORM_REDUCED:
+        elif decoder_args.closed_vocabulary_normalization == 'reduced':
+            self.closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_REDUCED
             self.combine_posteriors = self._combine_posteriors_norm_reduced
-        elif closed_vocab_norm == CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK:
+        elif decoder_args.closed_vocabulary_normalization == 'rescale_unk':
+            self.closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK
             self.combine_posteriors = self._combine_posteriors_norm_rescale_unk
+        
         self.current_sen_id = -1
         self.start_sen_id = 0
         self.apply_predictors_count = 0
         self.lower_bounds = []
-        if lower_bounds_file:
-            with open(lower_bounds_file) as f:
+        if decoder_args.score_lower_bounds_file:
+            with open(decoder_args.score_lower_bounds_file) as f:
                 for line in f:
                     self.lower_bounds.append(float(line.strip()))
     

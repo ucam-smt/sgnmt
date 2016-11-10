@@ -32,8 +32,7 @@ class BucketDecoder(Decoder):
     """
     
     def __init__(self, 
-                 closed_vocab_norm,
-                 max_len_factor,
+                 decoder_args,
                  hypo_recombination, 
                  max_expansions=0,
                  low_memory_mode = True,
@@ -41,7 +40,6 @@ class BucketDecoder(Decoder):
                  pure_heuristic_scores = False,
                  diversity_factor = -1.0,
                  early_stopping=True,
-                 lower_bounds_file = '',
                  stochastic=False,
                  bucket_selector='maxscore',
                  bucket_score_strategy='difference',
@@ -49,13 +47,8 @@ class BucketDecoder(Decoder):
         """Create a new bucket decoder
         
         Args:
-            closed_vocab_norm (int): Defines the normalization behavior
-                                     for closed vocabulary predictor
-                                     scores. See the documentation to
-                                     the ``CLOSED_VOCAB_SCORE_NORM_*``
-                                     variables for more information
-            max_len_factor (int): Hypotheses are not longer than
-                                  source sentence length times this
+            decoder_args (object): Decoder configuration passed through
+                                   from the configuration API.
             hypo_recombination (boolean): Activates hypothesis 
                                           recombination. Hypos are
                                           tested only within a bucket 
@@ -104,9 +97,7 @@ class BucketDecoder(Decoder):
                                              collected for heuristic
                                             
         """
-        super(BucketDecoder, self).__init__(closed_vocab_norm, 
-                                            max_len_factor,
-                                            lower_bounds_file)
+        super(BucketDecoder, self).__init__(decoder_args)
         self.max_expansions_param = max_expansions
         self.low_memory_mode = low_memory_mode
         self.beam = beam

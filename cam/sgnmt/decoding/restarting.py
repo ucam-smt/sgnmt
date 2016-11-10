@@ -52,11 +52,9 @@ class RestartingDecoder(Decoder):
     """
     
     def __init__(self, 
-                 closed_vocab_norm, 
-                 max_len_factor,
+                 decoder_args,
                  hypo_recombination,
                  max_expansions = 0,
-                 lower_bounds_file = '',
                  low_memory_mode = True,
                  node_cost_strategy='difference',
                  stochastic=False,
@@ -64,13 +62,8 @@ class RestartingDecoder(Decoder):
         """Creates new Restarting decoder instance.
         
         Args:
-            closed_vocab_norm (int): Defines the normalization behavior
-                                     for closed vocabulary predictor
-                                     scores. See the documentation to
-                                     the ``CLOSED_VOCAB_SCORE_NORM_*``
-                                     variables for more information
-            max_len_factor (int): Hypotheses are not longer than
-                                  source sentence length times this
+            decoder_args (object): Decoder configuration passed through
+                                   from the configuration API.
             hypo_recombination (bool): Activates hypo recombination 
             max_expansions (int): Maximum number of node expansions for
                                   inadmissible pruning.
@@ -88,9 +81,7 @@ class RestartingDecoder(Decoder):
                                        the hypothesis only by a single
                                        token
         """
-        super(RestartingDecoder, self).__init__(closed_vocab_norm, 
-                                                max_len_factor,
-                                                lower_bounds_file)
+        super(RestartingDecoder, self).__init__(decoder_args)
         self.max_expansions_param = max_expansions
         self.always_single_step = always_single_step
         self.low_memory_mode = low_memory_mode

@@ -12,10 +12,9 @@ class GreedyDecoder(Decoder):
     the ``BeamDecoder`` with beam size 1.
     """
     
-    def __init__(self, closed_vocab_norm, max_len_factor):
+    def __init__(self, decoder_args):
         """Initialize the greedy decoder. """
-        super(GreedyDecoder, self).__init__(closed_vocab_norm,
-                                            max_len_factor)
+        super(GreedyDecoder, self).__init__(decoder_args)
     
     def decode(self, src_sentence):
         """Decode a single source sentence in a greedy way: Always take
