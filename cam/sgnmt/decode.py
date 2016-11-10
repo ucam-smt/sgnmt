@@ -85,15 +85,26 @@ elif args.verbosity == 'error':
 
 validate_args(args)
 
-# Load NMT engine
-if args.nmt_engine == 'blocks':
-    get_nmt_predictor = blocks_get_nmt_predictor
-    get_nmt_vanilla_decoder = blocks_get_nmt_vanilla_decoder
-elif args.nmt_engine == 'tensorflow':
-    get_nmt_predictor = tf_get_nmt_predictor
-    get_nmt_vanilla_decoder = tf_get_nmt_vanilla_decoder
-elif args.nmt_engine != 'none':
-    logging.fatal("NMT engine %s is not supported (yet)!" % args.nmt_engine)
+# Load NMT engine(s)
+engines = args.nmt_engine.split(',')
+get_nmt_predictors = []
+if len(engines) > 1:
+    logging.info("Found multiple nmt engines")
+    if args.decoder == "vanilla":
+        logging.fatal("Vanilla decoder currently not supported for multiple engines!")
+for engine in engines:
+    if engine == "blocks":
+        get_nmt_predictors.append(blocks_get_nmt_predictor)
+        get_nmt_vanilla_decoder = blocks_get_nmt_vanilla_decoder
+    elif engine == "tensorflow":
+        get_nmt_predictors.append(tf_get_nmt_predictor)
+        get_nmt_vanilla_decoder = tf_get_nmt_vanilla_decoder
+    elif args.nmt_engine != 'none':
+        logging.fatal("NMT engine %s is not supported (yet)!" % args.nmt_engine)
+
+# Prepare tensorflow config(s)
+tf_configs = [ config for config in args.tensorflow_config.split(',') ]
+num_tf_models = len(tf_configs)
 
 # Support old scheme for reserved word indices
 if args.legacy_indexing:
@@ -220,7 +231,13 @@ def add_predictors(decoder, nmt_config):
                             nmt_config[k] = type(nmt_config[k])(v)            
             # Create predictor instances for the string argument ``pred``
             if pred == "nmt":
-                p = get_nmt_predictor(args, nmt_config)
+                get_nmt_predictor = get_nmt_predictors.pop(0)
+                engine = engines.pop(0)
+                if engine == "tensorflow":
+                  tf_nmt_config = tf_configs.pop(0)
+                  p = get_nmt_predictor(args, tf_nmt_config)
+                else:
+                  p = get_nmt_predictor(args, nmt_config)
             elif pred == "fst":
                 p = FstPredictor(_get_override_args("fst_path"),
                                  args.use_fst_weights,
@@ -276,7 +293,7 @@ def add_predictors(decoder, nmt_config):
             elif pred == "nplm":
                 p = NPLMPredictor(args.nplm_path, args.normalize_nplm_probs)
             elif pred == "rnnlm":
-                p = TensorFlowRNNLMPredictor(args.rnnlm_path)
+                p = TensorFlowRNNLMPredictor(args.rnnlm_path, args.rnnlm_config)
             elif pred == "lstm":
                 p = ChainerLstmPredictor(args.lstm_path)
             elif pred == "wc":
@@ -339,6 +356,7 @@ def add_predictors(decoder, nmt_config):
                     decoder.remove_predictors()
                     return
             decoder.add_predictor(pred, p, pred_weight)
+            logging.info("Added predictor {} with weight {}".format(pred, pred_weight))
     except IOError as e:
         logging.fatal("One of the files required for setting up the "
                       "predictors could not be read: %s" % e)
@@ -349,7 +367,7 @@ def add_predictors(decoder, nmt_config):
                       "paths required for the predictors." % e)
         decoder.remove_predictors()
     except ValueError as e:
-        logging.fatal("A number format error while configuring the "
+        logging.fatal("A number format error occurred while configuring the "
                       "predictors: %s. Please double-check all integer- or "
                       "float-valued parameters such as --predictor_weights and"
                       " try again." % e)
@@ -631,6 +649,11 @@ def _get_sentence_indices(range_param, src_sentences):
         return []
     return xrange(len(src_sentences))
 
+def get_text_output_handler(output_handlers):
+    for output_handler in output_handlers:
+        if isinstance(output_handler, TextOutputHandler):
+            return output_handler
+    return None
 
 def do_decode(decoder, output_handlers, src_sentences):
     """This method contains the main decoding loop. It iterates through
@@ -652,6 +675,9 @@ def do_decode(decoder, output_handlers, src_sentences):
     start_time = time.time()
     logging.info("Start time: %s" % start_time)
     all_hypos = []
+    text_output_handler = get_text_output_handler(output_handlers)
+    if text_output_handler:
+        text_output_handler.open_file()
     for sen_idx in _get_sentence_indices(args.range, src_sentences):
         try:
             if src_sentences is False:
@@ -659,11 +685,18 @@ def do_decode(decoder, output_handlers, src_sentences):
                 logging.info("Next sentence (ID: %d)" % (sen_idx+1))
             else:
                 src = src_sentences[sen_idx]
-                logging.info("Next sentence (ID: %d): %s" % (sen_idx+1, 
-                                                         ' '.join(src)))
+                if isinstance(src[0], list):
+                    src_lst = []
+                    for idx in xrange(len(src)):
+                        logging.info("Next sentence, input %d (ID: %d): %s" % (idx, sen_idx+1, ' '.join(src[idx])))
+                        src_lst.append([int(x) for x in src[idx]])
+                    src = src_lst
+                else:
+                    logging.info("Next sentence (ID: %d): %s" % (sen_idx+1, ' '.join(src)))
+                    src = [int(x) for x in src]
             start_hypo_time = time.time()
             decoder.apply_predictors_count = 0
-            hypos = [hypo for hypo in decoder.decode([int(x) for x in src])
+            hypos = [hypo for hypo in decoder.decode(src)
                                 if hypo.total_score > args.min_score]
             if not hypos:
                 logging.error("No translation found for ID %d!" % (sen_idx+1))
@@ -672,6 +705,8 @@ def do_decode(decoder, output_handlers, src_sentences):
                          "time=%.2f" % (sen_idx+1,
                                         decoder.apply_predictors_count,
                                         time.time() - start_hypo_time))
+                if text_output_handler:
+                    text_output_handler.write_empty_line()
                 continue
             if args.remove_eos:
                 for hypo in hypos:
@@ -697,6 +732,17 @@ def do_decode(decoder, output_handlers, src_sentences):
                                         decoder.apply_predictors_count,
                                         time.time() - start_hypo_time))
             all_hypos.append(hypos)
+            try:
+              # Write text output as we go
+              if text_output_handler:
+                  if args.trg_wmap:
+                      logging.info("Target word map={}".format(args.trg_wmap))
+                      text_output_handler.write_hypos([hypos], args.trg_wmap)
+                  else:
+                      text_output_handler.write_hypos([hypos])
+            except IOError as e:
+              logging.error("I/O error %d occurred when creating output files: %s"
+                            % (sys.exc_info()[0], e))
         except ValueError as e:
             logging.error("Number format error at sentence id %d: %s"
                       % (sen_idx+1, e))
@@ -707,8 +753,11 @@ def do_decode(decoder, output_handlers, src_sentences):
                                                        e,
                                                        traceback.format_exc()))
     try:
-        for output_handler in  output_handlers:
-            output_handler.write_hypos(all_hypos)
+        for output_handler in output_handlers:
+            if output_handler == text_output_handler:
+                output_handler.close_file()
+            else:
+                output_handler.write_hypos(all_hypos)
     except IOError as e:
         logging.error("I/O error %s occurred when creating output files: %s"
                       % (sys.exc_info()[0], e))
@@ -738,7 +787,24 @@ decoder = create_decoder(nmt_config)
 outputs = create_output_handlers(nmt_config)
 
 if args.input_method == 'file':
-    with open(args.src_test) as f:
+    inputfiles = args.src_test.split(',')
+    if len(inputfiles) > 1:
+        logging.info("Found multiple input files")
+        inputs_tmp = [ [] for i in xrange(len(inputfiles)) ]
+        for i in xrange(len(inputfiles)):
+            with open(inputfiles[i]) as f:
+                for line in f:
+                    inputs_tmp[i].append(line.strip().split())
+        inputs = []
+        for i in xrange(len(inputs_tmp[0])):
+            # Gather multiple input sentences for each line
+            input_lst = []
+            for j in xrange(len(inputfiles)):
+                input_lst.append(inputs_tmp[j][i])
+            inputs.append(input_lst)
+        do_decode(decoder, outputs, inputs)
+    else:
+      with open(args.src_test) as f:
         do_decode(decoder, outputs, [line.strip().split() for line in f])
 elif args.input_method == 'dummy':
     do_decode(decoder, outputs, False)

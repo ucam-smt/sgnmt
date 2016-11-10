@@ -433,7 +433,9 @@ def get_parser():
                        "* The 'bucket' decoder reorders the hypotheses in a "
                        "bucket by penalizing hypotheses with the number of "
                        "expanded hypotheses from the same parent.")
-    
+    group.add_argument("--trg_wmap", default=None, help="Specify a target word "
+                        "map to convert outputs back to words")
+
     ## Output options
     group = parser.add_argument_group('Output options')
     group.add_argument("--nbest", default=0, type=int,
@@ -787,6 +789,9 @@ def get_parser():
                         help="Path to the NPLM language model")
     group.add_argument("--rnnlm_path", default="rnnlm/rnnlm.gz",
                         help="Path to the RNNLM language model")
+    group.add_argument("--rnnlm_config", default="rnnlm.ini",
+                        help="Config for the RNNLM language model "
+                        "(config file or model name)")
     group.add_argument("--lstm_path", default="chainer/model",
                         help="Path to the LSTM model (chainer)")
     group.add_argument("--srilm_order", default=5, type=int,
@@ -867,7 +872,12 @@ def get_parser():
                         help="Overrides --ngramc_path for the %s ngramc" % w)
         group.add_argument("--ngramc_order%s" % n, default=0, type=int,
                         help="Overrides --ngramc_order for the %s ngramc" % w)
-    
+
+    # Add tensorflow options
+    group = parser.add_argument_group('Tensorflow')
+    group.add_argument("--tensorflow_config", default="nmt.ini",
+                       help="Load a config file with parameters for a tensorflow model.")
+
     # Add NMT model options
     group = parser.add_argument_group('Neural model configuration')
     _add_nmt_config(group)

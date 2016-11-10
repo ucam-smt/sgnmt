@@ -49,13 +49,41 @@ class TextOutputHandler(OutputHandler):
         super(TextOutputHandler, self).__init__()
         self.path = path
         
-    def write_hypos(self, all_hypos):
+    def write_hypos(self, all_hypos, trg_wmap=None):
         """Writes the hypotheses in ``all_hypos`` to ``path`` """
-        with open(self.path, "w") as f:
+        if trg_wmap is not None:
+          wmap = self.load_wmap(trg_wmap)
+          map_f = lambda x: wmap[x]
+        else:
+          map_f = lambda x: str(x)
+
+        if self.f is not None:
+          for hypos in all_hypos:
+            self.f.write(' '.join( map_f(w) for w in hypos[0].trgt_sentence))
+            self.f.write("\n")
+            self.f.flush()
+        else:
+          with open(self.path, "w") as f:
             for hypos in all_hypos:
-                f.write(' '.join(str(w) for w in hypos[0].trgt_sentence))
-                f.write("\n")
+              f.write(' '.join( map_f(w) for w in hypos[0].trgt_sentence))
+              f.write("\n")
+              self.f.flush()
   
+    def open_file(self):
+      self.f = open(self.path, "w")
+
+    def close_file(self):
+      self.f.close()
+
+    def write_empty_line(self):
+      if self.f is not None:
+         self.f.write("\n")
+         self.f.flush()
+
+    def load_wmap(self, path):
+      with open(path) as f:
+        tmp = [ line.strip().split() for line in f ]
+        return dict( (int(tup[1]),tup[0]) for tup in tmp )
                 
 class NBestOutputHandler(OutputHandler):
     """Produces a n-best file in Moses format. The third part of each 
