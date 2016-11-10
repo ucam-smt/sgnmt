@@ -27,14 +27,14 @@ class BlocksNMTVanillaDecoder(Decoder):
     on both source and target side.
     """
     
-    def __init__(self, nmt_model_path, config):
+    def __init__(self, nmt_model_path, config, decoder_args):
         """Set up the NMT model used by the decoder.
         
         Args:
             nmt_model_path (string):  Path to the NMT model file (.npz)
             config (dict): NMT configuration
         """
-        super(BlocksNMTVanillaDecoder, self).__init__()
+        super(BlocksNMTVanillaDecoder, self).__init__(decoder_args)
         self.config = config
         self.set_up_decoder(nmt_model_path)
         self.src_eos = self.src_sparse_feat_map.word2dense(utils.EOS_ID)
