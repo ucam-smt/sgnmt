@@ -787,7 +787,7 @@ def get_parser():
                         help="Path to the ngram LM file in SRILM format")
     group.add_argument("--nplm_path", default="nplm/nplm.gz",
                         help="Path to the NPLM language model")
-    group.add_argument("--rnnlm_path", default="rnnlm/rnnlm.gz",
+    group.add_argument("--rnnlm_path", default="rnnlm/rnn.ckpt",
                         help="Path to the RNNLM language model")
     group.add_argument("--rnnlm_config", default="rnnlm.ini",
                         help="Config for the RNNLM language model "
@@ -876,7 +876,9 @@ def get_parser():
     # Add tensorflow options
     group = parser.add_argument_group('Tensorflow')
     group.add_argument("--tensorflow_config", default="nmt.ini",
-                       help="Load a config file with parameters for a tensorflow model.")
+                       help="Load config file(s) with parameters for tensorflow model(s)")
+    group.add_argument("--tensorflow_path", default=None,
+                       help="Path to tensorflow model(s), format: nmt/translate.ckpt")
 
     # Add NMT model options
     group = parser.add_argument_group('Neural model configuration')

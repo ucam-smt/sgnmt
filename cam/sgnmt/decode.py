@@ -104,6 +104,8 @@ for engine in engines:
 
 # Prepare tensorflow config(s)
 tf_configs = [ config for config in args.tensorflow_config.split(',') ]
+tf_paths = None if not args.tensorflow_path else \
+  [ path for path in args.tensorflow_path.split(',') ]
 num_tf_models = len(tf_configs)
 
 # Support old scheme for reserved word indices
@@ -235,7 +237,8 @@ def add_predictors(decoder, nmt_config):
                 engine = engines.pop(0)
                 if engine == "tensorflow":
                   tf_nmt_config = tf_configs.pop(0)
-                  p = get_nmt_predictor(args, tf_nmt_config)
+                  tf_path = None if not tf_paths else tf_paths.pop(0)
+                  p = get_nmt_predictor(args, tf_nmt_config, tf_path)
                 else:
                   p = get_nmt_predictor(args, nmt_config)
             elif pred == "fst":

@@ -1,6 +1,7 @@
 """This module is the interface to the TensorFlow NMT implementation.
 """
 import logging
+import os
 
 TENSORFLOW_AVAILABLE = True
 try:
@@ -12,7 +13,7 @@ try:
 except:
     TENSORFLOW_AVAILABLE = False
 
-def tf_get_nmt_predictor(args, nmt_config):
+def tf_get_nmt_predictor(args, nmt_config, path=None):
   """Get the TensorFlow NMT predictor.
     
   Args:
@@ -29,6 +30,11 @@ def tf_get_nmt_predictor(args, nmt_config):
   logging.info("Loading predictor {}".format(nmt_config))
   tf_config = dict()
   tf_model_utils.read_config(nmt_config, tf_config)
+  if path:
+    if os.path.isdir(path):
+      tf_config['train_dir'] = path
+    elif os.path.isfile(path):
+      tf_config['model_path'] = path
   global session
   if not session:
     session = tf.Session()
