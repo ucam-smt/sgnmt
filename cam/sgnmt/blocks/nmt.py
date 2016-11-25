@@ -78,7 +78,7 @@ def blocks_get_nmt_vanilla_decoder(args, nmt_config):
     nmt_config = _add_sparse_feat_maps_to_config(nmt_config)
     return BlocksNMTVanillaDecoder(get_nmt_model_path(args.nmt_model_selector,
                                                       nmt_config),
-                                   nmt_config)
+				                    nmt_config, args)
 
 
 PARAMS_FILE_NAME = 'params.npz'

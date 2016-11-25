@@ -61,21 +61,17 @@ class BOWDecoder(Decoder):
     """
     
     def __init__(self, 
-                 closed_vocab_norm, 
+                 decoder_args,
                  hypo_recombination,
                  max_expansions = 0,
                  stochastic=False,
                  early_stopping=True,
-                 lower_bounds_file = '',
                  always_single_step=False):
         """Creates a new bag decoder.
         
         Args:
-            closed_vocab_norm (int): Defines the normalization behavior
-                                     for closed vocabulary predictor
-                                     scores. See the documentation to
-                                     the ``CLOSED_VOCAB_SCORE_NORM_*``
-                                     variables for more information
+            decoder_args (object): Decoder configuration passed through
+                                   from the configuration API.
             hypo_recombination (bool): Activates hypo recombination
             max_expansions (int): Maximum number of node expansions for
                                   inadmissible pruning.
@@ -91,9 +87,7 @@ class BOWDecoder(Decoder):
                                        decoding from that node until
                                        we reach a final node
         """
-        super(BOWDecoder, self).__init__(closed_vocab_norm, 
-                                         10000, # generous max_len_factor
-                                         lower_bounds_file) 
+        super(BOWDecoder, self).__init__(decoder_args) 
         self.max_expansions_param = max_expansions
         self.early_stopping = early_stopping
         self.hypo_recombination = hypo_recombination

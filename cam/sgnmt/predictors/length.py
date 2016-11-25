@@ -347,7 +347,7 @@ class NgramCountPredictor(Predictor):
     posteriors are loaded from a file. The predictor score is the sum of
     all n-gram posteriors in a hypothesis. """
     
-    def __init__(self, path, order=0):
+    def __init__(self, path, order=0, discount_factor=-1.0):
         """Creates a new ngram count predictor instance.
         
         Args:
@@ -356,10 +356,14 @@ class NgramCountPredictor(Predictor):
                            placeholder %d for sentence id.
             order (int): If positive, count n-grams of the specified
                          order. Otherwise, count all n-grams
+            discount_factor (float): If non-negative, discount n-gram
+                                     posteriors by this factor each time 
+                                     they are consumed 
         """
         super(NgramCountPredictor, self).__init__()
         self.path = path 
         self.order = order
+        self.discount_factor = discount_factor
         
     def get_unk_probability(self, posterior):
         """Always return 0.0 """
@@ -373,8 +377,16 @@ class NgramCountPredictor(Predictor):
         for i in reversed(range(len(self.cur_history)+1)):
             scores = self.ngrams.get(self.cur_history[i:])
             if scores:
-                for w,score in scores.iteritems():
-                    posterior[w] = posterior.get(w, 0.0) + score
+                factors = False
+                if self.discount_factor >= 0.0:
+                    factors = self.discounts.get(self.cur_history[i:])
+                if not factors:
+                    for w,score in scores.iteritems():
+                        posterior[w] = posterior.get(w, 0.0) + score
+                else:
+                    for w,score in scores.iteritems():
+                        posterior[w] = posterior.get(w, 0.0) +  \
+                                       factors.get(w, 1.0) * score
         return posterior
     
     def _load_posteriors(self, path):
@@ -403,6 +415,7 @@ class NgramCountPredictor(Predictor):
         """
         self._load_posteriors(utils.get_path(self.path, self.current_sen_id+1))
         self.cur_history = [utils.GO_ID]
+        self.discounts = SimpleTrie()
     
     def consume(self, word):
         """Adds ``word`` to the current history. Shorten if the extended
@@ -414,20 +427,31 @@ class NgramCountPredictor(Predictor):
         self.cur_history.append(word)
         if len(self.cur_history) > self.max_history_len:
             self.cur_history = self.cur_history[-self.max_history_len:]
+        if self.discount_factor >= 0.0:
+            for i in range(len(self.cur_history)):
+                key = self.cur_history[i:-1]
+                factors = self.discounts.get(key)
+                if not factors:
+                    factors = {word: self.discount_factor}
+                else:
+                    factors[word] = factors.get(word, 1.0)*self.discount_factor
+                self.discounts.add(key, factors)
     
     def get_state(self):
         """Current history is the predictor state """
-        return self.cur_history
+        return self.cur_history,self.discounts
     
     def set_state(self, state):
         """Current history is the predictor state """
-        self.cur_history = state
+        self.cur_history,self.discounts = state
 
     def reset(self):
         """Empty method. """
         pass
     
     def is_equal(self, state1, state2):
-        """Returns if histories match """
-        return state1 == state2
+        """Returns true if histories match. Hypothesis recombination is
+        not supported if discounting is enabled.
+        """
+        return self.discount_factor < 0.0 and state1[0] == state2[0]
     

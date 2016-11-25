@@ -20,27 +20,16 @@ class AstarDecoder(Decoder):
     """
     
     def __init__(self, 
-                 closed_vocab_norm, 
-                 max_len_factor, 
+                 decoder_args, 
                  capacity = 0, 
                  pure_heuristic_scores = False, 
                  early_stopping = False,
-                 lower_bounds_file = '',
                  nbest=1):
         """Creates a new A* decoder instance
         
         Args:
-            closed_vocab_norm (int): Defines the normalization behavior
-                                     for closed vocabulary predictor
-                                     scores. See the documentation to
-                                     the ``CLOSED_VOCAB_SCORE_NORM_*``
-                                     variables for more information
-            max_len_factor (int): Hypotheses are not longer than
-                                  source sentence length times this
-            capacity (int): If positive, defines the maximum size of
-                            the priority queue. This can be used to
-                            introduce some pruning. If 0, we use a
-                            PQ with unlimited capacity.
+            decoder_args (object): Decoder configuration passed through
+                                   from the configuration API..
             pure_heuristic_scores (bool): For standard A* set this to
                                           false. If set to true, partial
                                           hypo scores are ignored when
@@ -58,9 +47,7 @@ class AstarDecoder(Decoder):
                          heuristic, this will yield an exact n-best
                          list.
         """
-        super(AstarDecoder, self).__init__(closed_vocab_norm,
-                                           max_len_factor,
-                                           lower_bounds_file)
+        super(AstarDecoder, self).__init__(decoder_args)
         self.nbest = nbest
         self.capacity = capacity
         self.early_stopping = early_stopping

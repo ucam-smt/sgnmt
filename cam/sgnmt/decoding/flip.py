@@ -51,11 +51,10 @@ class FlipDecoder(Decoder):
     """
     
     def __init__(self, 
-                 closed_vocab_norm,
+                 decoder_args,
                  trg_test_file, 
                  max_expansions=0,
                  early_stopping=True,
-                 lower_bounds_file = '',
                  flip_strategy='move',
                  always_greedy=False):
         """Creates a new flip decoder. Do not use this decoder in 
@@ -63,11 +62,8 @@ class FlipDecoder(Decoder):
         satisfies the bag-of-word constrains.
         
         Args:
-            closed_vocab_norm (int): Defines the normalization behavior
-                                     for closed vocabulary predictor
-                                     scores. See the documentation to
-                                     the ``CLOSED_VOCAB_SCORE_NORM_*``
-                                     variables for more information
+            decoder_args (object): Decoder configuration passed through
+                                   from the configuration API.
             trg_test_file (string): Path to a plain text file which 
                                     defines the bag of words
             max_expansions (int): Maximum number of node expansions for
@@ -83,9 +79,7 @@ class FlipDecoder(Decoder):
                                      do greedy decoding from the
                                      backtraced node instead
         """
-        super(FlipDecoder, self).__init__(closed_vocab_norm, 
-                                         10000, # generous max_len_factor
-                                         lower_bounds_file) 
+        super(FlipDecoder, self).__init__(decoder_args) 
         self.max_expansions_param = max_expansions
         self.early_stopping = early_stopping
         self.always_greedy = always_greedy

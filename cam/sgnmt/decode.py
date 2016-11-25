@@ -30,10 +30,6 @@ from cam.sgnmt.decoding.beam import BeamDecoder
 from cam.sgnmt.decoding.bigramgreedy import BigramGreedyDecoder
 from cam.sgnmt.decoding.bow import BOWDecoder
 from cam.sgnmt.decoding.bucket import BucketDecoder
-from cam.sgnmt.decoding.core import CLOSED_VOCAB_SCORE_NORM_NONE, \
-                                   CLOSED_VOCAB_SCORE_NORM_EXACT, \
-                                   CLOSED_VOCAB_SCORE_NORM_REDUCED, \
-                                   CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK
 from cam.sgnmt.decoding.core import UnboundedVocabularyPredictor
 from cam.sgnmt.decoding.dfs import DFSDecoder
 from cam.sgnmt.decoding.flip import FlipDecoder
@@ -303,7 +299,8 @@ def add_predictors(decoder, nmt_config):
                 p = WordCountPredictor(args.wc_word)
             elif pred == "ngramc":
                 p = NgramCountPredictor(_get_override_args("ngramc_path"),
-                                        _get_override_args("ngramc_order"))
+                                        _get_override_args("ngramc_order"),
+                                        args.ngramc_discount_factor)
             elif pred == "unkc":
                 p = UnkCountPredictor(
                          args.src_vocab_size, 
@@ -396,66 +393,49 @@ def create_decoder(nmt_config):
     Returns:
         Decoder. Instance of the search strategy
     """
-    # Configure closed vocabulary normalization
-    closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_NONE
-    if args.closed_vocabulary_normalization == 'exact':
-        closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_EXACT
-    elif args.closed_vocabulary_normalization == 'reduced':
-        closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_REDUCED
-    elif args.closed_vocabulary_normalization == 'rescale_unk':
-        closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK
         
     # Create decoder instance and add predictors
     if args.decoder == "greedy":
-        decoder = GreedyDecoder(closed_vocab_norm, args.max_len_factor)
+        decoder = GreedyDecoder(args)
     elif args.decoder == "beam":
-        decoder = BeamDecoder(closed_vocab_norm,
-                              args.max_len_factor,
+        decoder = BeamDecoder(args,
                               args.hypo_recombination,
                               args.beam,
                               args.pure_heuristic_scores,
                               args.decoder_diversity_factor,
                               args.early_stopping)
     elif args.decoder == "dfs":
-        decoder = DFSDecoder(closed_vocab_norm,
-                             args.max_len_factor, 
+        decoder = DFSDecoder(args, 
                              args.early_stopping,
-                             args.score_lower_bounds_file,
                              args.max_node_expansions)
     elif args.decoder == "restarting":
-        decoder = RestartingDecoder(closed_vocab_norm,
-                                    args.max_len_factor,
+        decoder = RestartingDecoder(args,
                                     args.hypo_recombination,
                                     args.max_node_expansions,
-                                    args.score_lower_bounds_file,
                                     args.low_decoder_memory,
                                     args.restarting_node_score,
                                     args.stochastic_decoder,
                                     args.decode_always_single_step)
     elif args.decoder == "bow":
-        decoder = BOWDecoder(closed_vocab_norm,
+        decoder = BOWDecoder(args,
                              args.hypo_recombination,
                              args.max_node_expansions,
                              args.stochastic_decoder,
                              args.early_stopping,
-                             args.score_lower_bounds_file,
                              args.decode_always_single_step)
     elif args.decoder == "flip":
-        decoder = FlipDecoder(closed_vocab_norm,
+        decoder = FlipDecoder(args,
                               args.trg_test,
                               args.max_node_expansions,
                               args.early_stopping,
-                              args.score_lower_bounds_file,
                               args.flip_strategy)
     elif args.decoder == "bigramgreedy":
-        decoder = BigramGreedyDecoder(closed_vocab_norm,
+        decoder = BigramGreedyDecoder(args,
                                       args.trg_test,
                                       args.max_node_expansions,
-                                      args.early_stopping,
-                                      args.score_lower_bounds_file)
+                                      args.early_stopping)
     elif args.decoder == "bucket":
-        decoder = BucketDecoder(closed_vocab_norm,
-                                args.max_len_factor, 
+        decoder = BucketDecoder(args,
                                 args.hypo_recombination,
                                 args.max_node_expansions,
                                 args.low_decoder_memory,
@@ -463,18 +443,15 @@ def create_decoder(nmt_config):
                                 args.pure_heuristic_scores,
                                 args.decoder_diversity_factor,
                                 args.early_stopping,
-                                args.score_lower_bounds_file,
                                 args.stochastic_decoder,
                                 args.bucket_selector,
                                 args.bucket_score_strategy,
                                 args.collect_statistics)
     elif args.decoder == "astar":
-        decoder = AstarDecoder(closed_vocab_norm, 
-                               args.max_len_factor, 
+        decoder = AstarDecoder(args, 
                                args.beam,
                                args.pure_heuristic_scores,
                                args.early_stopping,
-                               args.score_lower_bounds_file,
                                max(1, args.nbest))
     elif args.decoder == "vanilla":
         decoder = get_nmt_vanilla_decoder(args, nmt_config)
@@ -486,7 +463,7 @@ def create_decoder(nmt_config):
     
     # Add heuristics for search strategies like A*
     if args.heuristics:
-        add_heuristics(decoder, closed_vocab_norm, args.max_len_factor)
+        add_heuristics(decoder)
     
     # Update start sentence id if necessary
     if args.range:
@@ -495,7 +472,7 @@ def create_decoder(nmt_config):
     return decoder
 
 
-def add_heuristics(decoder, closed_vocab_norm, max_len_factor):
+def add_heuristics(decoder):
     """Adds all enabled heuristics to the ``decoder``. This is relevant
     for heuristic based search strategies like A*. This method relies 
     on the global ``args`` variable and reads out ``args.heuristics``.
@@ -504,15 +481,6 @@ def add_heuristics(decoder, closed_vocab_norm, max_len_factor):
         decoder (Decoder):  Decoding strategy, see ``create_decoder()``.
             This method will add heuristics to this instance with
             ``add_heuristic()``
-        closed_vocab_norm (int): Defines the normalization behavior
-                                     for closed vocabulary predictor
-                                     scores. See the documentation to
-                                     the ``CLOSED_VOCAB_SCORE_NORM_*``
-                                     variables for more information
-        max_len_factor (int): Hypotheses are not longer than
-                                  source sentence length times this.
-                                  Needs to be supported by the search
-                                  strategy implementation
     """
     if args.heuristic_predictors == 'all':
         h_predictors = decoder.predictors
@@ -522,10 +490,8 @@ def add_heuristics(decoder, closed_vocab_norm, max_len_factor):
     decoder.set_heuristic_predictors(h_predictors)
     for name in args.heuristics.split(","):
         if name == 'greedy':
-            decoder.add_heuristic(GreedyHeuristic(
-                                        closed_vocab_norm, 
-                                        max_len_factor,
-                                        args.cache_heuristic_estimates))
+            decoder.add_heuristic(GreedyHeuristic(args,
+                                                  args.cache_heuristic_estimates))
         elif name == 'predictor':
             decoder.add_heuristic(PredictorHeuristic())
         elif name == 'stats':

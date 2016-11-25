@@ -70,25 +70,22 @@ class GreedyHeuristic(Heuristic):
     estimates. This is expensive but can lead to very close estimates.
     """
     
-    def __init__(self, closed_vocab_norm, max_len_factor, cache_estimates = True):
+    def __init__(self, decoder_args, cache_estimates = True):
         """Creates a new ``GreedyHeuristic`` instance. The greedy 
         heuristic performs full greedy decoding from the current
         state to get accurate cost estimates. However, this can be very
         expensive.
         
         Args:
-            closed_vocab_norm (int): Defines the normalization behavior
-                                     for closed vocabulary predictor
-                                     scores. See the documentation to
-                                     the ``CLOSED_VOCAB_SCORE_NORM_*``
-                                     variables for more information
+            decoder_args (object): Decoder configuration passed through
+                                   from the configuration API.
             cache_estimates (bool): Set to true to enable a cache for
                                     predictor states which have been
                                     visited during the greedy decoding.
         """
         super(GreedyHeuristic, self).__init__()
         self.cache_estimates = cache_estimates
-        self.decoder = GreedyDecoder(closed_vocab_norm, max_len_factor)
+        self.decoder = GreedyDecoder(decoder_args)
         self.cache = SimpleTrie()
         
     def set_predictors(self, predictors):

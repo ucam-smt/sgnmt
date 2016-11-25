@@ -26,30 +26,24 @@ class BigramGreedyDecoder(Decoder):
     """
     
     def __init__(self, 
-                 closed_vocab_norm,
+                 decoder_args,
                  trg_test_file, 
                  max_expansions=0,
-                 early_stopping=True,
-                 lower_bounds_file = ''):
+                 early_stopping=True):
         """Creates a new bigram greedy decoder. Do not use this decoder
         in combination with the bow predictor as it inherently already
         satisfies the bag-of-word constrains.
         
         Args:
-            closed_vocab_norm (int): Defines the normalization behavior
-                                     for closed vocabulary predictor
-                                     scores. See the documentation to
-                                     the ``CLOSED_VOCAB_SCORE_NORM_*``
-                                     variables for more information
+            decoder_args (object): Decoder configuration passed through
+                                   from the configuration API.
             trg_test_file (string): Path to a plain text file which 
                                     defines the bag of words
             max_expansions (int): Maximum number of node expansions for
                                   inadmissible pruning.
             early_stopping (boolean): Activates admissible pruning
         """
-        super(BigramGreedyDecoder, self).__init__(closed_vocab_norm,
-                                                  10000, 
-                                                  lower_bounds_file)
+        super(BigramGreedyDecoder, self).__init__(decoder_args)
         self.max_expansions_param = max_expansions
         self.early_stopping = early_stopping
         with open(trg_test_file) as f:
