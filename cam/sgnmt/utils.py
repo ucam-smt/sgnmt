@@ -183,6 +183,72 @@ def common_contains(obj, key):
 # Miscellaneous
 
 
+def load_src_wmap(path):
+    """Loads a source side word map from the file system.
+    
+    Args:
+        path (string): Path to the word map (Format: word id)
+    
+    Returns:
+        dict. Source word map (key: word, value: id)
+    """
+    if not path:
+        return {}
+    with open(path) as f:
+        return dict(map(lambda w,i: (w, int(i)),
+                        line.strip().split(None, 1) for line in f))
+
+
+def load_trg_wmap(path):
+    """Loads a target side word map from the file system.
+    
+    Args:
+        path (string): Path to the word map (Format: word id)
+    
+    Returns:
+        dict. Source word map (key: id, value: word)
+    """
+    if not path:
+        return {}
+    with open(path) as f:
+        return dict(map(lambda w,i: (int(i), w),
+                        line.strip().split(None, 1) for line in f))
+        
+
+def apply_src_wmap(seq, wmap):
+    """Converts a string to a sequence of integers by applying the
+    mapping ``wmap``. If ``wmap`` is empty, parse ``seq`` as string
+    of blank separated integers.
+    
+    Args:
+        seq (list): List of strings to convert
+        wmap (dict): word map to apply (key: word, value: ID)
+    
+    Returns:
+        list. List of integers
+    """
+    if not wmap:
+        return [int(w) for w in seq]
+    return [wmap.get(w, UNK_ID) for w in seq]
+
+
+def apply_trg_wmap(seq, inv_wmap):
+    """Converts a sequence of integers to a string by applying the
+    mapping ``wmap``. If ``wmap`` is empty, output the integers
+    directly.
+    
+    Args:
+        seq (list): List of integers to convert
+        inv_wmap (dict): word map to apply (key: id, value: word)
+    
+    Returns:
+        string. Mapped ``seq`` as single (blank separated) string
+    """
+    if not inv_wmap:
+        return ' '.join([str(i) for i in seq])
+    return ' '.join([inv_wmap.get(i, 'UNK') for i in seq])
+
+
 def get_path(tmpl, sub = 1):
     """Replaces the %d placeholder in ``tmpl`` with ``sub``. If ``tmpl``
     does not contain %d, return ``tmpl`` unmodified.
@@ -191,7 +257,7 @@ def get_path(tmpl, sub = 1):
         tmpl (string): Path, potentially with %d placeholder
         sub (int): Substitution for %d
     
-    Return:
+    Returns:
         string. ``tmpl`` with %d replaced with ``sub`` if present
     """
     if "%d" in tmpl:

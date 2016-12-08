@@ -44,16 +44,17 @@ class OutputHandler(object):
 class TextOutputHandler(OutputHandler):
     """Writes the first best hypotheses to a plain text file """
     
-    def __init__(self, path):
+    def __init__(self, path, trg_wmap):
         """Creates a plain text output handler to write to ``path`` """
         super(TextOutputHandler, self).__init__()
         self.path = path
+        self.trg_wmap = trg_wmap
         
     def write_hypos(self, all_hypos):
         """Writes the hypotheses in ``all_hypos`` to ``path`` """
         with open(self.path, "w") as f:
             for hypos in all_hypos:
-                f.write(' '.join(str(w) for w in hypos[0].trgt_sentence))
+                f.write(utils.apply_trg_wmap(hypos[0].trgt_sentence, self.trg_wmap))
                 f.write("\n")
   
                 
@@ -65,7 +66,7 @@ class NBestOutputHandler(OutputHandler):
     first sentence with 1 (e.g. in lattice directories or --range)
     """
     
-    def __init__(self, path, predictor_names, start_sen_id):
+    def __init__(self, path, predictor_names, start_sen_id, trg_wmap):
         """Creates a Moses n-best list output handler.
         
         Args:
@@ -74,10 +75,12 @@ class NBestOutputHandler(OutputHandler):
                              should be included in the score breakdown
                              in the n-best list
             start_sen_id: ID of the first sentence
+            trg_wmap (dict): (Inverse) word map for target language
         """
         super(NBestOutputHandler, self).__init__()
         self.path = path
         self.start_sen_id = start_sen_id
+        self.trg_wmap = trg_wmap
         self.predictor_names = []
         name_count = {}
         for name in predictor_names:
@@ -98,7 +101,8 @@ class NBestOutputHandler(OutputHandler):
                 for hypo in hypos:
                     f.write("%d ||| %s ||| %s ||| %f" %
                             (idx,
-                             ' '.join(str(w) for w in hypo.trgt_sentence),
+                             utils.apply_trg_wmap(hypo.trgt_sentence,
+                                                  self.trg_wmap),
                              ' '.join("%s= %f" % (
                                   self.predictor_names[i],
                                   sum([s[i][0] for s in hypo.score_breakdown]))

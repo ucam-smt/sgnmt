@@ -468,6 +468,16 @@ def get_parser():
                         "--output_path")
     group.add_argument("--remove_eos", default=True, type='bool',
                         help="Whether to remove </S> symbol on output.")
+    group.add_argument("--src_wmap", default="",
+                        help="Path to the source side word map (Format: <word>"
+                        " <id>). This is used to map the words in --src_test "
+                        "to their word IDs. If empty, SGNMT expects the input "
+                        "words to be in integer representation.")
+    group.add_argument("--trg_wmap", default="",
+                        help="Path to the target side word map (Format: <word>"
+                        " <id>). This is used to generate log output and the "
+                        "output formats text and nbest. If empty, we directly "
+                        "write word IDs.")
     
     
     ## Predictor options

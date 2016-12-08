@@ -54,10 +54,11 @@ from cam.sgnmt.predictors.grammar import RuleXtractPredictor
 from cam.sgnmt.predictors.length import WordCountPredictor, NBLengthPredictor, \
     ExternalLengthPredictor, NgramCountPredictor
 from cam.sgnmt.predictors.misc import IdxmapPredictor, UnboundedIdxmapPredictor, \
-    UnboundedAltsrcPredictor, AltsrcPredictor, UnkvocabPredictor, Word2charPredictor
+    UnboundedAltsrcPredictor, AltsrcPredictor, UnkvocabPredictor
 from cam.sgnmt.predictors.misc import UnkCountPredictor
 from cam.sgnmt.predictors.ngram import SRILMPredictor
 from cam.sgnmt.predictors.tf_rnnlm import TensorFlowRNNLMPredictor
+from cam.sgnmt.predictors.tokenization import Word2charPredictor
 from cam.sgnmt.tf.nmt import tf_get_nmt_predictor, \
                              tf_get_nmt_vanilla_decoder
 from cam.sgnmt.ui import get_args, get_parser, validate_args
@@ -486,7 +487,7 @@ def add_heuristics(decoder):
                           "the --heuristics parameter." % name)
 
 
-def create_output_handlers(nmt_config):
+def create_output_handlers(nmt_config, trg_wmap):
     """Creates the output handlers defined in the ``io`` module. 
     These handlers create output files in different formats from the
     decoding results. This method reads out the global variable
@@ -494,6 +495,7 @@ def create_output_handlers(nmt_config):
     
     Args:
         nmt_config (dict):  NMT configuration, see ``get_nmt_config()``
+        trg_wmap (dict): Target language word map
     
     Returns:
         list. List of output handlers according --outputs
@@ -511,10 +513,11 @@ def create_output_handlers(nmt_config):
         else:
             path = args.output_path
         if name == "text":
-            outputs.append(TextOutputHandler(path))
+            outputs.append(TextOutputHandler(path, trg_wmap))
         elif name == "nbest":
             outputs.append(NBestOutputHandler(path, args.predictors.split(","),
-                                              start_sen_id))
+                                              start_sen_id,
+                                              trg_wmap))
         elif name == "fst":
             outputs.append(FSTOutputHandler(path,
                                             start_sen_id,
@@ -601,7 +604,7 @@ def _get_sentence_indices(range_param, src_sentences):
     return xrange(len(src_sentences))
 
 
-def do_decode(decoder, output_handlers, src_sentences):
+def do_decode(decoder, output_handlers, src_sentences, src_wmap, trg_wmap):
     """This method contains the main decoding loop. It iterates through
     ``src_sentences`` and applies ``decoder.decode()`` to each of them.
     At the end, it calls the output handlers to create output files.
@@ -613,6 +616,8 @@ def do_decode(decoder, output_handlers, src_sentences):
         src_sentences (list):  A list of strings. The strings are the
                                source sentences with word indices to 
                                translate (e.g. '1 123 432 2')
+        src_wmap (dict): Word map to apply to the source sentences
+        trg_wmap (dict): Word map to apply to the target sentences
     """
     if not decoder.has_predictors():
         logging.fatal("Decoding cancelled because of an error in the "
@@ -632,8 +637,9 @@ def do_decode(decoder, output_handlers, src_sentences):
                                                          ' '.join(src)))
             start_hypo_time = time.time()
             decoder.apply_predictors_count = 0
-            hypos = [hypo for hypo in decoder.decode([int(x) for x in src])
-                                if hypo.total_score > args.min_score]
+            hypos = [hypo for hypo 
+                        in decoder.decode(utils.apply_src_wmap(src, src_wmap))
+                            if hypo.total_score > args.min_score]
             if not hypos:
                 logging.error("No translation found for ID %d!" % (sen_idx+1))
                 logging.info("Stats (ID: %d): score=<not-found> "
@@ -657,8 +663,8 @@ def do_decode(decoder, output_handlers, src_sentences):
                                                         hypo.score_breakdown)
                 hypos.sort(key=lambda hypo: hypo.total_score, reverse=True)
             logging.info("Decoded (ID: %d): %s" % (
-                            sen_idx+1,
-                            ' '.join(str(w) for w in hypos[0].trgt_sentence)))
+                    sen_idx+1,
+                    utils.apply_trg_wmap(hypos[0].trgt_sentence, trg_wmap)))
             logging.info("Stats (ID: %d): score=%f "
                          "num_expansions=%d "
                          "time=%.2f" % (sen_idx+1,
@@ -702,15 +708,21 @@ def _print_shell_help():
 
 
 # THIS IS THE MAIN ENTRY POINT
+src_wmap = utils.load_src_wmap(args.src_wmap)
+trg_wmap = utils.load_src_wmap(args.trg_wmap)
 nmt_config = get_nmt_config(args)
 decoder = create_decoder(nmt_config)
-outputs = create_output_handlers(nmt_config)
+outputs = create_output_handlers(nmt_config, trg_wmap)
 
 if args.input_method == 'file':
     with open(args.src_test) as f:
-        do_decode(decoder, outputs, [line.strip().split() for line in f])
+        do_decode(decoder,
+                  outputs,
+                  [line.strip().split() for line in f],
+                  src_wmap, 
+                  trg_wmap)
 elif args.input_method == 'dummy':
-    do_decode(decoder, outputs, False)
+    do_decode(decoder, outputs, False, src_wmap, trg_wmap)
 else: # Interactive mode: shell or stdin
     print("Start interactive mode.")
     print("PID: %d" % os.getpid())
@@ -742,7 +754,9 @@ else: # Interactive mode: shell or stdin
                     with open(input_[2]) as f:
                         do_decode(decoder,
                                   outputs,
-                                  [line.strip().split() for line in f])
+                                  [line.strip().split() for line in f],
+                                  src_wmap,
+                                  trg_wmap)
                 elif cmd == "quit":
                     quit_gnmt = True
                 elif cmd == "config":
@@ -765,7 +779,7 @@ else: # Interactive mode: shell or stdin
             elif input_[0] == 'quit' or input_[0] == 'exit':
                 quit_gnmt = True
             else: # Sentence to translate
-                do_decode(decoder, outputs, [input_])
+                do_decode(decoder, outputs, [input_], src_wmap, trg_wmap)
         except:
             logging.error("Error in last statement: %s" % sys.exc_info()[0])
         sys.stdout.flush()

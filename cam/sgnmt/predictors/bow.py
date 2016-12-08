@@ -237,7 +237,8 @@ class BagOfWordsPredictor(Predictor):
 
 
 class BagOfWordsSearchPredictor(BagOfWordsPredictor):
-    """TODO
+    """Combines the bag-of-words predictor with a proxy decoding pass
+    which creates a skeleton translation.
     """
     
     def __init__(self,
