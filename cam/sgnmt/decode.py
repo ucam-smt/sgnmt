@@ -54,7 +54,7 @@ from cam.sgnmt.predictors.grammar import RuleXtractPredictor
 from cam.sgnmt.predictors.length import WordCountPredictor, NBLengthPredictor, \
     ExternalLengthPredictor, NgramCountPredictor
 from cam.sgnmt.predictors.misc import IdxmapPredictor, UnboundedIdxmapPredictor, \
-    UnboundedAltsrcPredictor, AltsrcPredictor, Word2charPredictor
+    UnboundedAltsrcPredictor, AltsrcPredictor, UnkvocabPredictor, Word2charPredictor
 from cam.sgnmt.predictors.misc import UnkCountPredictor
 from cam.sgnmt.predictors.ngram import SRILMPredictor
 from cam.sgnmt.predictors.tf_rnnlm import TensorFlowRNNLMPredictor
@@ -327,8 +327,11 @@ def add_predictors(decoder, nmt_config):
                         p = AltsrcPredictor(src_test, p)
                 elif wrapper == "word2char":
                     map_path = _get_override_args("word2char_map")
-                    # word2char is always unbounded predictors
+                    # word2char always wraps unbounded predictors
                     p = Word2charPredictor(map_path, p)
+                elif wrapper == "unkvocab":
+                    # unkvocab always wraps bounded predictors
+                    p = UnkvocabPredictor(args.trg_vocab_size, p)
                 else:
                     logging.fatal("Predictor wrapper '%s' not available. "
                                   "Please double-check --predictors for "

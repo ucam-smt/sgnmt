@@ -156,6 +156,79 @@ class UnboundedIdxmapPredictor(IdxmapPredictor,UnboundedVocabularyPredictor):
                             for idx, prob in utils.common_iterable(posterior)}
 
 
+class UnkvocabPredictor(Predictor):
+    """If the predictor wrapped by the unkvocab wrapper produces an UNK
+    with predict next, this wrapper adds explicit NEG_INF scores to all
+    in-vocabulary words not in its posterior. This can control which 
+    words are matched by the UNK scores of other predictors.
+    """
+    
+    def __init__(self, trg_vocab_size, slave_predictor):
+        """Creates a new unkvocab wrapper predictor.
+        
+        Args:
+            trg_vocab_size (int): Size of the target vocabulary
+        """
+        super(UnkvocabPredictor, self).__init__()
+        self.slave_predictor = slave_predictor
+        self.trg_vocab_size = trg_vocab_size
+    
+    def initialize(self, src_sentence):
+        """Pass through to slave predictor """
+        self.slave_predictor.initialize(src_sentence)
+    
+    def initialize_heuristic(self, src_sentence):
+        """Pass through to slave predictor """
+        self.slave_predictor.initialize_heuristic(src_sentence)
+ 
+    def predict_next(self):
+        """Pass through to slave predictor. If the posterior from the
+        slave predictor contains util.UNK_ID, add NEG_INF for all 
+        word ids lower than trg_vocab_size that are not already
+        defined """
+        posterior = self.slave_predictor.predict_next()
+        if utils.UNK_ID in posterior:
+            for w in xrange(self.trg_vocab_size):
+                if not w in posterior:
+                    posterior[w] = utils.NEG_INF
+        return posterior
+        
+    def get_unk_probability(self, posterior):
+        """Pass through to slave predictor """
+        return self.slave_predictor.get_unk_probability(posterior)
+    
+    def consume(self, word):
+        """Pass through to slave predictor """
+        self.slave_predictor.consume(word)
+    
+    def get_state(self):
+        """Pass through to slave predictor """
+        return self.slave_predictor.get_state()
+    
+    def set_state(self, state):
+        """Pass through to slave predictor """
+        self.slave_predictor.set_state(state)
+
+    def reset(self):
+        """Pass through to slave predictor """
+        self.slave_predictor.reset()
+
+    def estimate_future_cost(self, hypo):
+        """Pass through to slave predictor """
+        return self.slave_predictor.estimate_future_cost(hypo)
+
+    def set_current_sen_id(self, cur_sen_id):
+        """We need to override this method to propagate current\_
+        sentence_id to the slave predictor
+        """
+        super(UnkvocabPredictor, self).set_current_sen_id(cur_sen_id)
+        self.slave_predictor.set_current_sen_id(cur_sen_id)
+    
+    def is_equal(self, state1, state2):
+        """Pass through to slave predictor """
+        return self.slave_predictor.is_equal(state1, state2)
+
+
 class AltsrcPredictor(Predictor):
     """This wrapper loads the source sentences from an alternative 
     source file. The ``src_sentence`` arguments of ``initialize`` and

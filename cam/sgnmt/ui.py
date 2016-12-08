@@ -386,7 +386,9 @@ def get_parser():
                             "increased if no bucket found\n"
                         "* 'score': Select bucket with the highest bucket "
                         "score. The bucket score is determined by the "
-                        "bucket_score_strategy")
+                        "bucket_score_strategy\n"
+                        "* 'score-end': Start with the bucket with highest bucket "
+                            "score, and iterate through all subsequent buckets. \n")
     group.add_argument("--bucket_score_strategy", default="difference",
                         choices=['difference', 'heap', 'absolute', 'constant'],
                         help="Defines how buckets are scored for the "
@@ -544,6 +546,10 @@ def get_parser():
                         "* 'altsrc': This wrapper loads source sentences from "
                         "an alternative source.\n"
                         "            Options: altsrc_test\n"
+                        "* 'unkvocab': This wrapper explicitly excludes "
+                        "matching word indices higher than trg_vocab_size "
+                        "with UNK scores.\n"
+                        "             Options: trg_vocab_size\n"
                         "* 'word2char': Wraps word-level predictors when SGNMT"
                         " is running on character level.\n"
                         "            Options: word2char_map\n"

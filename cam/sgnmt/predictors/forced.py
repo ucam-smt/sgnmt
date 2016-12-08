@@ -39,7 +39,7 @@ class ForcedPredictor(Predictor):
         not in the target sentence have assigned probability 0 by
         this predictor.
         """
-        return NEG_INF
+        return posterior.get(utils.UNK_ID, NEG_INF)
     
     def predict_next(self):
         """Returns a dictionary with one entry and value 0 (=log 1). The
@@ -47,7 +47,8 @@ class ForcedPredictor(Predictor):
         target sentence has no more words) the end-of-sentence symbol.
         """
         if self.n_consumed < len(self.cur_trg_sentence):
-            return {self.cur_trg_sentence[self.n_consumed] : 0.0}
+            return {utils.EOS_ID : NEG_INF,
+                    self.cur_trg_sentence[self.n_consumed] : 0.0}
         else:
             return {utils.EOS_ID : 0.0}
     
@@ -70,7 +71,8 @@ class ForcedPredictor(Predictor):
             word (int): Next word to consume
         """
         if self.n_consumed < len(self.cur_trg_sentence):
-            if self.cur_trg_sentence[self.n_consumed] != word:
+            trg_word = self.cur_trg_sentence[self.n_consumed]
+            if trg_word != utils.UNK_ID and trg_word != word:
                 self.cur_trg_sentence = [] # Mismatch with our target sentence
             else:
                 self.n_consumed = self.n_consumed + 1
@@ -175,7 +177,7 @@ class ForcedLstPredictor(Predictor):
         """Return negative infinity unconditionally - words outside the
         n-best list are not possible according to this predictor.
         """
-        return NEG_INF
+        return posterior.get(utils.UNK_ID, NEG_INF)
     
     def predict_next(self):
         """Outputs 0.0 (i.e. prob=1) for all words for which there is 
@@ -190,11 +192,18 @@ class ForcedLstPredictor(Predictor):
         scores = {}
         hist_len = len(self.history)
         for sen_score,trg_sentence in self.cur_trg_sentences:
-            if trg_sentence[:hist_len] == self.history:
-                if len(trg_sentence) == hist_len:
+            sen_len = len(trg_sentence)
+            if sen_len < hist_len:
+                continue
+            hist = [self.history[i] if trg_sentence[i] != utils.UNK_ID else utils.UNK_ID
+                      for i in xrange(hist_len)] 
+            if trg_sentence[:hist_len] == hist:
+                if sen_len == hist_len:
                     scores[utils.EOS_ID] = sen_score
                 else:
                     scores[trg_sentence[hist_len]] = 0.0
+        if not utils.EOS_ID in scores:
+            scores[utils.EOS_ID] = NEG_INF
         return scores
     
     def initialize(self, src_sentence):
