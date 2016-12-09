@@ -709,7 +709,7 @@ def _print_shell_help():
 
 # THIS IS THE MAIN ENTRY POINT
 src_wmap = utils.load_src_wmap(args.src_wmap)
-trg_wmap = utils.load_src_wmap(args.trg_wmap)
+trg_wmap = utils.load_trg_wmap(args.trg_wmap)
 nmt_config = get_nmt_config(args)
 decoder = create_decoder(nmt_config)
 outputs = create_output_handlers(nmt_config, trg_wmap)

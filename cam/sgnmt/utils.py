@@ -195,8 +195,8 @@ def load_src_wmap(path):
     if not path:
         return {}
     with open(path) as f:
-        return dict(map(lambda w,i: (w, int(i)),
-                        line.strip().split(None, 1) for line in f))
+        return dict(map(lambda e: (e[0], int(e[1])),
+                        [line.strip().split(None, 1) for line in f]))
 
 
 def load_trg_wmap(path):
@@ -211,8 +211,8 @@ def load_trg_wmap(path):
     if not path:
         return {}
     with open(path) as f:
-        return dict(map(lambda w,i: (int(i), w),
-                        line.strip().split(None, 1) for line in f))
+        return dict(map(lambda e: (int(e[1]), e[0]),
+                        [line.strip().split(None, 1) for line in f]))
         
 
 def apply_src_wmap(seq, wmap):
