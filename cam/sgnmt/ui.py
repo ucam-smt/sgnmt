@@ -225,6 +225,7 @@ def get_parser():
     group.add_argument("--decoder", default="beam",
                         choices=['greedy',
                                  'beam',
+                                 'multisegbeam',
                                  'dfs',
                                  'restarting',
                                  'bow',
@@ -246,6 +247,8 @@ def get_parser():
                         "false.\n"
                         "* 'restarting': Like DFS but with better admissible "
                         "pruning behavior.\n"
+                        "* 'multisegbeam': Beam search for predictors with "
+                        "multiple tokenizations ([sub]word/char-levels).\n"
                         "* 'bow': Restarting decoder optimized for bag-of-words "
                         "problems.\n"
                         "* 'flip': This decoder works only for bag problems. "
@@ -329,6 +332,17 @@ def get_parser():
                         "--heuristic_predictors to 0,2 results in using nmt "
                         "and fst in the heuristics. Use 'all' to use all "
                         "predictors in the heuristics")
+    group.add_argument("--multiseg_tokenizations", default="",
+                        help="This argument must be used when the multisegbeam"
+                        " decoder is activated. For each predictor, it defines"
+                        " the tokenizations used for it (comma separated). If "
+                        "a path to a word map file is provided, the "
+                        "corresponding predictor is operating on the pure "
+                        "word level. The 'mixed:' prefix activates mixed "
+                        "word/character models according Wu et al. (2016). "
+                        "the 'eow': prefix assumes to find explicit </w>"
+                        "specifiers in the word maps which mark end of words. "
+                        "This is suitable for subword units, e.g. bpe.")
     group.add_argument("--cache_heuristic_estimates", default=True, type='bool',
                         help="Whether to cache heuristic future cost "
                         "estimates. This is especially useful with the greedy "

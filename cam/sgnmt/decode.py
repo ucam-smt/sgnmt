@@ -387,6 +387,12 @@ def create_decoder(nmt_config):
                               args.pure_heuristic_scores,
                               args.decoder_diversity_factor,
                               args.early_stopping)
+    elif args.decoder == "multisegbeam":
+        decoder = BOWDecoder(args,
+                             args.hypo_recombination,
+                             args.beam,
+                             args.multiseg_tokenizations,
+                             args.early_stopping)
     elif args.decoder == "dfs":
         decoder = DFSDecoder(args, 
                              args.early_stopping,

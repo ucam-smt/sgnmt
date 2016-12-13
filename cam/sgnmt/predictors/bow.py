@@ -314,7 +314,8 @@ class BagOfWordsSearchPredictor(BagOfWordsPredictor):
         self.pre_mode = False
     
     def predict_next(self):
-        """TODO
+        """If in ``pre_mode``, pass through to super class. Otherwise,
+        scan skeleton 
         """
         if self.pre_mode:
             return super(BagOfWordsSearchPredictor, self).predict_next()
@@ -328,6 +329,9 @@ class BagOfWordsSearchPredictor(BagOfWordsPredictor):
         return ret
     
     def initialize(self, src_sentence):
+        """If in ``pre_mode``, pass through to super class. Otherwise,
+        initialize skeleton. 
+        """
         if self.pre_mode:
             return super(BagOfWordsSearchPredictor, self).initialize(src_sentence)
         self.pre_mode = True
@@ -376,7 +380,8 @@ class BagOfWordsSearchPredictor(BagOfWordsPredictor):
         self.missing = {w: cnt for w, cnt in missing.iteritems() if cnt > 0}
         
     def consume(self, word):
-        """TODO
+        """Calls super class ``consume``. If not in ``pre_mode``,
+        update skeleton info. 
         
         Args:
             word (int): Next word to consume
@@ -393,24 +398,23 @@ class BagOfWordsSearchPredictor(BagOfWordsPredictor):
                 del self.missing[word]
     
     def get_state(self):
-        """State of this predictor is the current bag
-        TODO
+        """If in pre_mode, state of this predictor is the current bag
+        Otherwise, its the bag plus skeleton state
         """
         if self.pre_mode:
             return super(BagOfWordsSearchPredictor, self).get_state()
         return self.bag, self.skeleton_pos, self.missing
     
     def set_state(self, state):
-        """State of this predictor is the current bag
-        TODO
+        """If in pre_mode, state of this predictor is the current bag
+        Otherwise, its the bag plus skeleton state
         """
         if self.pre_mode:
             return super(BagOfWordsSearchPredictor, self).set_state(state)
         self.bag, self.skeleton_pos, self.missing = state
     
     def is_equal(self, state1, state2):
-        """Returns true if the bag is the same
-        TODO
+        """Returns true if the bag and the skeleton states are the same
         """
         if self.pre_mode:
             return super(BagOfWordsSearchPredictor, self).is_equal(state1, 

@@ -34,6 +34,8 @@ class Char2wordPredictor(Predictor):
     word which has not have an assigned word ID, it updates
     ``Char2wordPredictor.wmap`` with a new word. This word map is taken
     into account when the SGNMT option ``output_chars`` is activated.
+    
+    TODO Implement
     """
     
     def __init__(self, src_test, slave_predictor):
@@ -47,6 +49,7 @@ class Char2wordPredictor(Predictor):
         if isinstance(slave_predictor, UnboundedVocabularyPredictor):
             logging.fatal("char2word cannot wrap an unbounded "
                           "vocabulary predictor.")
+        raise NotImplementedError
     
     def initialize(self, src_sentence):
         """Pass through to slave predictor. The source sentence is not
