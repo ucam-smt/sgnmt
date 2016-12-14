@@ -638,6 +638,11 @@ def get_parser():
                        help="If this is greater than zero, add a coverage "
                        "penalization term following Googles NMT (Wu et al., "
                        "2016) to the NMT score.")
+    group.add_argument("--nmt_config", default="nmt.ini",
+                       help="Load config file(s) with parameters for nmt model")
+    group.add_argument("--nmt_path", default=None,
+                       help="Path to nmt model, format: ? (blocks), "
+                       "nmt/translate.ckpt (tensorflow)")
     
     # Length predictors
     group = parser.add_argument_group('Length predictor options')
@@ -788,6 +793,8 @@ def get_parser():
     group = parser.add_argument_group('(Neural) LM predictor options')
     group.add_argument("--srilm_path", default="lm/ngram.lm.gz",
                         help="Path to the ngram LM file in SRILM format")
+    group.add_argument("--srilm_convert_to_ln", default=False,
+                        help="Whether to convert srilm scores from log to ln.")
     group.add_argument("--nplm_path", default="nplm/nplm.gz",
                         help="Path to the NPLM language model")
     group.add_argument("--rnnlm_path", default="rnnlm/rnn.ckpt",
@@ -843,7 +850,7 @@ def get_parser():
                         help="Whether to normalize weights in RTNs. This "
                         "forces the weights on outgoing edges to sum up to 1. "
                         "Applicable to rtn predictor.")
-    
+
     # Adding arguments for overriding when using same predictor multiple times
     group = parser.add_argument_group('Override options')
     for n,w in [('2', 'second'), ('3', 'third'), ('4', '4-th'), ('5', '5-th'), 
@@ -857,6 +864,16 @@ def get_parser():
                         "configuration' except for the ones in this parameter. "
                         "Usage: --nmt_config%s 'save_to=train%s,enc_embed=400'"
                         % (w, w, n, n))
+        group.add_argument("--nmt_path%s" % n, default="",
+                           help="If the --predictors string contains more than "
+                           "one nmt predictor, you can specify the model path "
+                           "for the %s one with this parameter.")
+        group.add_argument("--nmt_engine%s" % n, default="",
+                           help="If the --predictors string contains more than "
+                           "one nmt predictor, you can specify the engine type "
+                           "for the %s one with this parameter.")
+        group.add_argument("--src_test%s" % n, default="",
+                        help="Overrides --src_test for the %s src" % w)
         group.add_argument("--altsrc_test%s" % n, default="",
                         help="Overrides --altsrc_test for the %s altsrc" % w)
         group.add_argument("--word2char_map%s" % n, default="",
@@ -875,13 +892,11 @@ def get_parser():
                         help="Overrides --ngramc_path for the %s ngramc" % w)
         group.add_argument("--ngramc_order%s" % n, default=0, type=int,
                         help="Overrides --ngramc_order for the %s ngramc" % w)
-
-    # Add tensorflow options
-    group = parser.add_argument_group('Tensorflow')
-    group.add_argument("--tensorflow_config", default="nmt.ini",
-                       help="Load config file(s) with parameters for tensorflow model(s)")
-    group.add_argument("--tensorflow_path", default=None,
-                       help="Path to tensorflow model(s), format: nmt/translate.ckpt")
+        group.add_argument("--rnnlm_path%s" % n, default="rnnlm/rnn.ckpt",
+                        help="Path to the %s RNNLM language model" % w)
+        group.add_argument("--rnnlm_config%s" % n, default="rnnlm.ini",
+                        help="Config for the %s RNNLM language model "
+                        "(config file or model name)" % w)
 
     # Add NMT model options
     group = parser.add_argument_group('Neural model configuration')

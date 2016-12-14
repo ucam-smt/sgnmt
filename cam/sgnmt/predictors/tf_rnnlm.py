@@ -11,11 +11,13 @@ NEG_INF = float("-inf")
 
 class TensorFlowRNNLMPredictor(Predictor):
     
-  def __init__(self, path, model_config):
+  def __init__(self, model_config, path, variable_prefix="model"):
     super(TensorFlowRNNLMPredictor, self).__init__()
     self.session = tf.Session()
 
-    self.model, config = rnnlm_model_utils.load_model(self.session, model_config, path, use_log_probs=True)
+    self.model, config = rnnlm_model_utils.load_model(self.session, model_config, path,
+                                                      use_log_probs=True,
+                                                      variable_prefix=variable_prefix)
     self.vocab_size = config.vocab_size
 
     self.input = [utils.EOS_ID]

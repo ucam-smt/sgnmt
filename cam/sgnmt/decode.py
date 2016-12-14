@@ -57,11 +57,10 @@ from cam.sgnmt.predictors.misc import IdxmapPredictor, UnboundedIdxmapPredictor,
     UnboundedAltsrcPredictor, AltsrcPredictor, Word2charPredictor
 from cam.sgnmt.predictors.misc import UnkCountPredictor
 from cam.sgnmt.predictors.ngram import SRILMPredictor
-from cam.sgnmt.predictors.tf_rnnlm import TensorFlowRNNLMPredictor
-from cam.sgnmt.tf.nmt import tf_get_nmt_predictor, \
-                             tf_get_nmt_vanilla_decoder
+from cam.sgnmt.tf.interface import tf_get_nmt_predictor, \
+                             tf_get_nmt_vanilla_decoder, \
+                             tf_get_rnnlm_predictor
 from cam.sgnmt.ui import get_args, get_parser, validate_args
-
 
 # Load configuration from command line arguments or configuration file
 args = get_args()
@@ -81,28 +80,11 @@ elif args.verbosity == 'error':
 
 validate_args(args)
 
-# Load NMT engine(s)
-engines = args.nmt_engine.split(',')
-get_nmt_predictors = []
-if len(engines) > 1:
-    logging.info("Found multiple nmt engines")
-    if args.decoder == "vanilla":
-        logging.fatal("Vanilla decoder currently not supported for multiple engines!")
-for engine in engines:
-    if engine == "blocks":
-        get_nmt_predictors.append(blocks_get_nmt_predictor)
-        get_nmt_vanilla_decoder = blocks_get_nmt_vanilla_decoder
-    elif engine == "tensorflow":
-        get_nmt_predictors.append(tf_get_nmt_predictor)
-        get_nmt_vanilla_decoder = tf_get_nmt_vanilla_decoder
-    elif args.nmt_engine != 'none':
-        logging.fatal("NMT engine %s is not supported (yet)!" % args.nmt_engine)
-
-# Prepare tensorflow config(s)
-tf_configs = [ config for config in args.tensorflow_config.split(',') ]
-tf_paths = None if not args.tensorflow_path else \
-  [ path for path in args.tensorflow_path.split(',') ]
-num_tf_models = len(tf_configs)
+# Set vanilla decoder
+if args.nmt_engine == 'blocks':
+    get_nmt_vanilla_decoder = blocks_get_nmt_vanilla_decoder
+elif args.nmt_engine == 'tensorflow':
+    get_nmt_vanilla_decoder = tf_get_nmt_vanilla_decoder
 
 # Support old scheme for reserved word indices
 if args.legacy_indexing:
@@ -201,6 +183,9 @@ def add_predictors(decoder, nmt_config):
     
     pred_weight = 1.0
     nmt_pred_count = 0
+    rnnlm_pred_count = 0
+    nmt_config, nmt_path, nmt_engine = args.nmt_config, args.nmt_path, args.nmt_engine
+    rnnlm_config, rnnlm_path, rnnlm_prefix = args.rnnlm_config, args.rnnlm_path, "model"
     try:
         for idx,pred in enumerate(preds): # Add predictors one by one
             wrappers = []
@@ -217,26 +202,36 @@ def add_predictors(decoder, nmt_config):
                     wrapper_weights = [1.0] * len(wrappers)
             elif weights:
                 pred_weight = float(weights[idx])
-                
+
             if pred == 'nmt' or pred == 'fnmt' or pred == 'anmt':
                 # Update NMT config in case --nmt_configX has been used
                 nmt_pred_count += 1
                 if nmt_pred_count > 1:
-                    add_config = getattr(args, "nmt_config%d" % nmt_pred_count)
-                    if add_config:
-                        for pair in add_config.split(","):
-                            (k,v) = pair.split("=", 1)
-                            nmt_config[k] = type(nmt_config[k])(v)            
+                    nmt_engine = getattr(args, "nmt_engine%d" % nmt_pred_count)
+                    if nmt_engine == 'blocks':
+                      add_config = getattr(args, "nmt_config%d" % nmt_pred_count)
+                      if add_config:
+                          for pair in add_config.split(","):
+                              (k,v) = pair.split("=", 1)
+                              nmt_config[k] = type(nmt_config[k])(v)
+                    elif nmt_engine == 'tensorflow':
+                        nmt_config = getattr(args, "nmt_config%d" % nmt_pred_count)
+                        nmt_path = getattr(args, "nmt_path%d" % nmt_pred_count)
+            if pred == 'rnnlm':
+                # Update RNNLM config in case --rnnlm_configX has been used
+                rnnlm_pred_count += 1
+                if rnnlm_pred_count > 1:
+                    rnnlm_config = getattr(args, "rnnlm_config%d" % rnnlm_pred_count)
+                    rnnlm_path = getattr(args, "rnnlm_path%d" % rnnlm_pred_count)
+                    rnnlm_prefix = "model%d" % rnnlm_pred_count
             # Create predictor instances for the string argument ``pred``
             if pred == "nmt":
-                get_nmt_predictor = get_nmt_predictors.pop(0)
-                engine = engines.pop(0)
-                if engine == "tensorflow":
-                  tf_nmt_config = tf_configs.pop(0)
-                  tf_path = None if not tf_paths else tf_paths.pop(0)
-                  p = get_nmt_predictor(args, tf_nmt_config, tf_path)
-                else:
-                  p = get_nmt_predictor(args, nmt_config)
+                if nmt_engine == 'blocks':
+                    p = blocks_get_nmt_predictor(args, nmt_config)
+                elif nmt_engine == 'tensorflow':
+                    p = tf_get_nmt_predictor(args, nmt_config, nmt_path)
+                elif nmt_engine != 'none':
+                    logging.fatal("NMT engine %s is not supported (yet)!" % nmt_engine)
             elif pred == "fst":
                 p = FstPredictor(_get_override_args("fst_path"),
                                  args.use_fst_weights,
@@ -288,11 +283,11 @@ def add_predictors(decoder, nmt_config):
                                  minimize_rtns=args.minimize_rtns,
                                  rmeps=args.remove_epsilon_in_rtns)
             elif pred == "srilm":
-                p = SRILMPredictor(args.srilm_path, args.srilm_order)
+                p = SRILMPredictor(args.srilm_path, args.srilm_order, args.srilm_convert_to_ln)
             elif pred == "nplm":
                 p = NPLMPredictor(args.nplm_path, args.normalize_nplm_probs)
             elif pred == "rnnlm":
-                p = TensorFlowRNNLMPredictor(args.rnnlm_path, args.rnnlm_config)
+                p = tf_get_rnnlm_predictor(rnnlm_config, rnnlm_path, rnnlm_prefix)
             elif pred == "lstm":
                 p = ChainerLstmPredictor(args.lstm_path)
             elif pred == "wc":
@@ -756,17 +751,23 @@ decoder = create_decoder(nmt_config)
 outputs = create_output_handlers(nmt_config)
 
 if args.input_method == 'file':
-    inputfiles = args.src_test.split(',')
-    if len(inputfiles) > 1:
-        logging.info("Found multiple input files")
+    # Check for additional input files
+    if getattr(args, "src_test2"):
+        inputfiles = [ args.src_test ]
+        while True:
+            inputfile = getattr(args, "src_test%d" % (len(inputfiles)+1), None)
+            if not inputfile:
+              break
+            inputfiles.append(inputfile)
+        # Read all input files
         inputs_tmp = [ [] for i in xrange(len(inputfiles)) ]
         for i in xrange(len(inputfiles)):
             with open(inputfiles[i]) as f:
                 for line in f:
                     inputs_tmp[i].append(line.strip().split())
+        # Gather multiple input sentences for each line
         inputs = []
         for i in xrange(len(inputs_tmp[0])):
-            # Gather multiple input sentences for each line
             input_lst = []
             for j in xrange(len(inputfiles)):
                 input_lst.append(inputs_tmp[j][i])
