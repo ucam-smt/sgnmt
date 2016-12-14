@@ -270,7 +270,7 @@ def add_predictors(decoder):
                                         args.ngramc_discount_factor)
             elif pred == "unkc":
                 p = UnkCountPredictor(
-                         args.src_vocab_size, 
+                         args.unkc_src_vocab_size, 
                          [float(l) for l in args.unk_count_lambdas.split(',')])
             elif pred == "length":
                 length_model_weights = [float(w) for w in 

@@ -747,6 +747,8 @@ def get_parser():
     group.add_argument("--ngramc_discount_factor", default=-1.0, type=float,
                        help="If this is non-negative, discount ngram counts "
                        "by this factor each time the ngram is consumed")
+    group.add_argument("--unkc_src_vocab_size", default=30003, type=int,
+                        help="Vocabulary size for the unkc predictor.")
 
     # Forced predictors
     group = parser.add_argument_group('Forced decoding predictor options')
