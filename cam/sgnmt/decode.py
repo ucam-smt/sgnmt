@@ -149,8 +149,9 @@ def _parse_config_param(field, default):
     direct settings such as 'param1=x,param2=y'
     """
     add_config = ui.parse_param_string(_get_override_args(field))
-    for (k,v) in add_config:
-        default[k] = type(default[k])(v)
+    for (k,v) in default.iteritems():
+        if k in add_config:
+            default[k] = type(v)(add_config[k])
     return default
 
 
@@ -198,7 +199,7 @@ def add_predictors(decoder):
                 pred_weight = float(weights[idx])
             # Create predictor instances for the string argument ``pred``
             if pred == "nmt":
-                p = get_nmt_predictor(args, _get_override_args("fst_path"),
+                p = get_nmt_predictor(args, _get_override_args("nmt_path"),
                                             _parse_config_param("nmt_config",
                                                                 get_default_nmt_config()))
             elif pred == "fst":

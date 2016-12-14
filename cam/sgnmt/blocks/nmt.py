@@ -33,7 +33,7 @@ def _add_sparse_feat_maps_to_config(nmt_config):
     return new_config
 
 
-def blocks_get_nmt_predictor(args, nmt_config):
+def blocks_get_nmt_predictor(args, nmt_path, nmt_config):
     """Get the Blocks NMT predictor. If a target sparse feature map is
     used, we create an unbounded vocabulary NMT predictor. Otherwise,
     the normal bounded NMT predictor is returned
@@ -49,6 +49,8 @@ def blocks_get_nmt_predictor(args, nmt_config):
         logging.fatal("Could not find Blocks!")
         return None
     nmt_config = _add_sparse_feat_maps_to_config(nmt_config)
+    if nmt_path:
+        nmt_config['saveto'] = nmt_path
     if nmt_config['trg_sparse_feat_map']:
         return BlocksUnboundedNMTPredictor(
                                     get_nmt_model_path(args.nmt_model_selector,
@@ -62,7 +64,7 @@ def blocks_get_nmt_predictor(args, nmt_config):
                               nmt_config)
 
 
-def blocks_get_nmt_vanilla_decoder(args, nmt_config):
+def blocks_get_nmt_vanilla_decoder(args, nmt_path, nmt_config):
     """Get the Blocks NMT vanilla decoder.
     
     Args:
@@ -76,6 +78,8 @@ def blocks_get_nmt_vanilla_decoder(args, nmt_config):
         logging.fatal("Could not find Blocks!")
         return None
     nmt_config = _add_sparse_feat_maps_to_config(nmt_config)
+    if nmt_path:
+        nmt_config['saveto'] = nmt_path
     return BlocksNMTVanillaDecoder(get_nmt_model_path(args.nmt_model_selector,
                                                       nmt_config),
 				                    nmt_config, args)

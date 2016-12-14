@@ -46,13 +46,21 @@ def parse_param_string(param):
     config files if specified in the string. If ``param`` points to a
     file, load this file with YAML.
     """
+    if not param:
+        return {}
     if os.path.isfile(param):
         param = "config_file=%s" % param
     config = {}
     for pair in param.strip().split(","):
         (k,v) = pair.split("=", 1)
         if k == 'config_file':
-            config.update(yaml.load(v))
+            if not YAML_AVAILABLE:
+                logging.fatal("Install PyYAML in order to use config files.")
+            else:
+                with open(v) as f:
+                    data = yaml.load(f)
+                    for config_file_key, config_file_value in data.items():
+                        config[config_file_key] = config_file_value
         else:
             config[k] = v
     return config
@@ -527,15 +535,14 @@ def get_parser():
                         "sizes differ among predictors, we fill in gaps with "
                         "predictor UNK scores.:\n\n"
                         "* 'nmt': neural machine translation predictor.\n"
-                        "         Options: see machine_translation."
-                        "configurations plus nmt_model_selector, "
-                        "cache_nmt_posteriors.\n"
+                        "         Options: nmt_config, nmt_path, gnmt_beta, "
+                        "nmt_model_selector, cache_nmt_posteriors.\n"
                         "* 'srilm': n-gram language model.\n"
                         "          Options: srilm_path, srilm_order\n"
                         "* 'nplm': neural n-gram language model (NPLM).\n"
                         "          Options: nplm_path, normalize_nplm_probs\n"
                         "* 'rnnlm': RNN language model based on TensorFlow.\n"
-                        "          Options: rnnlm_path\n"
+                        "          Options: rnnlm_config, rnnlm_path\n"
                         "* 'lstm': Pure lstm predictor (chainer-based).\n"
                         "          Options: lstm_path.\n"
                         "* 'forced': Forced decoding with one reference\n"
@@ -665,6 +672,10 @@ def get_parser():
                         "=1234,trg_vocab_size=2345'). Use 'config_file=' in "
                         "the parameter string to use configuration files "
                         "with the second method.")
+    group.add_argument("--nmt_path", default="",
+                        help="Defines the path to the NMT model. If empty, "
+                        "the model is loaded from the default location which "
+                        "depends on the NMT engine")
     group.add_argument("--nmt_engine", default="blocks",
                         choices=['none', 'blocks', 'tensorflow'],
                         help="NMT implementation which should be used. "
