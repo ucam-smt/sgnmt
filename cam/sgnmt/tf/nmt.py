@@ -12,7 +12,7 @@ try:
 except:
     TENSORFLOW_AVAILABLE = False
 
-def tf_get_nmt_predictor(args, nmt_config):
+def tf_get_nmt_predictor(args, nmt_path, nmt_config):
     """Get the TensorFlow NMT predictor.
     
     Args:
@@ -25,10 +25,10 @@ def tf_get_nmt_predictor(args, nmt_config):
     if not TENSORFLOW_AVAILABLE:
         logging.fatal("Could not find TensorFlow!")
         return None
-    return TensorFlowNMTPredictor(nmt_config)
+    return TensorFlowNMTPredictor(nmt_path, nmt_config)
 
 
-def tf_get_nmt_vanilla_decoder(args, nmt_config):
+def tf_get_nmt_vanilla_decoder(args, nmt_path, nmt_config):
     """Get the TensorFlow NMT vanilla decoder.
     
     Args:
@@ -41,4 +41,16 @@ def tf_get_nmt_vanilla_decoder(args, nmt_config):
     if not TENSORFLOW_AVAILABLE:
         logging.fatal("Could not find TensorFlow!")
         return None
-    return TensorFlowNMTVanillaDecoder(nmt_config)
+    return TensorFlowNMTVanillaDecoder(nmt_path, nmt_config)
+
+def tf_get_default_nmt_config():
+    """Get default NMT configuration. """
+    config = {}
+    # like in blocks.blocks_get_default_nmt_config
+    return config
+
+def tf_get_default_rnnlm_config():
+    """Get default RNNLM configuration. """
+    config = {}
+    # like in blocks.blocks_get_default_nmt_config
+    return config

@@ -44,7 +44,10 @@ from fuel.streams import DataStream
 
 from cam.sgnmt import utils
 from cam.sgnmt.blocks import stream
+from cam.sgnmt.blocks.checkpoint import CheckpointNMT, LoadNMT
 from cam.sgnmt.blocks.model import NMTModel
+from cam.sgnmt.blocks.nmt import blocks_get_default_nmt_config
+from cam.sgnmt.blocks.sampling import BleuValidator
 from cam.sgnmt.blocks.stream import ParallelSourceSwitchDataset, \
                                     ShuffledParallelSource, \
                                     ParallelTextFile, DummyParallelSource, \
@@ -52,9 +55,7 @@ from cam.sgnmt.blocks.stream import ParallelSourceSwitchDataset, \
                                     MergedParallelSource, \
                                     OldBacktranslatedParallelSource
 from cam.sgnmt.misc.sparse import FileBasedFeatMap
-from cam.sgnmt.ui import get_train_parser, get_nmt_config
-from cam.sgnmt.blocks.checkpoint import CheckpointNMT, LoadNMT
-from cam.sgnmt.blocks.sampling import BleuValidator
+from cam.sgnmt.ui import get_train_parser
 
 
 try:
@@ -144,7 +145,7 @@ def _get_dataset_with_mono(mono_data_integration='exp3s',
     trg_mono_sens = stream.load_sentences_from_file(trg_mono_data,
                                                     trg_vocab_size)
     
-    backtrans_config = get_nmt_config()
+    backtrans_config = blocks_get_default_nmt_config()
     if backtrans_nmt_config:
         for pair in backtrans_nmt_config.split(","):
             (k,v) = pair.split("=", 1)
@@ -415,7 +416,7 @@ parser = get_train_parser()
 args = parser.parse_args()
 
 # Get configuration
-configuration = get_nmt_config()
+configuration = blocks_get_default_nmt_config()
 for k in dir(args):
     if k in configuration:
         configuration[k] = getattr(args, k)

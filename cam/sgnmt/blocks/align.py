@@ -11,10 +11,11 @@ import pprint
 
 from cam.sgnmt.blocks.alignment.nam import align_with_nam
 from cam.sgnmt.blocks.alignment.nmt import align_with_nmt
+from cam.sgnmt.blocks.nmt import blocks_get_default_nmt_config
+from cam.sgnmt.misc.sparse import FileBasedFeatMap
 from cam.sgnmt.output import CSVAlignmentOutputHandler, \
     NPYAlignmentOutputHandler, TextAlignmentOutputHandler
-from cam.sgnmt.misc.sparse import FileBasedFeatMap
-from cam.sgnmt.ui import get_align_parser, get_nmt_config
+from cam.sgnmt.ui import get_align_parser
 
 
 logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s')
@@ -24,7 +25,7 @@ parser = get_align_parser()
 args = parser.parse_args()
 
 # Get configuration
-configuration = get_nmt_config()
+configuration = blocks_get_default_nmt_config()
 for k in dir(args):
     if k in configuration:
         configuration[k] = getattr(args, k)

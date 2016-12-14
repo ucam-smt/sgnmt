@@ -8,11 +8,11 @@ class TensorFlowNMTVanillaDecoder(Decoder):
     """TODO: Implement
     """
     
-    def __init__(self, config):
+    def __init__(self, path, config):
         """Set up the NMT model used by the decoder.
         
         Args:
-            nmt_model_path (string):  Path to the NMT model file (.npz)
+            path (string):  Path to the NMT model file (.npz)
             config (dict): NMT configuration
         """
         super(TensorFlowNMTVanillaDecoder, self).__init__()

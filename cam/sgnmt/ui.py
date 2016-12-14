@@ -5,6 +5,10 @@ files and command line arguments.
 
 import argparse
 import logging
+import os
+
+from cam.sgnmt.blocks.nmt import blocks_add_nmt_config
+
 
 YAML_AVAILABLE = True
 try:
@@ -35,6 +39,23 @@ def parse_args(parser):
             else:
                 arg_dict[key] = value
     return args
+
+
+def parse_param_string(param):
+    """Parses a parameter string such as 'param1=x,param2=y'. Loads 
+    config files if specified in the string. If ``param`` points to a
+    file, load this file with YAML.
+    """
+    if os.path.isfile(param):
+        param = "config_file=%s" % param
+    config = {}
+    for pair in param.strip().split(","):
+        (k,v) = pair.split("=", 1)
+        if k == 'config_file':
+            config.update(yaml.load(v))
+        else:
+            config[k] = v
+    return config
 
 
 def get_train_parser():
@@ -102,7 +123,7 @@ def get_train_parser():
                         help="NOT USED, just to prevent old code from breaking")
     parser.add_argument("--hook_samples", default=0, type=int,
                         help="NOT USED, just to prevent old code from breaking")
-    _add_nmt_config(parser)
+    blocks_add_nmt_config(parser)
     return parser
 
 
@@ -142,7 +163,7 @@ def get_align_parser():
                         "* 'npy': Alignment matrices in numpy's npy format\n"
                         "* 'align': Usual (Pharaoh) alignment format.\n")
     
-    _add_nmt_config(parser)
+    blocks_add_nmt_config(parser)
     return parser
 
 
@@ -637,6 +658,13 @@ def get_parser():
                         "length. Normally improves pure NMT decoding, but "
                         "degrades performance when combined with predictors "
                         "like fst or multiple NMT systems.")
+    group.add_argument("--nmt_config", default="",
+                        help="Defines the configuration of the NMT model. This "
+                        "can either point to a configuration file, or it can "
+                        "directly contain the parameters (e.g. 'src_vocab_size"
+                        "=1234,trg_vocab_size=2345'). Use 'config_file=' in "
+                        "the parameter string to use configuration files "
+                        "with the second method.")
     group.add_argument("--nmt_engine", default="blocks",
                         choices=['none', 'blocks', 'tensorflow'],
                         help="NMT implementation which should be used. "
@@ -820,6 +848,13 @@ def get_parser():
                         help="Path to the NPLM language model")
     group.add_argument("--rnnlm_path", default="rnnlm/rnnlm.gz",
                         help="Path to the RNNLM language model")
+    group.add_argument("--rnnlm_config", default="",
+                        help="Defines the configuration of the RNNLM model. This"
+                        " can either point to a configuration file, or it can "
+                        "directly contain the parameters (e.g. 'src_vocab_size"
+                        "=1234,trg_vocab_size=2345'). Use 'config_file=' in "
+                        "the parameter string to use configuration files "
+                        "with the second method.")
     group.add_argument("--lstm_path", default="chainer/model",
                         help="Path to the LSTM model (chainer)")
     group.add_argument("--srilm_order", default=5, type=int,
@@ -878,10 +913,18 @@ def get_parser():
                         help="If the --predictors string contains more than "
                         "one nmt predictor, you can specify the configuration "
                         "for the %s one with this parameter. The %s nmt "
-                        "predictor inherits all settings under 'Neural model "
-                        "configuration' except for the ones in this parameter. "
-                        "Usage: --nmt_config%s 'save_to=train%s,enc_embed=400'"
-                        % (w, w, n, n))
+                        "predictor inherits all previous settings except for "
+                        "the ones in this parameter." % (w, w))
+        group.add_argument("--rnnlm_config%s" % n,  default="",
+                        help="If the --predictors string contains more than "
+                        "one rnnlm predictor, you can specify the configuration "
+                        "for the %s one with this parameter. The %s rnnlm "
+                        "predictor inherits all previous settings except for "
+                        "the ones in this parameter." % (w, w))
+        group.add_argument("--nmt_path%s" % n, default="",
+                        help="Overrides --nmt_path for the %s nmt" % w)
+        group.add_argument("--rnnlm_path%s" % n, default="",
+                        help="Overrides --rnnlm_path for the %s nmt" % w)
         group.add_argument("--altsrc_test%s" % n, default="",
                         help="Overrides --altsrc_test for the %s altsrc" % w)
         group.add_argument("--word2char_map%s" % n, default="",
@@ -900,30 +943,7 @@ def get_parser():
                         help="Overrides --ngramc_path for the %s ngramc" % w)
         group.add_argument("--ngramc_order%s" % n, default=0, type=int,
                         help="Overrides --ngramc_order for the %s ngramc" % w)
-    
-    # Add NMT model options
-    group = parser.add_argument_group('Neural model configuration')
-    _add_nmt_config(group)
     return parser
-
-
-def _add_nmt_config(parser):
-    """Adds the nmt options to the command line configuration.
-    
-    Args:
-        parser (object): Parser or ArgumentGroup object
-    """
-    default_config = get_nmt_config()
-    nmt_help_texts = get_nmt_config_help()
-    for k in default_config:
-        arg_type = type(default_config[k])
-        if arg_type == bool:
-            arg_type = 'bool'
-        parser.add_argument(
-                    "--%s" % k,
-                    default=default_config[k],
-                    type=arg_type,
-                    help=nmt_help_texts[k])
 
 
 def get_args():
@@ -994,221 +1014,3 @@ def validate_args(args):
                      "search with early stopping have the same length. You "
                      "might want to disable early stopping.")
 
-
-def get_nmt_config():
-    """Get default NMT configuration. """
-    config = {}
-
-    # Model related -----------------------------------------------------------
-
-    # Sequences longer than this will be discarded
-    config['seq_len'] = 50
-
-    # Number of hidden units in encoder/decoder GRU
-    config['enc_nhids'] = 1000
-    config['dec_nhids'] = 1000
-
-    # Dimension of the word embedding matrix in encoder/decoder
-    config['enc_embed'] = 620
-    config['dec_embed'] = 620
-    
-    # Number of layers in encoder and decoder
-    config['enc_layers'] = 1
-    config['dec_layers'] = 1
-    
-    # Network layout
-    config['dec_readout_sources'] = "sfa"
-    config['dec_attention_sources'] = "s"
-    
-    config['enc_share_weights'] = True
-    config['dec_share_weights'] = True
-    
-    # Skip connections
-    config['enc_skip_connections'] = False
-    
-    # How to derive annotations from the encoder. Comma
-    # separated list of strategies.
-    # - 'direct': directly use encoder hidden state
-    # - 'hierarchical': Create higher level annotations with an 
-    #                   attentional RNN 
-    config['annotations'] = "direct"
-    
-    # Decoder initialisation
-    config['dec_init'] = "last"
-
-    # Where to save model, this corresponds to 'prefix' in groundhog
-    config['saveto'] = './train'
-    
-    # Attention
-    config['attention'] = 'content'
-    
-    # External memory structure
-    config['memory'] = 'none'
-    config['memory_size'] = 500
-
-    # Optimization related ----------------------------------------------------
-
-    # Batch size
-    config['batch_size'] = 80
-
-    # This many batches will be read ahead and sorted
-    config['sort_k_batches'] = 12
-
-    # Optimization step rule
-    config['step_rule'] = 'AdaDelta'
-
-    # Gradient clipping threshold
-    config['step_clipping'] = 1.
-
-    # Std of weight initialization
-    config['weight_scale'] = 0.01
-
-    # Regularization related --------------------------------------------------
-
-    # Weight noise flag for feed forward layers
-    config['weight_noise_ff'] = 0.0
-
-    # Weight noise flag for recurrent layers
-    config['weight_noise_rec'] = False
-
-    # Dropout ratio, applied only after readout maxout
-    config['dropout'] = 1.0
-
-    # Vocabulary/dataset related ----------------------------------------------
-
-    # Root directory for dataset
-    datadir = './data/'
-    scriptsdir = '../scripts/'
-
-    # Source and target datasets
-    config['src_data'] = datadir + 'train.ids.shuf.en'
-    config['trg_data'] = datadir + 'train.ids.shuf.fr'
-    
-    # Monolingual data (for use see --mono_data_integration
-    config['src_mono_data'] = datadir + 'mono.ids.en'
-    config['trg_mono_data'] = datadir + 'mono.ids.fr'
-
-    # Source and target vocabulary sizes, should include bos, eos, unk tokens
-    config['src_vocab_size'] = 30003
-    config['trg_vocab_size'] = 30003
-    
-    # Mapping files for using sparse feature word representations
-    config['src_sparse_feat_map'] = ""
-    config['trg_sparse_feat_map'] = ""
-
-    # Early stopping based on bleu related ------------------------------------
-
-    # Normalize cost according to sequence length after beam-search
-    config['normalized_bleu'] = True
-
-    # Bleu script that will be used (moses multi-perl in this case)
-    config['bleu_script'] = 'perl ' + scriptsdir + 'multi-bleu.perl %s <'
-
-    # Validation set source file
-    config['val_set'] = datadir + 'dev.ids.en'
-
-    # Validation set gold file
-    config['val_set_grndtruth'] = datadir + 'dev.ids.fr'
-
-    # Print validation output to file
-    config['output_val_set'] = True
-
-    # Validation output file
-    config['val_set_out'] = config['saveto'] + '/validation_out.txt'
-
-    # Beam-size
-    config['beam_size'] = 12
-
-    # Timing/monitoring related -----------------------------------------------
-
-    # Maximum number of updates
-    config['finish_after'] = 1000000
-
-    # Reload model from files if exist
-    config['reload'] = True
-
-    # Save model after this many updates
-    config['save_freq'] = 750
-
-    # Validate bleu after this many updates
-    config['bleu_val_freq'] = 6000
-
-    # Start bleu validation after this many updates
-    config['val_burn_in'] = 80000
-
-    # fs439: Blocks originally creates dumps of the entire main loop
-    # when the BLEU on the dev set improves. This, however, cannot be
-    # read to load parameters from, so we create BEST_BLEU_PARAMS*
-    # files instead. Set the following parameter to true if you still
-    # want to create the old style archives
-    config['store_full_main_loop'] = False
-    
-    # fs439: Fix embeddings when training
-    config['fix_embeddings'] = False
-
-    return config
-
-
-def get_nmt_config_help():
-    """Creates a dictionary with help text for the NMT configuration """
-
-    config = {}
-    config['seq_len'] = "Sequences longer than this will be discarded"
-    config['enc_nhids'] = "Number of hidden units in encoder GRU"
-    config['dec_nhids'] = "Number of hidden units in decoder GRU"
-    config['enc_embed'] = "Dimension of the word embedding matrix in encoder"
-    config['dec_embed'] = "Dimension of the word embedding matrix in decoder"
-    config['enc_layers'] = "Number of encoder layers"
-    config['dec_layers'] = "Number of decoder layers (NOT IMPLEMENTED for != 1)"
-    config['dec_readout_sources'] = "Sources used by readout network: f for " \
-                                    "feedback, s for decoder states, a for " \
-                                    "attention (context vector)"
-    config['dec_attention_sources'] = "Sources used by attention: f for " \
-                                      "feedback, s for decoder states"
-    config['enc_share_weights'] = "Whether to share weights in deep encoders"
-    config['dec_share_weights'] = "Whether to share weights in deep decoders"
-    config['enc_skip_connections'] = "Add skip connection in deep encoders"
-    config['annotations'] = "Annotation strategy (comma-separated): " \
-                            "direct, hierarchical"
-    config['dec_init'] = "Decoder state initialisation: last, average, constant"
-    config['attention'] = "Attention mechanism: none, content, nbest-<n>, " \
-                          "coverage-<n>, tree"
-    config['memory'] = 'External memory: none, stack'
-    config['memory_size'] = 'Size of external memory structure'
-    config['saveto'] = "Where to save model, same as 'prefix' in groundhog"
-    config['batch_size'] = "Batch size"
-    config['sort_k_batches'] = "This many batches will be read ahead and sorted"
-    config['step_rule'] = "Optimization step rule"
-    config['step_clipping'] = "Gradient clipping threshold"
-    config['weight_scale'] = "Std of weight initialization"
-    config['weight_noise_ff'] = "Weight noise flag for feed forward layers"
-    config['weight_noise_rec'] = "Weight noise flag for recurrent layers"
-    config['dropout'] = "Dropout ratio, applied only after readout maxout"
-    config['src_data'] = "Source dataset"
-    config['trg_data'] = "Target dataset"
-    config['src_mono_data'] = "Source language monolingual data (for use " \
-                              "see --mono_data_integration)"
-    config['trg_mono_data'] = "Target language monolingual data (for use " \
-                              "see --mono_data_integration)"
-    config['src_vocab_size'] = "Source vocab size, including special tokens"
-    config['trg_vocab_size'] = "Target vocab size, including special tokens"
-    config['src_sparse_feat_map'] = "Mapping files for using sparse feature " \
-                                    "word representations on the source side"
-    config['trg_sparse_feat_map'] = "Mapping files for using sparse feature " \
-                                    "word representations on the target side"
-    config['normalized_bleu'] = "Length normalization IN TRAINING"
-    config['bleu_script'] = "BLEU script used during training for model selection"
-    config['val_set'] = "Validation set source file"
-    config['val_set_grndtruth'] = "Validation set gold file"
-    config['output_val_set'] = "Print validation output to file"
-    config['val_set_out'] = "Validation output file"
-    config['beam_size'] = "Beam-size for decoding DURING TRAINING"
-    config['finish_after'] = "Maximum number of updates"
-    config['reload'] = "Reload model from files if exist"
-    config['save_freq'] = "Save model after this many updates"
-    config['bleu_val_freq'] = "Validate bleu after this many updates"
-    config['val_burn_in'] = "Start bleu validation after this many updates"
-    config['store_full_main_loop'] = "Old style archives (not recommended)"
-    config['fix_embeddings'] = "Fix embeddings during training"
-
-    return config

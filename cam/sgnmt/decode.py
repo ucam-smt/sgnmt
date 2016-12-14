@@ -15,7 +15,6 @@ module.
 
 import logging
 import os
-import pprint
 import sys
 import time
 import traceback
@@ -23,7 +22,8 @@ import traceback
 from cam.sgnmt import ui
 from cam.sgnmt import utils
 from cam.sgnmt.blocks.nmt import blocks_get_nmt_predictor, \
-                                 blocks_get_nmt_vanilla_decoder
+                                 blocks_get_nmt_vanilla_decoder, \
+    blocks_get_default_nmt_config
 from cam.sgnmt.decoding import core
 from cam.sgnmt.decoding.astar import AstarDecoder
 from cam.sgnmt.decoding.beam import BeamDecoder
@@ -61,7 +61,8 @@ from cam.sgnmt.predictors.ngram import SRILMPredictor
 from cam.sgnmt.predictors.tf_rnnlm import TensorFlowRNNLMPredictor
 from cam.sgnmt.predictors.tokenization import Word2charPredictor
 from cam.sgnmt.tf.nmt import tf_get_nmt_predictor, \
-                             tf_get_nmt_vanilla_decoder
+                             tf_get_nmt_vanilla_decoder, \
+    tf_get_default_nmt_config, tf_get_default_rnnlm_config
 from cam.sgnmt.ui import get_args, get_parser, validate_args
 
 
@@ -86,9 +87,11 @@ validate_args(args)
 # Load NMT engine
 if args.nmt_engine == 'blocks':
     get_nmt_predictor = blocks_get_nmt_predictor
+    get_default_nmt_config = blocks_get_default_nmt_config
     get_nmt_vanilla_decoder = blocks_get_nmt_vanilla_decoder
 elif args.nmt_engine == 'tensorflow':
     get_nmt_predictor = tf_get_nmt_predictor
+    get_default_nmt_config = tf_get_default_nmt_config
     get_nmt_vanilla_decoder = tf_get_nmt_vanilla_decoder
 elif args.nmt_engine != 'none':
     logging.fatal("NMT engine %s is not supported (yet)!" % args.nmt_engine)
@@ -112,28 +115,6 @@ if args.combination_scheme == 'bayesian':
         core.breakdown2score_partial = core.breakdown2score_bayesian
     else:
         core.breakdown2score_full = core.breakdown2score_bayesian  
-
-
-def get_nmt_config(args):
-    """Get the NMT model configuration array. This should correspond to
-    the settings during NMT training. See the module 
-    ``machine_translation.configurations.get_gnmt_config()`` for the 
-    default settings. Values can be overriden with values from the
-    ``args`` argument coming from command line arguments or a 
-    configuration file.
-    
-    Args:
-        args (object):  SGNMT configuration from ``ui.get_args()``
-    
-    Returns:
-        dict. NMT model configuration updated through ``args``
-    """
-    nmt_config = ui.get_nmt_config()
-    for k in dir(args):
-        if k in nmt_config:
-            nmt_config[k] = getattr(args, k)
-    logger.debug("Model options:\n{}".format(pprint.pformat(nmt_config)))
-    return nmt_config
 
 
 _override_args_cnts = {}
@@ -162,7 +143,18 @@ def _get_override_args(field):
     return default
 
 
-def add_predictors(decoder, nmt_config):
+def _parse_config_param(field, default):
+    """This method parses arguments which specify model configurations.
+    It can point directly to a configuration file, or it can contain
+    direct settings such as 'param1=x,param2=y'
+    """
+    add_config = ui.parse_param_string(_get_override_args(field))
+    for (k,v) in add_config:
+        default[k] = type(default[k])(v)
+    return default
+
+
+def add_predictors(decoder):
     """Adds all enabled predictors to the ``decoder``. This function 
     makes heavy use of the global ``args`` which contains the
     SGNMT configuration. Particularly, it reads out ``args.predictors``
@@ -173,7 +165,6 @@ def add_predictors(decoder, nmt_config):
         decoder (Decoder):  Decoding strategy, see ``create_decoder()``.
             This method will add predictors to this instance with
             ``add_predictor()``
-        nmt_config (dict):  NMT configuration, see ``get_nmt_config()``
     """
     preds = args.predictors.split(",")
     if not preds:
@@ -189,7 +180,6 @@ def add_predictors(decoder, nmt_config):
             return
     
     pred_weight = 1.0
-    nmt_pred_count = 0
     try:
         for idx,pred in enumerate(preds): # Add predictors one by one
             wrappers = []
@@ -206,19 +196,11 @@ def add_predictors(decoder, nmt_config):
                     wrapper_weights = [1.0] * len(wrappers)
             elif weights:
                 pred_weight = float(weights[idx])
-                
-            if pred == 'nmt' or pred == 'fnmt' or pred == 'anmt':
-                # Update NMT config in case --nmt_configX has been used
-                nmt_pred_count += 1
-                if nmt_pred_count > 1:
-                    add_config = getattr(args, "nmt_config%d" % nmt_pred_count)
-                    if add_config:
-                        for pair in add_config.split(","):
-                            (k,v) = pair.split("=", 1)
-                            nmt_config[k] = type(nmt_config[k])(v)            
             # Create predictor instances for the string argument ``pred``
             if pred == "nmt":
-                p = get_nmt_predictor(args, nmt_config)
+                p = get_nmt_predictor(args, _get_override_args("fst_path"),
+                                            _parse_config_param("nmt_config",
+                                                                get_default_nmt_config()))
             elif pred == "fst":
                 p = FstPredictor(_get_override_args("fst_path"),
                                  args.use_fst_weights,
@@ -274,7 +256,10 @@ def add_predictors(decoder, nmt_config):
             elif pred == "nplm":
                 p = NPLMPredictor(args.nplm_path, args.normalize_nplm_probs)
             elif pred == "rnnlm":
-                p = TensorFlowRNNLMPredictor(args.rnnlm_path)
+                p = TensorFlowRNNLMPredictor(_get_override_args("rnnlm_path"),
+                                            _parse_config_param(
+                                                "rnnlm_config",
+                                                tf_get_default_rnnlm_config()))
             elif pred == "lstm":
                 p = ChainerLstmPredictor(args.lstm_path)
             elif pred == "wc":
@@ -364,15 +349,12 @@ def add_predictors(decoder, nmt_config):
         decoder.remove_predictors()
 
 
-def create_decoder(nmt_config):
+def create_decoder():
     """Creates the ``Decoder`` instance. This specifies the search 
     strategy used to traverse the space spanned by the predictors. This
     method relies on the global ``args`` variable.
     
     TODO: Refactor to avoid long argument lists
-    
-    Args:
-        nmt_config (dict):  NMT configuration, see ``get_nmt_config()``
     
     Returns:
         Decoder. Instance of the search strategy
@@ -444,12 +426,15 @@ def create_decoder(nmt_config):
                                args.early_stopping,
                                max(1, args.nbest))
     elif args.decoder == "vanilla":
-        decoder = get_nmt_vanilla_decoder(args, nmt_config)
+        decoder = get_nmt_vanilla_decoder(args,
+                                          _parse_config_param(
+                                                    "nmt_config",
+                                                    get_default_nmt_config()))
         args.predictors = "vanilla"
     else:
         logging.fatal("Decoder %s not available. Please double-check the "
                       "--decoder parameter." % args.decoder)
-    add_predictors(decoder, nmt_config)
+    add_predictors(decoder)
     
     # Add heuristics for search strategies like A*
     if args.heuristics:
@@ -494,14 +479,13 @@ def add_heuristics(decoder):
                           "the --heuristics parameter." % name)
 
 
-def create_output_handlers(nmt_config, trg_wmap):
+def create_output_handlers(trg_wmap):
     """Creates the output handlers defined in the ``io`` module. 
     These handlers create output files in different formats from the
     decoding results. This method reads out the global variable
     ``args.outputs``.
     
     Args:
-        nmt_config (dict):  NMT configuration, see ``get_nmt_config()``
         trg_wmap (dict): Target language word map
     
     Returns:
@@ -539,7 +523,7 @@ def create_output_handlers(nmt_config, trg_wmap):
     return outputs
 
 
-def update_decoder(decoder, key, val, nmt_config):
+def update_decoder(decoder, key, val):
     """This method is called on a configuration update in an interactive 
     (stdin or shell) mode. It tries to update the decoder such that it 
     realizes the new configuration specified by key and val without
@@ -552,7 +536,6 @@ def update_decoder(decoder, key, val, nmt_config):
         decoder (Decoder):  Current decoder instance
         key (string):  Parameter name to update
         val (string):  New parameter value
-        nmt_config (dict):  NMT configuration, see ``get_nmt_config()``
     
     Returns:
         Decoder. Returns an updated decoder instance
@@ -580,7 +563,7 @@ def update_decoder(decoder, key, val, nmt_config):
                                            float(weight))
     else:
         logging.info("Need to rebuild the decoder from scratch...")
-        decoder = create_decoder(nmt_config)
+        decoder = create_decoder()
     return decoder
 
 
@@ -717,9 +700,8 @@ def _print_shell_help():
 # THIS IS THE MAIN ENTRY POINT
 src_wmap = utils.load_src_wmap(args.src_wmap)
 trg_wmap = utils.load_trg_wmap(args.trg_wmap)
-nmt_config = get_nmt_config(args)
-decoder = create_decoder(nmt_config)
-outputs = create_output_handlers(nmt_config, trg_wmap)
+decoder = create_decoder()
+outputs = create_output_handlers(trg_wmap)
 
 if args.input_method == 'file':
     with open(args.src_test) as f:
@@ -772,12 +754,10 @@ else: # Interactive mode: shell or stdin
                     elif len(input_) >= 4:
                         key,val = (input_[2], ' '.join(input_[3:]))
                         setattr(args, key, val) # TODO: non-string args!
-                        nmt_config = get_nmt_config(args)
-                        outputs = create_output_handlers(nmt_config)
+                        outputs = create_output_handlers(trg_wmap)
                         if not key in ['outputs', 'output_path']:
                             decoder = update_decoder(decoder,
-                                                     key, val,
-                                                     nmt_config)
+                                                     key, val)
                     else:
                         logging.error("Could not parse SGNMT directive")
                 else:
