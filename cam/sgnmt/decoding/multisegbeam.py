@@ -4,16 +4,74 @@ tokenizations.
 from abc import abstractmethod
 import copy
 import heapq
-from imaplib import Continuation
 import logging
 
 from cam.sgnmt import utils
 from cam.sgnmt.decoding.core import Decoder, PartialHypothesis
-from toolz.itertoolz import rest
 
 
 def is_key_complete(key):
-    return key[-1] == ' '
+    return key and key[-1] == ' '
+
+
+class WordMapper(object):
+    """This class is responsible for the mapping between keys and word
+    IDs. The multiseg beam search can produce words which are not in 
+    the original word map. This mapper adds these words to 
+   ``utils.trg_wmap``.
+    """
+    singleton = None
+
+    @staticmethod
+    def get_singleton():
+        if not WordMapper.singleton:
+            WordMapper.singleton = WordMapper()
+        return WordMapper.singleton
+
+    def __init__(self):
+        """Creates a new mapper instance and synchronizes it with
+        ``utils.trg_wmap``.
+        """
+        self.max_word_id = 3
+        self.wmap_len = 0
+        self.key2id = {}
+        self.synchronize()
+        self.reserved_keys = {'<unk> ': utils.UNK_ID,
+                              '<eps> ': utils.UNK_ID,
+                              '<epsilon> ': utils.UNK_ID,
+                              '<s> ': utils.GO_ID,
+                              '</s> ': utils.EOS_ID}
+
+    def synchronize(self):
+        """Synchronizes the internal state of this mapper with
+        ``utils.trg_wmap``. This includes updating the reverse lookup
+        table and finding the lowest free word ID which can be assigned
+        to new words. 
+        """
+        if self.wmap_len == len(utils.trg_wmap):
+            return
+        self.key2id = {}
+        self.max_word_id = 3
+        for word_id, key in utils.trg_wmap.iteritems():
+            self.max_word_id = max(self.max_word_id, word_id)
+            self.key2id["%s " % key] = word_id
+        self.wmap_len = len(utils.trg_wmap)
+
+    def get_word_id(self, key):
+        """Finds a word ID for the given key. If no such key is in the
+        current word map, create a new entry in ``utils.trg_wmap``.
+        """
+        if not key:
+            return utils.UNK_ID
+        if key in self.reserved_keys:
+            return self.reserved_keys[key]
+        self.synchronize()
+        if key in self.key2id:
+            return self.key2id[key]
+        self.max_word_id += 1
+        utils.trg_wmap[self.max_word_id] = key[:-1]
+        self.wmap_len += 1
+        return self.max_word_id
 
 
 class Tokenizer(object):
@@ -59,7 +117,7 @@ class WordTokenizer(Tokenizer):
         self.key2id = {}
         with open(path) as f:
             for line in f:
-                word_id, key = line.strip().split()
+                key, word_id = line.strip().split()
                 self.id2key[int(word_id)] = "%s " % key
                 self.key2id["%s " % key] = int(word_id)
     
@@ -82,7 +140,7 @@ class EOWTokenizer(Tokenizer):
         self.key2id = {}
         with open(path) as f:
             for line in f:
-                word_id, key = line.strip().split()
+                key, word_id = line.strip().split()
                 if key[-4:] == "</w>":
                     key = "%s " % key[:-4]
                 self.id2key[int(word_id)] = key
@@ -127,7 +185,7 @@ class MixedTokenizer(Tokenizer):
         self.id2key = {}
         with open(path) as f:
             for line in f:
-                token_id, key = line.strip().split()
+                key, token_id = line.strip().split()
                 if key[-3:] == "<b>":
                     key = key[:-3]
                     self.b_key2id[key] = int(token_id)
@@ -175,7 +233,7 @@ class PredictorStub(object):
         self.tokens = tokens
         self.pred_state = pred_state
         self.score = 0.0
-        self.score_pos += 1
+        self.score_pos = 0
     
     def has_full_score(self):
         """Returns true if the full token sequence has been scored with
@@ -276,10 +334,11 @@ class Continuation(object):
             p.consume(self.pred_stubs[idx].tokens[-1])
             score_breakdown.append((self.pred_stubs[idx].score, w))
             pred_weights.append(w)
-        return self.parent_hypo.expand(self.word,
-                                       decoder.get_predictor_states(),
-                                       self.calculate_score(pred_weights),
-                                       score_breakdown)
+        return self.parent_hypo.expand(
+                              WordMapper.get_singleton().get_word_id(self.key),
+                              decoder.get_predictor_states(),
+                              self.calculate_score(pred_weights),
+                              score_breakdown)
     
     def expand(self, decoder):
         for pidx,(p, _) in enumerate(decoder.predictors):
@@ -335,6 +394,8 @@ class MultisegBeamDecoder(Decoder):
         self.beam_size = beam_size
         self.stop_criterion = self._best_eos if early_stopping else self._all_eos
         self.toks = []
+        if not tokenizations:
+            logging.fatal("Specify --multiseg_tokenizations!")
         for tok_config in tokenizations.split(","):
             if tok_config[:6] == "mixed:":
                 tok = MixedTokenizer(tok_config[6:])
@@ -388,6 +449,7 @@ class MultisegBeamDecoder(Decoder):
         return hypos[:self.beam_size]
     
     def _get_word_initial_posteriors(self, hypo):
+        self.apply_predictors_count += 1
         self.set_predictor_states(hypo.predictor_states)
         posteriors = []
         for p, _ in self.predictors:
@@ -395,11 +457,23 @@ class MultisegBeamDecoder(Decoder):
             posterior[utils.UNK_ID] = p.get_unk_probability(posterior) 
             posteriors.append(posterior)
         return posteriors
+
+    def _get_initial_stubs(self, predictor, start_posterior, min_score):
+        stubs = []
+        pred_state = predictor.get_state()
+        for t, s in utils.common_iterable(start_posterior):
+            stub = PredictorStub([t], pred_state)
+            stub.score_next(s)
+            if stub.score >= min_score:
+                stubs.append(stub)
+        stubs.sort(key=lambda s: s.score, reverse=True)
+        return stubs
     
     def _search_full_words(self, predictor, start_posterior, tok, min_score):
-        best_key = ""
-        stubs = []
+        stubs = self._get_initial_stubs(predictor, start_posterior, min_score)
+        best_key = tok.tokens2key(stubs[0].tokens) if stubs else " "
         while not is_key_complete(best_key):
+            print("stubs: %d" % len(stubs))
             next_stubs = []
             for stub in stubs[:self.beam_size]:
                 if is_key_complete(tok.tokens2key(stub.tokens)):
@@ -436,7 +510,7 @@ class MultisegBeamDecoder(Decoder):
         start_posteriors = self._get_word_initial_posteriors(hypo)
         pred_states = self.get_predictor_states()
         keys = {}
-        for pidx, (p,w) in self.predictors:
+        for pidx, (p,w) in enumerate(self.predictors):
             key2stub = self._search_full_words(p,
                                                start_posteriors[pidx],
                                                self.toks[pidx],
@@ -451,13 +525,14 @@ class MultisegBeamDecoder(Decoder):
         # Fill in stubs which are set to None
         for cont in keys.itervalues():
             for pidx in xrange(len(self.predictors)):
-                if cont.stubs[pidx] is None:
+                if cont.pred_stubs[pidx] is None:
                     stub = PredictorStub(self.toks[pidx].key2tokens(cont.key),
                                          pred_states[pidx])
                     stub.score_next(start_posteriors[pidx][stub.tokens[0]])
                     cont.stubs[pidx] = stub
         conts = [(-c.calculate_score(pred_weights), c) for c in keys.itervalues()]
         heapq.heapify(conts)
+        print("%d conts, min score %f" % (len(conts), min_score))
         # Iterate through conts, expand if necessary, yield if complete
         while conts:
             s,cont = heapq.heappop(conts)
@@ -475,6 +550,7 @@ class MultisegBeamDecoder(Decoder):
         guard_hypo.score = utils.NEG_INF
         it = 0
         while self.stop_criterion(hypos):
+            print("IT %d (%d hypos)" % (it, len(hypos)))
             if it > self.max_len: # prevent infinite loops
                 break
             it = it + 1

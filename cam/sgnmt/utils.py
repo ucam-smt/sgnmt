@@ -203,6 +203,7 @@ def load_src_wmap(path):
     global src_wmap
     if not path:
         src_wmap = {}
+        return src_wmap
     with open(path) as f:
         src_wmap = dict(map(lambda e: (e[0], int(e[1])),
                         [line.strip().split(None, 1) for line in f]))
@@ -221,6 +222,7 @@ def load_trg_wmap(path):
     global trg_wmap
     if not path:
         trg_wmap = {}
+        return trg_wmap
     with open(path) as f:
         trg_wmap = dict(map(lambda e: (int(e[1]), e[0]),
                         [line.strip().split(None, 1) for line in f]))
