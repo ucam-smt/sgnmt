@@ -106,6 +106,11 @@ class Tokenizer(object):
         """
         raise NotImplementedError
 
+    @abstractmethod
+    def is_word_begin_key(self, token):
+        """Returns true if ``token`` is only allowed at word begins. """
+        raise NotImplementedError
+
 
 class WordTokenizer(Tokenizer):
     """This tokenizer implements a purly word-level tokenization.
@@ -115,11 +120,19 @@ class WordTokenizer(Tokenizer):
     def __init__(self, path):
         self.id2key = {}
         self.key2id = {}
+        try:
+            split = path.split(":", 1)
+            max_id = int(split[0])
+            path = split[1]
+        except:
+            max_id = utils.INF
         with open(path) as f:
             for line in f:
-                key, word_id = line.strip().split()
-                self.id2key[int(word_id)] = "%s " % key
-                self.key2id["%s " % key] = int(word_id)
+                key, word_id_ = line.strip().split()
+                word_id = int(word_id_)
+                if word_id < max_id:
+                    self.id2key[word_id] = "%s " % key
+                    self.key2id["%s " % key] = word_id
     
     def key2tokens(self, key):
         return [self.key2id.get(key, utils.UNK_ID)]
@@ -128,6 +141,9 @@ class WordTokenizer(Tokenizer):
         if len(tokens) != 1:
             return ""
         return self.id2key.get(tokens[0], "")
+
+    def is_word_begin_key(self, token):
+        return True
 
 
 class EOWTokenizer(Tokenizer):
@@ -169,11 +185,14 @@ class EOWTokenizer(Tokenizer):
     def tokens2key(self, tokens):
         return ''.join([self.id2key.get(t, "") for t in tokens])
 
+    def is_word_begin_key(self, token):
+        return False
+
 
 class MixedTokenizer(Tokenizer):
     """This tokenizer allows to mix word- and character-level
     tokenizations like proposed by Wu et al. (2016). Words with
-    <b>, <m>, and <e> postfixes are treated as character-level
+    <b>, <m>, and <e> prefixes are treated as character-level
     tokens, all others are completed word-level tokens
     """
     
@@ -183,22 +202,26 @@ class MixedTokenizer(Tokenizer):
         self.m_key2id = {}
         self.e_key2id = {}
         self.id2key = {}
+        self.mid_tokens = {}
         with open(path) as f:
             for line in f:
-                key, token_id = line.strip().split()
-                if key[-3:] == "<b>":
-                    key = key[:-3]
-                    self.b_key2id[key] = int(token_id)
-                elif key[-3:] == "<m>":
-                    key = key[:-3]
-                    self.m_key2id[key] = int(token_id)
-                elif key[-3:] == "<e>":
-                    key = "%s " % key[:-3]
-                    self.e_key2id[key[:-1]] = int(token_id)
+                key, token_id_ = line.strip().split()
+                token_id = int(token_id_)
+                if key[:3] == "<b>":
+                    key = key[3:]
+                    self.b_key2id[key] = token_id
+                elif key[:3] == "<m>":
+                    key = key[3:]
+                    self.m_key2id[key] = token_id
+                    self.mid_tokens[token_id] = True
+                elif key[:3] == "<e>":
+                    key = "%s " % key[3:]
+                    self.e_key2id[key[:-1]] = token_id
+                    self.mid_tokens[token_id] = True
                 else:
                     key = "%s " % key
-                    self.word_key2id[key] = int(token_id)
-                self.id2key[int(token_id)] = key 
+                    self.word_key2id[key] = token_id
+                self.id2key[token_id] = key 
     
     def key2tokens(self, key):
         if not key:
@@ -214,6 +237,9 @@ class MixedTokenizer(Tokenizer):
     
     def tokens2key(self, tokens):
         return ''.join([self.id2key.get(t, "") for t in tokens])
+
+    def is_word_begin_key(self, token):
+        return not self.mid_tokens.get(token, False)
 
 
 class PredictorStub(object):
@@ -473,7 +499,6 @@ class MultisegBeamDecoder(Decoder):
         stubs = self._get_initial_stubs(predictor, start_posterior, min_score)
         best_key = tok.tokens2key(stubs[0].tokens) if stubs else " "
         while not is_key_complete(best_key):
-            print("stubs: %d" % len(stubs))
             next_stubs = []
             for stub in stubs[:self.beam_size]:
                 if is_key_complete(tok.tokens2key(stub.tokens)):
@@ -482,11 +507,12 @@ class MultisegBeamDecoder(Decoder):
                 predictor.set_state(copy.deepcopy(stub.pred_state))
                 predictor.consume(stub.tokens[-1])
                 posterior = predictor.predict_next()
-                pred_state = predictor.get_stat()
+                pred_state = predictor.get_state()
                 for t, s in utils.common_iterable(posterior):
-                    child_stub = stub.expand(t, s, pred_state)
-                    if child_stub.score >= min_score:
-                        next_stubs.append(child_stub)
+                    if not tok.is_word_begin_key(t):
+                        child_stub = stub.expand(t, s, pred_state)
+                        if child_stub.score >= min_score:
+                            next_stubs.append(child_stub)
             stubs = next_stubs
             stubs.sort(key=lambda s: s.score, reverse=True)
             best_key = tok.tokens2key(stubs[0].tokens) if stubs else " "
@@ -529,10 +555,9 @@ class MultisegBeamDecoder(Decoder):
                     stub = PredictorStub(self.toks[pidx].key2tokens(cont.key),
                                          pred_states[pidx])
                     stub.score_next(start_posteriors[pidx][stub.tokens[0]])
-                    cont.stubs[pidx] = stub
+                    cont.pred_stubs[pidx] = stub
         conts = [(-c.calculate_score(pred_weights), c) for c in keys.itervalues()]
         heapq.heapify(conts)
-        print("%d conts, min score %f" % (len(conts), min_score))
         # Iterate through conts, expand if necessary, yield if complete
         while conts:
             s,cont = heapq.heappop(conts)
@@ -550,7 +575,6 @@ class MultisegBeamDecoder(Decoder):
         guard_hypo.score = utils.NEG_INF
         it = 0
         while self.stop_criterion(hypos):
-            print("IT %d (%d hypos)" % (it, len(hypos)))
             if it > self.max_len: # prevent infinite loops
                 break
             it = it + 1
