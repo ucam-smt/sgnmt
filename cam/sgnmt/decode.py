@@ -237,9 +237,10 @@ def add_predictors(decoder):
                     get_default_nmt_config = tf_get_default_nmt_config
                 elif nmt_engine != 'none':
                     logging.fatal("NMT engine %s is not supported (yet)!" % nmt_engine)
-                p = get_nmt_predictor(args, _get_override_args("nmt_path"),
-                                            _parse_config_param("nmt_config",
-                                                                get_default_nmt_config()))
+                p = get_nmt_predictor(args, 
+                                      _get_override_args("nmt_path"),
+                                      _parse_config_param("nmt_config",
+                                                          get_default_nmt_config()))
             elif pred == "fst":
                 p = FstPredictor(_get_override_args("fst_path"),
                                  args.use_fst_weights,
@@ -291,7 +292,9 @@ def add_predictors(decoder):
                                  minimize_rtns=args.minimize_rtns,
                                  rmeps=args.remove_epsilon_in_rtns)
             elif pred == "srilm":
-                p = SRILMPredictor(args.srilm_path, args.srilm_order, args.srilm_convert_to_ln)
+                p = SRILMPredictor(args.srilm_path, 
+                                   args.srilm_order, 
+                                   args.srilm_convert_to_ln)
             elif pred == "nplm":
                 p = NPLMPredictor(args.nplm_path, args.normalize_nplm_probs)
             elif pred == "rnnlm":
@@ -364,7 +367,8 @@ def add_predictors(decoder):
                     decoder.remove_predictors()
                     return
             decoder.add_predictor(pred, p, pred_weight)
-            logging.info("Added predictor {} with weight {}".format(pred, pred_weight))
+            logging.info("Added predictor {} with weight {}".format(pred, 
+                                                                    pred_weight))
     except IOError as e:
         logging.fatal("One of the files required for setting up the "
                       "predictors could not be read: %s" % e)
@@ -680,11 +684,15 @@ def do_decode(decoder,
                 if isinstance(src[0], list):
                     src_lst = []
                     for idx in xrange(len(src)):
-                        logging.info("Next sentence, input %d (ID: %d): %s" % (idx, sen_idx+1, ' '.join(src[idx])))
+                        logging.info("Next sentence, input %d (ID: %d): %s" % (
+                                                           idx, 
+                                                           sen_idx + 1,
+                                                           ' '.join(src[idx])))
                         src_lst.append([int(x) for x in src[idx]])
                     src = src_lst
                 else:
-                    logging.info("Next sentence (ID: %d): %s" % (sen_idx+1, ' '.join(src)))
+                    logging.info("Next sentence (ID: %d): %s" % (sen_idx + 1, 
+                                                                 ' '.join(src)))
                     src = [int(x) for x in src]
             start_hypo_time = time.time()
             decoder.apply_predictors_count = 0
