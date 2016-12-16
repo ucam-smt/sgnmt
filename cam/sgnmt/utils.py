@@ -8,7 +8,7 @@ from abc import abstractmethod
 import numpy
 import operator
 from scipy.misc import logsumexp
-
+import codecs
 
 # Reserved IDs
 PAD_ID = None
@@ -204,7 +204,7 @@ def load_src_wmap(path):
     if not path:
         src_wmap = {}
         return src_wmap
-    with open(path) as f:
+    with codecs.open(path, encoding='utf-8') as f:
         src_wmap = dict(map(lambda e: (e[0], int(e[1])),
                         [line.strip().split(None, 1) for line in f]))
     return src_wmap
@@ -223,7 +223,7 @@ def load_trg_wmap(path):
     if not path:
         trg_wmap = {}
         return trg_wmap
-    with open(path) as f:
+    with codecs.open(path, encoding='utf-8') as f:
         trg_wmap = dict(map(lambda e: (int(e[1]), e[0]),
                         [line.strip().split(None, 1) for line in f]))
     return trg_wmap

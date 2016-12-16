@@ -5,6 +5,7 @@ from abc import abstractmethod
 import copy
 import heapq
 import logging
+import codecs
 
 from cam.sgnmt import utils
 from cam.sgnmt.decoding.core import Decoder, PartialHypothesis
@@ -70,6 +71,7 @@ class WordMapper(object):
             return self.key2id[key]
         self.max_word_id += 1
         utils.trg_wmap[self.max_word_id] = key[:-1]
+        self.key2id[key] = self.max_word_id
         self.wmap_len += 1
         return self.max_word_id
 
@@ -126,7 +128,7 @@ class WordTokenizer(Tokenizer):
             path = split[1]
         except:
             max_id = utils.INF
-        with open(path) as f:
+        with codecs.open(path, encoding='utf-8') as f:
             for line in f:
                 key, word_id_ = line.strip().split()
                 word_id = int(word_id_)
@@ -154,11 +156,13 @@ class EOWTokenizer(Tokenizer):
     def __init__(self, path):
         self.id2key = {}
         self.key2id = {}
-        with open(path) as f:
+        with codecs.open(path, encoding='utf-8') as f:
             for line in f:
                 key, word_id = line.strip().split()
-                if key[-4:] == "</w>":
+                if key[-4:] == "</w>": 
                     key = "%s " % key[:-4]
+                elif key in ['<s>', '</s>']:
+                    key = "%s " % key
                 self.id2key[int(word_id)] = key
                 self.key2id[key] = int(word_id)
     
@@ -186,7 +190,7 @@ class EOWTokenizer(Tokenizer):
         return ''.join([self.id2key.get(t, "") for t in tokens])
 
     def is_word_begin_key(self, token):
-        return False
+        return token in [utils.GO_ID, utils.EOS_ID]
 
 
 class MixedTokenizer(Tokenizer):
@@ -203,7 +207,7 @@ class MixedTokenizer(Tokenizer):
         self.e_key2id = {}
         self.id2key = {}
         self.mid_tokens = {}
-        with open(path) as f:
+        with codecs.open(path, encoding='utf-8') as f:
             for line in f:
                 key, token_id_ = line.strip().split()
                 token_id = int(token_id_)
@@ -360,11 +364,11 @@ class Continuation(object):
             p.consume(self.pred_stubs[idx].tokens[-1])
             score_breakdown.append((self.pred_stubs[idx].score, w))
             pred_weights.append(w)
-        return self.parent_hypo.expand(
-                              WordMapper.get_singleton().get_word_id(self.key),
-                              decoder.get_predictor_states(),
-                              self.calculate_score(pred_weights),
-                              score_breakdown)
+        word_id = WordMapper.get_singleton().get_word_id(self.key)
+        return self.parent_hypo.expand(word_id,
+                                       decoder.get_predictor_states(),
+                                       self.calculate_score(pred_weights),
+                                       score_breakdown)
     
     def expand(self, decoder):
         for pidx,(p, _) in enumerate(decoder.predictors):

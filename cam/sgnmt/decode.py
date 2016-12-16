@@ -1,3 +1,5 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
 """This is the main runner script for SGNMT decoding. 
 SGNMT can run in three different modes. The standard mode 'file' reads
 sentences to translate from a plain text file. The mode 'stdin' can be
@@ -65,6 +67,12 @@ from cam.sgnmt.tf.nmt import tf_get_nmt_predictor, \
     tf_get_default_nmt_config, tf_get_default_rnnlm_config
 from cam.sgnmt.ui import get_args, get_parser, validate_args
 
+# UTF-8 support
+import codecs
+if sys.version_info < (3, 0):
+  sys.stderr = codecs.getwriter('UTF-8')(sys.stderr)
+  sys.stdout = codecs.getwriter('UTF-8')(sys.stdout)
+  sys.stdin = codecs.getreader('UTF-8')(sys.stdin)
 
 # Load configuration from command line arguments or configuration file
 args = get_args()
@@ -170,7 +178,7 @@ def _load_trg_cmap(path):
     if not path:
         return None
     cmap = {}
-    with open(path) as f:
+    with codecs.open(path, encoding='utf-8') as f:
         for line in f:
             c,i = line.strip().split()
             cmap[c] = int(i)

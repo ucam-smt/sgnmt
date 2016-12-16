@@ -17,6 +17,7 @@ import errno
 import logging
 from cam.sgnmt import utils
 import numpy as np
+import codecs
 
 
 class OutputHandler(object):
@@ -52,7 +53,7 @@ class TextOutputHandler(OutputHandler):
         
     def write_hypos(self, all_hypos):
         """Writes the hypotheses in ``all_hypos`` to ``path`` """
-        with open(self.path, "w") as f:
+        with codecs.open(self.path, "w", encoding='utf-8') as f:
             for hypos in all_hypos:
                 f.write(utils.apply_trg_wmap(hypos[0].trgt_sentence, self.trg_wmap))
                 f.write("\n")
@@ -94,7 +95,7 @@ class NBestOutputHandler(OutputHandler):
         
     def write_hypos(self, all_hypos):
         """Writes the hypotheses in ``all_hypos`` to ``path`` """
-        with open(self.path, "w") as f:
+        with codecs.open(self.path, "w", encoding='utf-8') as f:
             n_predictors = len(self.predictor_names)
             idx = self.start_sen_id
             for hypos in all_hypos:

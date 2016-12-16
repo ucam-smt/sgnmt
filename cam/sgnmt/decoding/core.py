@@ -63,7 +63,9 @@ class Hypothesis:
         ctokens = []
         cscore_breakdown = []
         for idx,w in enumerate(self.trgt_sentence):
-            if w in utils.trg_wmap:
+            if w in [utils.GO_ID, utils.EOS_ID, utils.UNK_ID]:
+                chars = [w]
+            elif w in utils.trg_wmap:
                 chars = [cmap.get(c, utils.UNK_ID) for c in utils.trg_wmap[w]]
             else:
                 chars = [utils.UNK_ID]
