@@ -144,7 +144,7 @@ def _parse_config_param(field, default):
     for (k,v) in default.iteritems():
         if k in add_config:
             if type(v) is type(None):
-                default[k] = None
+                default[k] = add_config[k]
             else:
                 default[k] = type(v)(add_config[k])
     return default

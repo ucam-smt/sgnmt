@@ -29,15 +29,14 @@ def tf_get_nmt_predictor(args, nmt_path, nmt_config):
     return None
 
   logging.info("Loading tensorflow nmt predictor")
-  tf_config = nmt_config
   if os.path.isdir(nmt_path):
-    tf_config['train_dir'] = nmt_path
+    nmt_config['train_dir'] = nmt_path
   elif os.path.isfile(nmt_path):
-    tf_config['model_path'] = nmt_path
+    nmt_config['model_path'] = nmt_path
   global session
   if not session:
     session = tf.Session()
-  return TensorFlowNMTPredictor(args.cache_nmt_posteriors, tf_config, session)
+  return TensorFlowNMTPredictor(args.cache_nmt_posteriors, nmt_config, session)
 
 def tf_get_default_nmt_config():
     """Get default NMT configuration. """
