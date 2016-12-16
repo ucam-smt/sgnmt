@@ -60,11 +60,9 @@ from cam.sgnmt.predictors.misc import IdxmapPredictor, UnboundedIdxmapPredictor,
     UnboundedAltsrcPredictor, AltsrcPredictor, UnkvocabPredictor
 from cam.sgnmt.predictors.misc import UnkCountPredictor
 from cam.sgnmt.predictors.ngram import SRILMPredictor
-from cam.sgnmt.predictors.tf_rnnlm import TensorFlowRNNLMPredictor
 from cam.sgnmt.predictors.tokenization import Word2charPredictor
-from cam.sgnmt.tf.nmt import tf_get_nmt_predictor, \
-                             tf_get_nmt_vanilla_decoder, \
-    tf_get_default_nmt_config, tf_get_default_rnnlm_config
+from cam.sgnmt.tf.interface import tf_get_nmt_predictor, tf_get_nmt_vanilla_decoder, \
+    tf_get_rnnlm_predictor, tf_get_default_nmt_config, tf_get_rnnlm_prefix
 from cam.sgnmt.ui import get_args, get_parser, validate_args
 
 # UTF-8 support
@@ -92,17 +90,13 @@ elif args.verbosity == 'error':
 
 validate_args(args)
 
-# Load NMT engine
+# Set up vanilla decoder
 if args.nmt_engine == 'blocks':
-    get_nmt_predictor = blocks_get_nmt_predictor
     get_default_nmt_config = blocks_get_default_nmt_config
     get_nmt_vanilla_decoder = blocks_get_nmt_vanilla_decoder
 elif args.nmt_engine == 'tensorflow':
-    get_nmt_predictor = tf_get_nmt_predictor
     get_default_nmt_config = tf_get_default_nmt_config
     get_nmt_vanilla_decoder = tf_get_nmt_vanilla_decoder
-elif args.nmt_engine != 'none':
-    logging.fatal("NMT engine %s is not supported (yet)!" % args.nmt_engine)
 
 # Support old scheme for reserved word indices
 if args.legacy_indexing:
@@ -150,7 +144,6 @@ def _get_override_args(field):
     _override_args_cnts[field] = 1
     return default
 
-
 def _parse_config_param(field, default):
     """This method parses arguments which specify model configurations.
     It can point directly to a configuration file, or it can contain
@@ -159,7 +152,10 @@ def _parse_config_param(field, default):
     add_config = ui.parse_param_string(_get_override_args(field))
     for (k,v) in default.iteritems():
         if k in add_config:
-            default[k] = type(v)(add_config[k])
+            if type(v) is type(None):
+                default[k] = add_config[k]
+            else:
+                default[k] = type(v)(add_config[k])
     return default
 
 
@@ -229,8 +225,18 @@ def add_predictors(decoder):
                     wrapper_weights = [1.0] * len(wrappers)
             elif weights:
                 pred_weight = float(weights[idx])
+
             # Create predictor instances for the string argument ``pred``
             if pred == "nmt":
+                nmt_engine = _get_override_args("nmt_engine")
+                if nmt_engine == 'blocks':
+                    get_nmt_predictor = blocks_get_nmt_predictor
+                    get_default_nmt_config = blocks_get_default_nmt_config
+                elif nmt_engine == 'tensorflow':
+                    get_nmt_predictor = tf_get_nmt_predictor
+                    get_default_nmt_config = tf_get_default_nmt_config
+                elif nmt_engine != 'none':
+                    logging.fatal("NMT engine %s is not supported (yet)!" % nmt_engine)
                 p = get_nmt_predictor(args, _get_override_args("nmt_path"),
                                             _parse_config_param("nmt_config",
                                                                 get_default_nmt_config()))
@@ -285,14 +291,13 @@ def add_predictors(decoder):
                                  minimize_rtns=args.minimize_rtns,
                                  rmeps=args.remove_epsilon_in_rtns)
             elif pred == "srilm":
-                p = SRILMPredictor(args.srilm_path, args.srilm_order)
+                p = SRILMPredictor(args.srilm_path, args.srilm_order, args.srilm_convert_to_ln)
             elif pred == "nplm":
                 p = NPLMPredictor(args.nplm_path, args.normalize_nplm_probs)
             elif pred == "rnnlm":
-                p = TensorFlowRNNLMPredictor(_get_override_args("rnnlm_path"),
-                                            _parse_config_param(
-                                                "rnnlm_config",
-                                                tf_get_default_rnnlm_config()))
+                p = tf_get_rnnlm_predictor(_get_override_args("rnnlm_path"),
+                                           _get_override_args("rnnlm_config"),
+                                           tf_get_rnnlm_prefix())
             elif pred == "lstm":
                 p = ChainerLstmPredictor(args.lstm_path)
             elif pred == "wc":
@@ -359,6 +364,7 @@ def add_predictors(decoder):
                     decoder.remove_predictors()
                     return
             decoder.add_predictor(pred, p, pred_weight)
+            logging.info("Added predictor {} with weight {}".format(pred, pred_weight))
     except IOError as e:
         logging.fatal("One of the files required for setting up the "
                       "predictors could not be read: %s" % e)
@@ -369,7 +375,7 @@ def add_predictors(decoder):
                       "paths required for the predictors." % e)
         decoder.remove_predictors()
     except ValueError as e:
-        logging.fatal("A number format error while configuring the "
+        logging.fatal("A number format error occurred while configuring the "
                       "predictors: %s. Please double-check all integer- or "
                       "float-valued parameters such as --predictor_weights and"
                       " try again." % e)
@@ -627,6 +633,11 @@ def _get_sentence_indices(range_param, src_sentences):
         return []
     return xrange(len(src_sentences))
 
+def get_text_output_handler(output_handlers):
+    for output_handler in output_handlers:
+        if isinstance(output_handler, TextOutputHandler):
+            return output_handler
+    return None
 
 def do_decode(decoder, 
               output_handlers, 
@@ -656,6 +667,9 @@ def do_decode(decoder,
     start_time = time.time()
     logging.info("Start time: %s" % start_time)
     all_hypos = []
+    text_output_handler = get_text_output_handler(output_handlers)
+    if text_output_handler:
+        text_output_handler.open_file()
     for sen_idx in _get_sentence_indices(args.range, src_sentences):
         try:
             if src_sentences is False:
@@ -663,11 +677,23 @@ def do_decode(decoder,
                 logging.info("Next sentence (ID: %d)" % (sen_idx+1))
             else:
                 src = src_sentences[sen_idx]
-                logging.info("Next sentence (ID: %d): %s" % (sen_idx+1, 
-                                                         ' '.join(src)))
+                if isinstance(src[0], list):
+                    src_lst = []
+                    for idx in xrange(len(src)):
+                        logging.info("Next sentence, input %d (ID: %d): %s" % (idx, sen_idx+1, ' '.join(src[idx])))
+                        src_lst.append([int(x) for x in src[idx]])
+                    src = src_lst
+                else:
+                    logging.info("Next sentence (ID: %d): %s" % (sen_idx+1, ' '.join(src)))
+                    src = [int(x) for x in src]
             start_hypo_time = time.time()
             decoder.apply_predictors_count = 0
-            hypos = [hypo for hypo 
+            if isinstance(src[0], list):
+              # don't apply wordmap for multiple inputs
+              hypos = [hypo for hypo in decoder.decode(src)
+                            if hypo.total_score > args.min_score]
+            else:
+              hypos = [hypo for hypo
                         in decoder.decode(utils.apply_src_wmap(src, src_wmap))
                             if hypo.total_score > args.min_score]
             if not hypos:
@@ -677,6 +703,8 @@ def do_decode(decoder,
                          "time=%.2f" % (sen_idx+1,
                                         decoder.apply_predictors_count,
                                         time.time() - start_hypo_time))
+                if text_output_handler:
+                    text_output_handler.write_empty_line()
                 continue
             if args.remove_eos:
                 for hypo in hypos:
@@ -705,6 +733,13 @@ def do_decode(decoder,
                                         decoder.apply_predictors_count,
                                         time.time() - start_hypo_time))
             all_hypos.append(hypos)
+            try:
+              # Write text output as we go
+              if text_output_handler:
+                  text_output_handler.write_hypos([hypos])
+            except IOError as e:
+              logging.error("I/O error %d occurred when creating output files: %s"
+                            % (sys.exc_info()[0], e))
         except ValueError as e:
             logging.error("Number format error at sentence id %d: %s"
                       % (sen_idx+1, e))
@@ -715,13 +750,37 @@ def do_decode(decoder,
                                                        e,
                                                        traceback.format_exc()))
     try:
-        for output_handler in  output_handlers:
-            output_handler.write_hypos(all_hypos)
+        for output_handler in output_handlers:
+            if output_handler == text_output_handler:
+                output_handler.close_file()
+            else:
+                output_handler.write_hypos(all_hypos)
     except IOError as e:
         logging.error("I/O error %s occurred when creating output files: %s"
                       % (sys.exc_info()[0], e))
     logging.info("Decoding finished. Time: %.2f" % (time.time() - start_time))
 
+def process_inputs():
+    inputfiles = [ args.src_test ]
+    while True:
+        inputfile = getattr(args, "src_test%d" % (len(inputfiles)+1), None)
+        if not inputfile:
+            break
+        inputfiles.append(inputfile)
+    # Read all input files
+    inputs_tmp = [ [] for i in xrange(len(inputfiles)) ]
+    for i in xrange(len(inputfiles)):
+        with open(inputfiles[i]) as f:
+            for line in f:
+                inputs_tmp[i].append(line.strip().split())
+    # Gather multiple input sentences for each line
+    inputs = []
+    for i in xrange(len(inputs_tmp[0])):
+        input_lst = []
+        for j in xrange(len(inputfiles)):
+            input_lst.append(inputs_tmp[j][i])
+        inputs.append(input_lst)
+    return inputs
 
 def _print_shell_help():
     """Print help text for shell usage in interactive mode."""
@@ -748,7 +807,11 @@ decoder = create_decoder()
 outputs = create_output_handlers({} if trg_cmap else trg_wmap)
 
 if args.input_method == 'file':
-    with open(args.src_test) as f:
+    # Check for additional input files
+    if getattr(args, "src_test2"):
+        do_decode(decoder, outputs, process_inputs(), src_wmap, trg_wmap)
+    else:
+      with open(args.src_test) as f:
         do_decode(decoder,
                   outputs,
                   [line.strip().split() for line in f],

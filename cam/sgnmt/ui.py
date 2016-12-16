@@ -478,7 +478,7 @@ def get_parser():
                        "* The 'bucket' decoder reorders the hypotheses in a "
                        "bucket by penalizing hypotheses with the number of "
                        "expanded hypotheses from the same parent.")
-    
+
     ## Output options
     group = parser.add_argument_group('Output options')
     group.add_argument("--nbest", default=0, type=int,
@@ -711,7 +711,7 @@ def get_parser():
                        help="If this is greater than zero, add a coverage "
                        "penalization term following Googles NMT (Wu et al., "
                        "2016) to the NMT score.")
-    
+
     # Length predictors
     group = parser.add_argument_group('Length predictor options')
     group.add_argument("--src_test_raw", default="",
@@ -863,17 +863,20 @@ def get_parser():
     group = parser.add_argument_group('(Neural) LM predictor options')
     group.add_argument("--srilm_path", default="lm/ngram.lm.gz",
                         help="Path to the ngram LM file in SRILM format")
+    group.add_argument("--srilm_convert_to_ln", default=False,
+                        help="Whether to convert srilm scores from log to ln.")
     group.add_argument("--nplm_path", default="nplm/nplm.gz",
                         help="Path to the NPLM language model")
-    group.add_argument("--rnnlm_path", default="rnnlm/rnnlm.gz",
+    group.add_argument("--rnnlm_path", default="rnnlm/rnn.ckpt",
                         help="Path to the RNNLM language model")
-    group.add_argument("--rnnlm_config", default="",
+    group.add_argument("--rnnlm_config", default="rnnlm.ini",
                         help="Defines the configuration of the RNNLM model. This"
                         " can either point to a configuration file, or it can "
                         "directly contain the parameters (e.g. 'src_vocab_size"
                         "=1234,trg_vocab_size=2345'). Use 'config_file=' in "
                         "the parameter string to use configuration files "
-                        "with the second method.")
+                        "with the second method. Use 'model_name=X' in the "
+                        "parameter string to use one of the predefined models.")
     group.add_argument("--lstm_path", default="chainer/model",
                         help="Path to the LSTM model (chainer)")
     group.add_argument("--srilm_order", default=5, type=int,
@@ -922,7 +925,7 @@ def get_parser():
                         help="Whether to normalize weights in RTNs. This "
                         "forces the weights on outgoing edges to sum up to 1. "
                         "Applicable to rtn predictor.")
-    
+
     # Adding arguments for overriding when using same predictor multiple times
     group = parser.add_argument_group('Override options')
     for n,w in [('2', 'second'), ('3', 'third'), ('4', '4-th'), ('5', '5-th'), 
@@ -934,16 +937,20 @@ def get_parser():
                         "for the %s one with this parameter. The %s nmt "
                         "predictor inherits all previous settings except for "
                         "the ones in this parameter." % (w, w))
+        group.add_argument("--nmt_path%s" % n, default="",
+                        help="Overrides --nmt_path for the %s nmt" % w)
+        group.add_argument("--nmt_engine%s" % n, default="",
+                        help="Overrides --nmt_engine for the %s nmt" % w)                        
         group.add_argument("--rnnlm_config%s" % n,  default="",
                         help="If the --predictors string contains more than "
                         "one rnnlm predictor, you can specify the configuration "
                         "for the %s one with this parameter. The %s rnnlm "
                         "predictor inherits all previous settings except for "
                         "the ones in this parameter." % (w, w))
-        group.add_argument("--nmt_path%s" % n, default="",
-                        help="Overrides --nmt_path for the %s nmt" % w)
         group.add_argument("--rnnlm_path%s" % n, default="",
                         help="Overrides --rnnlm_path for the %s nmt" % w)
+        group.add_argument("--src_test%s" % n, default="",
+                        help="Overrides --src_test for the %s src" % w)                        
         group.add_argument("--altsrc_test%s" % n, default="",
                         help="Overrides --altsrc_test for the %s altsrc" % w)
         group.add_argument("--word2char_map%s" % n, default="",

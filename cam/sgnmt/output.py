@@ -40,7 +40,7 @@ class OutputHandler(object):
             IOError. If something goes wrong while writing to the disk
         """
         raise NotImplementedError
-    
+
 
 class TextOutputHandler(OutputHandler):
     """Writes the first best hypotheses to a plain text file """
@@ -53,11 +53,29 @@ class TextOutputHandler(OutputHandler):
         
     def write_hypos(self, all_hypos):
         """Writes the hypotheses in ``all_hypos`` to ``path`` """
-        with codecs.open(self.path, "w", encoding='utf-8') as f:
+        if self.f is not None:
+          for hypos in all_hypos:
+            self.f.write(utils.apply_trg_wmap(hypos[0].trgt_sentence, self.trg_wmap))
+            self.f.write("\n")
+            self.f.flush()
+        else:
+          with codecs.open(self.path, "w", encoding='utf-8') as f:
             for hypos in all_hypos:
-                f.write(utils.apply_trg_wmap(hypos[0].trgt_sentence, self.trg_wmap))
-                f.write("\n")
-  
+              f.write(utils.apply_trg_wmap(hypos[0].trgt_sentence, self.trg_wmap))
+              f.write("\n")
+              self.f.flush()
+
+    def open_file(self):
+      self.f = codecs.open(self.path, "w", encoding='utf-8')
+
+    def close_file(self):
+      self.f.close()
+
+    def write_empty_line(self):
+      if self.f is not None:
+         self.f.write("\n")
+         self.f.flush()
+    
                 
 class NBestOutputHandler(OutputHandler):
     """Produces a n-best file in Moses format. The third part of each 

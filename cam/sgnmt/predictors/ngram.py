@@ -10,6 +10,7 @@ https://github.com/desilinguist/swig-srilm
 
 from cam.sgnmt.predictors.core import UnboundedVocabularyPredictor
 from cam.sgnmt import utils
+import math
 
 try:
     # Requires swig-srilm
@@ -27,7 +28,7 @@ class SRILMPredictor(UnboundedVocabularyPredictor):
     representations.
     """
     
-    def __init__(self, path, ngram_order):
+    def __init__(self, path, ngram_order, convert_to_ln=False):
         """Creates a new n-gram language model predictor.
         
         Args:
@@ -42,6 +43,10 @@ class SRILMPredictor(UnboundedVocabularyPredictor):
         self.lm = initLM(ngram_order)
         readLM(self.lm, path)
         self.vocab_size = howManyNgrams(self.lm, 1)
+        self.convert_to_ln = convert_to_ln
+        if convert_to_ln:
+          import logging
+          logging.info("SRILM: Convert log scores to ln scores")
     
     def initialize(self, src_sentence):
         """Initializes the history with the start-of-sentence symbol.
@@ -62,10 +67,11 @@ class SRILMPredictor(UnboundedVocabularyPredictor):
         """
         prefix = "%s " % ' '.join(self.history)
         order = len(self.history) + 1
+        scaling_factor = math.log(10) if self.convert_to_ln else 1.0
         ret = {w: getNgramProb(
                         self.lm,
                         prefix + ("</s>" if w == utils.EOS_ID else str(w)),
-                        order) for w in words} 
+                        order) * scaling_factor for w in words}
         return ret
     
         

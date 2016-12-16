@@ -79,6 +79,7 @@ class BeamDecoder(Decoder):
         self.initialize_predictors(src_sentence)
         hypos = [PartialHypothesis(self.get_predictor_states())]
         it = 0
+        logging.info("beam=%i" % self.beam_size)
         while self.stop_criterion(hypos):
             if it > self.max_len: # prevent infinite loops
                 break
