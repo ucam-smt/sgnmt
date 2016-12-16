@@ -58,7 +58,6 @@ class BlocksNMTVanillaDecoder(Decoder):
         self.src_sparse_feat_map = self.config['src_sparse_feat_map'] \
                 if self.config['src_sparse_feat_map'] else FlatSparseFeatMap()
         if self.config['trg_sparse_feat_map']:
-            print("sparse trg")
             self.trg_sparse_feat_map = self.config['trg_sparse_feat_map']
             self.beam_search = SparseBeamSearch(
                                  samples=self.nmt_model.samples, 
@@ -89,7 +88,6 @@ class BlocksNMTVanillaDecoder(Decoder):
                 src_sentence,
                 self.config['src_vocab_size'])) + [self.src_eos]
         if self.src_sparse_feat_map.dim > 1: # sparse src feats
-            print("sparse src")
             input_ = np.transpose(
                             np.tile(seq, (self.config['beam_size'], 1, 1)),
                             (2,0,1))

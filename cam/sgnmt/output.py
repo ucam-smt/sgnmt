@@ -40,35 +40,29 @@ class OutputHandler(object):
         """
         raise NotImplementedError
     
-
 class TextOutputHandler(OutputHandler):
     """Writes the first best hypotheses to a plain text file """
     
-    def __init__(self, path):
+    def __init__(self, path, trg_wmap):
         """Creates a plain text output handler to write to ``path`` """
         super(TextOutputHandler, self).__init__()
         self.path = path
+        self.trg_wmap = trg_wmap
         
-    def write_hypos(self, all_hypos, trg_wmap=None):
+    def write_hypos(self, all_hypos):
         """Writes the hypotheses in ``all_hypos`` to ``path`` """
-        if trg_wmap is not None:
-          wmap = self.load_wmap(trg_wmap)
-          map_f = lambda x: wmap[x]
-        else:
-          map_f = lambda x: str(x)
-
         if self.f is not None:
           for hypos in all_hypos:
-            self.f.write(' '.join( map_f(w) for w in hypos[0].trgt_sentence))
+            self.f.write(utils.apply_trg_wmap(hypos[0].trgt_sentence, self.trg_wmap))
             self.f.write("\n")
             self.f.flush()
         else:
           with open(self.path, "w") as f:
             for hypos in all_hypos:
-              f.write(' '.join( map_f(w) for w in hypos[0].trgt_sentence))
+              f.write(utils.apply_trg_wmap(hypos[0].trgt_sentence, self.trg_wmap))
               f.write("\n")
               self.f.flush()
-  
+
     def open_file(self):
       self.f = open(self.path, "w")
 
@@ -79,11 +73,6 @@ class TextOutputHandler(OutputHandler):
       if self.f is not None:
          self.f.write("\n")
          self.f.flush()
-
-    def load_wmap(self, path):
-      with open(path) as f:
-        tmp = [ line.strip().split() for line in f ]
-        return dict( (int(tup[1]),tup[0]) for tup in tmp )
                 
 class NBestOutputHandler(OutputHandler):
     """Produces a n-best file in Moses format. The third part of each 
@@ -93,7 +82,7 @@ class NBestOutputHandler(OutputHandler):
     first sentence with 1 (e.g. in lattice directories or --range)
     """
     
-    def __init__(self, path, predictor_names, start_sen_id):
+    def __init__(self, path, predictor_names, start_sen_id, trg_wmap):
         """Creates a Moses n-best list output handler.
         
         Args:
@@ -102,10 +91,12 @@ class NBestOutputHandler(OutputHandler):
                              should be included in the score breakdown
                              in the n-best list
             start_sen_id: ID of the first sentence
+            trg_wmap (dict): (Inverse) word map for target language
         """
         super(NBestOutputHandler, self).__init__()
         self.path = path
         self.start_sen_id = start_sen_id
+        self.trg_wmap = trg_wmap
         self.predictor_names = []
         name_count = {}
         for name in predictor_names:
@@ -126,7 +117,8 @@ class NBestOutputHandler(OutputHandler):
                 for hypo in hypos:
                     f.write("%d ||| %s ||| %s ||| %f" %
                             (idx,
-                             ' '.join(str(w) for w in hypo.trgt_sentence),
+                             utils.apply_trg_wmap(hypo.trgt_sentence,
+                                                  self.trg_wmap),
                              ' '.join("%s= %f" % (
                                   self.predictor_names[i],
                                   sum([s[i][0] for s in hypo.score_breakdown]))

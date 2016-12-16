@@ -15,7 +15,6 @@ module.
 
 import logging
 import os
-import pprint
 import sys
 import time
 import traceback
@@ -23,7 +22,8 @@ import traceback
 from cam.sgnmt import ui
 from cam.sgnmt import utils
 from cam.sgnmt.blocks.nmt import blocks_get_nmt_predictor, \
-                                 blocks_get_nmt_vanilla_decoder
+                                 blocks_get_nmt_vanilla_decoder, \
+    blocks_get_default_nmt_config
 from cam.sgnmt.decoding import core
 from cam.sgnmt.decoding.astar import AstarDecoder
 from cam.sgnmt.decoding.beam import BeamDecoder
@@ -37,6 +37,7 @@ from cam.sgnmt.decoding.greedy import GreedyDecoder
 from cam.sgnmt.decoding.heuristics import GreedyHeuristic, \
                                          PredictorHeuristic, \
                                          ScorePerWordHeuristic, StatsHeuristic
+from cam.sgnmt.decoding.multisegbeam import MultisegBeamDecoder
 from cam.sgnmt.decoding.restarting import RestartingDecoder
 from cam.sgnmt.output import TextOutputHandler, \
                              NBestOutputHandler, \
@@ -54,12 +55,12 @@ from cam.sgnmt.predictors.grammar import RuleXtractPredictor
 from cam.sgnmt.predictors.length import WordCountPredictor, NBLengthPredictor, \
     ExternalLengthPredictor, NgramCountPredictor
 from cam.sgnmt.predictors.misc import IdxmapPredictor, UnboundedIdxmapPredictor, \
-    UnboundedAltsrcPredictor, AltsrcPredictor, Word2charPredictor
+    UnboundedAltsrcPredictor, AltsrcPredictor, UnkvocabPredictor
 from cam.sgnmt.predictors.misc import UnkCountPredictor
 from cam.sgnmt.predictors.ngram import SRILMPredictor
-from cam.sgnmt.tf.interface import tf_get_nmt_predictor, \
-                             tf_get_nmt_vanilla_decoder, \
-                             tf_get_rnnlm_predictor
+from cam.sgnmt.predictors.tokenization import Word2charPredictor
+from cam.sgnmt.tf.interface import tf_get_nmt_predictor, tf_get_nmt_vanilla_decoder, \
+    tf_get_rnnlm_predictor, tf_get_default_nmt_config, tf_get_rnnlm_prefix
 from cam.sgnmt.ui import get_args, get_parser, validate_args
 
 # Load configuration from command line arguments or configuration file
@@ -80,10 +81,12 @@ elif args.verbosity == 'error':
 
 validate_args(args)
 
-# Set vanilla decoder
+# Set up vanilla decoder
 if args.nmt_engine == 'blocks':
+    get_default_nmt_config = blocks_get_default_nmt_config
     get_nmt_vanilla_decoder = blocks_get_nmt_vanilla_decoder
 elif args.nmt_engine == 'tensorflow':
+    get_default_nmt_config = tf_get_default_nmt_config
     get_nmt_vanilla_decoder = tf_get_nmt_vanilla_decoder
 
 # Support old scheme for reserved word indices
@@ -105,28 +108,6 @@ if args.combination_scheme == 'bayesian':
         core.breakdown2score_partial = core.breakdown2score_bayesian
     else:
         core.breakdown2score_full = core.breakdown2score_bayesian  
-
-
-def get_nmt_config(args):
-    """Get the NMT model configuration array. This should correspond to
-    the settings during NMT training. See the module 
-    ``machine_translation.configurations.get_gnmt_config()`` for the 
-    default settings. Values can be overriden with values from the
-    ``args`` argument coming from command line arguments or a 
-    configuration file.
-    
-    Args:
-        args (object):  SGNMT configuration from ``ui.get_args()``
-    
-    Returns:
-        dict. NMT model configuration updated through ``args``
-    """
-    nmt_config = ui.get_nmt_config()
-    for k in dir(args):
-        if k in nmt_config:
-            nmt_config[k] = getattr(args, k)
-    logger.debug("Model options:\n{}".format(pprint.pformat(nmt_config)))
-    return nmt_config
 
 
 _override_args_cnts = {}
@@ -154,8 +135,22 @@ def _get_override_args(field):
     _override_args_cnts[field] = 1
     return default
 
+def _parse_config_param(field, default):
+    """This method parses arguments which specify model configurations.
+    It can point directly to a configuration file, or it can contain
+    direct settings such as 'param1=x,param2=y'
+    """
+    add_config = ui.parse_param_string(_get_override_args(field))
+    for (k,v) in default.iteritems():
+        if k in add_config:
+            if type(v) is type(None):
+                default[k] = None
+            else:
+                default[k] = type(v)(add_config[k])
+    return default
 
-def add_predictors(decoder, nmt_config):
+
+def add_predictors(decoder):
     """Adds all enabled predictors to the ``decoder``. This function 
     makes heavy use of the global ``args`` which contains the
     SGNMT configuration. Particularly, it reads out ``args.predictors``
@@ -166,7 +161,6 @@ def add_predictors(decoder, nmt_config):
         decoder (Decoder):  Decoding strategy, see ``create_decoder()``.
             This method will add predictors to this instance with
             ``add_predictor()``
-        nmt_config (dict):  NMT configuration, see ``get_nmt_config()``
     """
     preds = args.predictors.split(",")
     if not preds:
@@ -182,10 +176,6 @@ def add_predictors(decoder, nmt_config):
             return
     
     pred_weight = 1.0
-    nmt_pred_count = 0
-    rnnlm_pred_count = 0
-    nmt_config, nmt_path, nmt_engine = args.nmt_config, args.nmt_path, args.nmt_engine
-    rnnlm_config, rnnlm_path, rnnlm_prefix = args.rnnlm_config, args.rnnlm_path, "model"
     try:
         for idx,pred in enumerate(preds): # Add predictors one by one
             wrappers = []
@@ -203,35 +193,20 @@ def add_predictors(decoder, nmt_config):
             elif weights:
                 pred_weight = float(weights[idx])
 
-            if pred == 'nmt' or pred == 'fnmt' or pred == 'anmt':
-                # Update NMT config in case --nmt_configX has been used
-                nmt_pred_count += 1
-                if nmt_pred_count > 1:
-                    nmt_engine = getattr(args, "nmt_engine%d" % nmt_pred_count)
-                    if nmt_engine == 'blocks':
-                      add_config = getattr(args, "nmt_config%d" % nmt_pred_count)
-                      if add_config:
-                          for pair in add_config.split(","):
-                              (k,v) = pair.split("=", 1)
-                              nmt_config[k] = type(nmt_config[k])(v)
-                    elif nmt_engine == 'tensorflow':
-                        nmt_config = getattr(args, "nmt_config%d" % nmt_pred_count)
-                        nmt_path = getattr(args, "nmt_path%d" % nmt_pred_count)
-            if pred == 'rnnlm':
-                # Update RNNLM config in case --rnnlm_configX has been used
-                rnnlm_pred_count += 1
-                if rnnlm_pred_count > 1:
-                    rnnlm_config = getattr(args, "rnnlm_config%d" % rnnlm_pred_count)
-                    rnnlm_path = getattr(args, "rnnlm_path%d" % rnnlm_pred_count)
-                    rnnlm_prefix = "model%d" % rnnlm_pred_count
             # Create predictor instances for the string argument ``pred``
             if pred == "nmt":
+                nmt_engine = _get_override_args("nmt_engine")
                 if nmt_engine == 'blocks':
-                    p = blocks_get_nmt_predictor(args, nmt_config)
+                    get_nmt_predictor = blocks_get_nmt_predictor
+                    get_default_nmt_config = blocks_get_default_nmt_config
                 elif nmt_engine == 'tensorflow':
-                    p = tf_get_nmt_predictor(args, nmt_config, nmt_path)
+                    get_nmt_predictor = tf_get_nmt_predictor
+                    get_default_nmt_config = tf_get_default_nmt_config
                 elif nmt_engine != 'none':
                     logging.fatal("NMT engine %s is not supported (yet)!" % nmt_engine)
+                p = get_nmt_predictor(args, _get_override_args("nmt_path"),
+                                            _parse_config_param("nmt_config",
+                                                                get_default_nmt_config()))
             elif pred == "fst":
                 p = FstPredictor(_get_override_args("fst_path"),
                                  args.use_fst_weights,
@@ -287,7 +262,9 @@ def add_predictors(decoder, nmt_config):
             elif pred == "nplm":
                 p = NPLMPredictor(args.nplm_path, args.normalize_nplm_probs)
             elif pred == "rnnlm":
-                p = tf_get_rnnlm_predictor(rnnlm_config, rnnlm_path, rnnlm_prefix)
+                p = tf_get_rnnlm_predictor(_get_override_args("rnnlm_path"),
+                                           _get_override_args("rnnlm_config"),
+                                           tf_get_rnnlm_prefix())
             elif pred == "lstm":
                 p = ChainerLstmPredictor(args.lstm_path)
             elif pred == "wc":
@@ -298,7 +275,7 @@ def add_predictors(decoder, nmt_config):
                                         args.ngramc_discount_factor)
             elif pred == "unkc":
                 p = UnkCountPredictor(
-                         args.src_vocab_size, 
+                         args.unkc_src_vocab_size, 
                          [float(l) for l in args.unk_count_lambdas.split(',')])
             elif pred == "length":
                 length_model_weights = [float(w) for w in 
@@ -342,8 +319,11 @@ def add_predictors(decoder, nmt_config):
                         p = AltsrcPredictor(src_test, p)
                 elif wrapper == "word2char":
                     map_path = _get_override_args("word2char_map")
-                    # word2char is always unbounded predictors
+                    # word2char always wraps unbounded predictors
                     p = Word2charPredictor(map_path, p)
+                elif wrapper == "unkvocab":
+                    # unkvocab always wraps bounded predictors
+                    p = UnkvocabPredictor(args.trg_vocab_size, p)
                 else:
                     logging.fatal("Predictor wrapper '%s' not available. "
                                   "Please double-check --predictors for "
@@ -375,15 +355,12 @@ def add_predictors(decoder, nmt_config):
         decoder.remove_predictors()
 
 
-def create_decoder(nmt_config):
+def create_decoder():
     """Creates the ``Decoder`` instance. This specifies the search 
     strategy used to traverse the space spanned by the predictors. This
     method relies on the global ``args`` variable.
     
     TODO: Refactor to avoid long argument lists
-    
-    Args:
-        nmt_config (dict):  NMT configuration, see ``get_nmt_config()``
     
     Returns:
         Decoder. Instance of the search strategy
@@ -399,6 +376,12 @@ def create_decoder(nmt_config):
                               args.pure_heuristic_scores,
                               args.decoder_diversity_factor,
                               args.early_stopping)
+    elif args.decoder == "multisegbeam":
+        decoder = MultisegBeamDecoder(args,
+                                      args.hypo_recombination,
+                                      args.beam,
+                                      args.multiseg_tokenizations,
+                                      args.early_stopping)
     elif args.decoder == "dfs":
         decoder = DFSDecoder(args, 
                              args.early_stopping,
@@ -449,12 +432,15 @@ def create_decoder(nmt_config):
                                args.early_stopping,
                                max(1, args.nbest))
     elif args.decoder == "vanilla":
-        decoder = get_nmt_vanilla_decoder(args, nmt_config)
+        decoder = get_nmt_vanilla_decoder(args,
+                                          _parse_config_param(
+                                                    "nmt_config",
+                                                    get_default_nmt_config()))
         args.predictors = "vanilla"
     else:
         logging.fatal("Decoder %s not available. Please double-check the "
                       "--decoder parameter." % args.decoder)
-    add_predictors(decoder, nmt_config)
+    add_predictors(decoder)
     
     # Add heuristics for search strategies like A*
     if args.heuristics:
@@ -499,14 +485,14 @@ def add_heuristics(decoder):
                           "the --heuristics parameter." % name)
 
 
-def create_output_handlers(nmt_config):
+def create_output_handlers(trg_wmap):
     """Creates the output handlers defined in the ``io`` module. 
     These handlers create output files in different formats from the
     decoding results. This method reads out the global variable
     ``args.outputs``.
     
     Args:
-        nmt_config (dict):  NMT configuration, see ``get_nmt_config()``
+        trg_wmap (dict): Target language word map
     
     Returns:
         list. List of output handlers according --outputs
@@ -524,10 +510,11 @@ def create_output_handlers(nmt_config):
         else:
             path = args.output_path
         if name == "text":
-            outputs.append(TextOutputHandler(path))
+            outputs.append(TextOutputHandler(path, trg_wmap))
         elif name == "nbest":
             outputs.append(NBestOutputHandler(path, args.predictors.split(","),
-                                              start_sen_id))
+                                              start_sen_id,
+                                              trg_wmap))
         elif name == "fst":
             outputs.append(FSTOutputHandler(path,
                                             start_sen_id,
@@ -542,7 +529,7 @@ def create_output_handlers(nmt_config):
     return outputs
 
 
-def update_decoder(decoder, key, val, nmt_config):
+def update_decoder(decoder, key, val):
     """This method is called on a configuration update in an interactive 
     (stdin or shell) mode. It tries to update the decoder such that it 
     realizes the new configuration specified by key and val without
@@ -555,7 +542,6 @@ def update_decoder(decoder, key, val, nmt_config):
         decoder (Decoder):  Current decoder instance
         key (string):  Parameter name to update
         val (string):  New parameter value
-        nmt_config (dict):  NMT configuration, see ``get_nmt_config()``
     
     Returns:
         Decoder. Returns an updated decoder instance
@@ -583,7 +569,7 @@ def update_decoder(decoder, key, val, nmt_config):
                                            float(weight))
     else:
         logging.info("Need to rebuild the decoder from scratch...")
-        decoder = create_decoder(nmt_config)
+        decoder = create_decoder()
     return decoder
 
 
@@ -619,7 +605,7 @@ def get_text_output_handler(output_handlers):
             return output_handler
     return None
 
-def do_decode(decoder, output_handlers, src_sentences):
+def do_decode(decoder, output_handlers, src_sentences, src_wmap, trg_wmap):
     """This method contains the main decoding loop. It iterates through
     ``src_sentences`` and applies ``decoder.decode()`` to each of them.
     At the end, it calls the output handlers to create output files.
@@ -631,6 +617,8 @@ def do_decode(decoder, output_handlers, src_sentences):
         src_sentences (list):  A list of strings. The strings are the
                                source sentences with word indices to 
                                translate (e.g. '1 123 432 2')
+        src_wmap (dict): Word map to apply to the source sentences
+        trg_wmap (dict): Word map to apply to the target sentences
     """
     if not decoder.has_predictors():
         logging.fatal("Decoding cancelled because of an error in the "
@@ -660,8 +648,14 @@ def do_decode(decoder, output_handlers, src_sentences):
                     src = [int(x) for x in src]
             start_hypo_time = time.time()
             decoder.apply_predictors_count = 0
-            hypos = [hypo for hypo in decoder.decode(src)
-                                if hypo.total_score > args.min_score]
+            if isinstance(src[0], list):
+              # don't apply wordmap for multiple inputs
+              hypos = [hypo for hypo in decoder.decode(src)
+                            if hypo.total_score > args.min_score]
+            else:
+              hypos = [hypo for hypo
+                        in decoder.decode(utils.apply_src_wmap(src, src_wmap))
+                            if hypo.total_score > args.min_score]
             if not hypos:
                 logging.error("No translation found for ID %d!" % (sen_idx+1))
                 logging.info("Stats (ID: %d): score=<not-found> "
@@ -687,8 +681,8 @@ def do_decode(decoder, output_handlers, src_sentences):
                                                         hypo.score_breakdown)
                 hypos.sort(key=lambda hypo: hypo.total_score, reverse=True)
             logging.info("Decoded (ID: %d): %s" % (
-                            sen_idx+1,
-                            ' '.join(str(w) for w in hypos[0].trgt_sentence)))
+                    sen_idx+1,
+                    utils.apply_trg_wmap(hypos[0].trgt_sentence, trg_wmap)))
             logging.info("Stats (ID: %d): score=%f "
                          "num_expansions=%d "
                          "time=%.2f" % (sen_idx+1,
@@ -699,11 +693,7 @@ def do_decode(decoder, output_handlers, src_sentences):
             try:
               # Write text output as we go
               if text_output_handler:
-                  if args.trg_wmap:
-                      logging.info("Target word map={}".format(args.trg_wmap))
-                      text_output_handler.write_hypos([hypos], args.trg_wmap)
-                  else:
-                      text_output_handler.write_hypos([hypos])
+                  text_output_handler.write_hypos([hypos])
             except IOError as e:
               logging.error("I/O error %d occurred when creating output files: %s"
                             % (sys.exc_info()[0], e))
@@ -727,6 +717,27 @@ def do_decode(decoder, output_handlers, src_sentences):
                       % (sys.exc_info()[0], e))
     logging.info("Decoding finished. Time: %.2f" % (time.time() - start_time))
 
+def process_inputs():
+    inputfiles = [ args.src_test ]
+    while True:
+        inputfile = getattr(args, "src_test%d" % (len(inputfiles)+1), None)
+        if not inputfile:
+            break
+        inputfiles.append(inputfile)
+    # Read all input files
+    inputs_tmp = [ [] for i in xrange(len(inputfiles)) ]
+    for i in xrange(len(inputfiles)):
+        with open(inputfiles[i]) as f:
+            for line in f:
+                inputs_tmp[i].append(line.strip().split())
+    # Gather multiple input sentences for each line
+    inputs = []
+    for i in xrange(len(inputs_tmp[0])):
+        input_lst = []
+        for j in xrange(len(inputfiles)):
+            input_lst.append(inputs_tmp[j][i])
+        inputs.append(input_lst)
+    return inputs
 
 def _print_shell_help():
     """Print help text for shell usage in interactive mode."""
@@ -746,38 +757,24 @@ def _print_shell_help():
 
 
 # THIS IS THE MAIN ENTRY POINT
-nmt_config = get_nmt_config(args)
-decoder = create_decoder(nmt_config)
-outputs = create_output_handlers(nmt_config)
+src_wmap = utils.load_src_wmap(args.src_wmap)
+trg_wmap = utils.load_trg_wmap(args.trg_wmap)
+decoder = create_decoder()
+outputs = create_output_handlers(trg_wmap)
 
 if args.input_method == 'file':
     # Check for additional input files
     if getattr(args, "src_test2"):
-        inputfiles = [ args.src_test ]
-        while True:
-            inputfile = getattr(args, "src_test%d" % (len(inputfiles)+1), None)
-            if not inputfile:
-              break
-            inputfiles.append(inputfile)
-        # Read all input files
-        inputs_tmp = [ [] for i in xrange(len(inputfiles)) ]
-        for i in xrange(len(inputfiles)):
-            with open(inputfiles[i]) as f:
-                for line in f:
-                    inputs_tmp[i].append(line.strip().split())
-        # Gather multiple input sentences for each line
-        inputs = []
-        for i in xrange(len(inputs_tmp[0])):
-            input_lst = []
-            for j in xrange(len(inputfiles)):
-                input_lst.append(inputs_tmp[j][i])
-            inputs.append(input_lst)
-        do_decode(decoder, outputs, inputs)
+        do_decode(decoder, outputs, process_inputs(), src_wmap, trg_wmap)
     else:
       with open(args.src_test) as f:
-        do_decode(decoder, outputs, [line.strip().split() for line in f])
+        do_decode(decoder,
+                  outputs,
+                  [line.strip().split() for line in f],
+                  src_wmap,
+                  trg_wmap)
 elif args.input_method == 'dummy':
-    do_decode(decoder, outputs, False)
+    do_decode(decoder, outputs, False, src_wmap, trg_wmap)
 else: # Interactive mode: shell or stdin
     print("Start interactive mode.")
     print("PID: %d" % os.getpid())
@@ -809,7 +806,9 @@ else: # Interactive mode: shell or stdin
                     with open(input_[2]) as f:
                         do_decode(decoder,
                                   outputs,
-                                  [line.strip().split() for line in f])
+                                  [line.strip().split() for line in f],
+                                  src_wmap,
+                                  trg_wmap)
                 elif cmd == "quit":
                     quit_gnmt = True
                 elif cmd == "config":
@@ -818,12 +817,10 @@ else: # Interactive mode: shell or stdin
                     elif len(input_) >= 4:
                         key,val = (input_[2], ' '.join(input_[3:]))
                         setattr(args, key, val) # TODO: non-string args!
-                        nmt_config = get_nmt_config(args)
-                        outputs = create_output_handlers(nmt_config)
+                        outputs = create_output_handlers(trg_wmap)
                         if not key in ['outputs', 'output_path']:
                             decoder = update_decoder(decoder,
-                                                     key, val,
-                                                     nmt_config)
+                                                     key, val)
                     else:
                         logging.error("Could not parse SGNMT directive")
                 else:
@@ -832,7 +829,7 @@ else: # Interactive mode: shell or stdin
             elif input_[0] == 'quit' or input_[0] == 'exit':
                 quit_gnmt = True
             else: # Sentence to translate
-                do_decode(decoder, outputs, [input_])
+                do_decode(decoder, outputs, [input_], src_wmap, trg_wmap)
         except:
             logging.error("Error in last statement: %s" % sys.exc_info()[0])
         sys.stdout.flush()

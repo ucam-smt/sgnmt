@@ -180,6 +180,95 @@ def common_contains(obj, key):
         return key < len(obj)
 
 
+# Word maps
+
+
+src_wmap = {}
+""" Source language word map """
+
+
+trg_wmap = {}
+""" Target language word map """
+
+
+def load_src_wmap(path):
+    """Loads a source side word map from the file system.
+    
+    Args:
+        path (string): Path to the word map (Format: word id)
+    
+    Returns:
+        dict. Source word map (key: word, value: id)
+    """
+    global src_wmap
+    if not path:
+        src_wmap = {}
+        return src_wmap
+    with open(path) as f:
+        src_wmap = dict(map(lambda e: (e[0], int(e[1])),
+                        [line.strip().split(None, 1) for line in f]))
+    return src_wmap
+
+
+def load_trg_wmap(path):
+    """Loads a target side word map from the file system.
+    
+    Args:
+        path (string): Path to the word map (Format: word id)
+    
+    Returns:
+        dict. Source word map (key: id, value: word)
+    """
+    global trg_wmap
+    if not path:
+        trg_wmap = {}
+        return trg_wmap
+    with open(path) as f:
+        trg_wmap = dict(map(lambda e: (int(e[1]), e[0]),
+                        [line.strip().split(None, 1) for line in f]))
+    return trg_wmap
+        
+
+def apply_src_wmap(seq, wmap = None):
+    """Converts a string to a sequence of integers by applying the
+    mapping ``wmap``. If ``wmap`` is empty, parse ``seq`` as string
+    of blank separated integers.
+    
+    Args:
+        seq (list): List of strings to convert
+        wmap (dict): word map to apply (key: word, value: ID). If empty
+                     use ``utils.src_wmap``
+    
+    Returns:
+        list. List of integers
+    """
+    if wmap is None:
+        wmap = src_wmap
+    if not wmap:
+        return [int(w) for w in seq]
+    return [wmap.get(w, UNK_ID) for w in seq]
+
+
+def apply_trg_wmap(seq, inv_wmap = None):
+    """Converts a sequence of integers to a string by applying the
+    mapping ``wmap``. If ``wmap`` is empty, output the integers
+    directly.
+    
+    Args:
+        seq (list): List of integers to convert
+        inv_wmap (dict): word map to apply (key: id, value: word). If 
+                         empty use ``utils.trg_wmap``
+    
+    Returns:
+        string. Mapped ``seq`` as single (blank separated) string
+    """
+    if inv_wmap is None:
+        inv_wmap = trg_wmap
+    if not inv_wmap:
+        return ' '.join([str(i) for i in seq])
+    return ' '.join([inv_wmap.get(i, 'UNK') for i in seq])
+
+
 # Miscellaneous
 
 
@@ -191,7 +280,7 @@ def get_path(tmpl, sub = 1):
         tmpl (string): Path, potentially with %d placeholder
         sub (int): Substitution for %d
     
-    Return:
+    Returns:
         string. ``tmpl`` with %d replaced with ``sub`` if present
     """
     if "%d" in tmpl:

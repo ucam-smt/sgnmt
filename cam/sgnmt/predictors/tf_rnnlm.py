@@ -11,7 +11,7 @@ NEG_INF = float("-inf")
 
 class TensorFlowRNNLMPredictor(Predictor):
     
-  def __init__(self, model_config, path, variable_prefix="model"):
+  def __init__(self, path, model_config, variable_prefix="model"):
     super(TensorFlowRNNLMPredictor, self).__init__()
     self.session = tf.Session()
 

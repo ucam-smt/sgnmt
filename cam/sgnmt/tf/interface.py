@@ -8,19 +8,18 @@ try:
     from cam.sgnmt.tf.vanilla_decoder import TensorFlowNMTVanillaDecoder
     from cam.sgnmt.predictors.tf_nmt import TensorFlowNMTPredictor
     from cam.sgnmt.predictors.tf_rnnlm import TensorFlowRNNLMPredictor
-    from tensorflow.models.rnn.translate.utils import model_utils as tf_model_utils
     import tensorflow as tf
     session = None
 except:
     TENSORFLOW_AVAILABLE = False
 
-def tf_get_nmt_predictor(args, nmt_config, path=None):
+def tf_get_nmt_predictor(args, nmt_path, nmt_config):
   """Get the TensorFlow NMT predictor.
     
   Args:
     args (object): SGNMT arguments from ``ArgumentParser``
     nmt_config (string): NMT configuration
-    path (string): Path to NMT model or directory if passed separately from config file
+    path (string): Path to NMT model or directory
     
   Returns:
     Predictor. An instance of ``TensorFlowNMTPredictor``
@@ -29,18 +28,39 @@ def tf_get_nmt_predictor(args, nmt_config, path=None):
     logging.fatal("Could not find TensorFlow!")
     return None
 
-  logging.info("Loading predictor {}".format(nmt_config))
-  tf_config = dict()
-  tf_model_utils.read_config(nmt_config, tf_config)
-  if path:
-    if os.path.isdir(path):
-      tf_config['train_dir'] = path
-    elif os.path.isfile(path):
-      tf_config['model_path'] = path
+  logging.info("Loading tensorflow nmt predictor")
+  tf_config = nmt_config
+  if os.path.isdir(nmt_path):
+    tf_config['train_dir'] = nmt_path
+  elif os.path.isfile(nmt_path):
+    tf_config['model_path'] = nmt_path
   global session
   if not session:
     session = tf.Session()
   return TensorFlowNMTPredictor(args.cache_nmt_posteriors, tf_config, session)
+
+def tf_get_default_nmt_config():
+    """Get default NMT configuration. """
+    config = {}
+
+    def _parse_flags(flags):
+        """Replicated here from tensorflow.python.platform.flags to avoid processing
+        sgnmt command line flags. """
+        from tensorflow.python.platform.flags import _global_parser
+        result, unknown_args = _global_parser.parse_known_args([])
+        if unknown_args:
+            logging.error("Unknown arguments: {}".format(unknown_args))
+            exit(1)
+        for flag_name, val in vars(result).items():
+            flags.__dict__['__flags'][flag_name] = val
+        flags.__dict__['__parsed'] = True
+        flags = vars(flags)
+
+    from tensorflow.models.rnn.translate.train import FLAGS as train_flags
+    _parse_flags(train_flags)
+    for key,value in train_flags.__dict__['__flags'].iteritems():
+      config[key] = value
+    return config
 
 def tf_get_nmt_vanilla_decoder(args, nmt_config):
   """Get the TensorFlow NMT vanilla decoder.
@@ -57,7 +77,7 @@ def tf_get_nmt_vanilla_decoder(args, nmt_config):
     return None
   return TensorFlowNMTVanillaDecoder(nmt_config)
 
-def tf_get_rnnlm_predictor(rnnlm_config, path, variable_prefix="model"):
+def tf_get_rnnlm_predictor(rnnlm_path, rnnlm_config, variable_prefix="model"):
   """Get the TensorFlow RNNLM predictor.
     
   Args:    
@@ -72,5 +92,21 @@ def tf_get_rnnlm_predictor(rnnlm_config, path, variable_prefix="model"):
     logging.fatal("Could not find TensorFlow!")
     return None
 
-  logging.info("Loading Rnnlm predictor %s" % rnnlm_config) 
-  return TensorFlowRNNLMPredictor(rnnlm_config, path, variable_prefix)
+  logging.info("Loading tensorflow rnnlm predictor")
+  return TensorFlowRNNLMPredictor(rnnlm_path, rnnlm_config, variable_prefix)
+
+_rnnlm_count = 0
+def tf_get_rnnlm_prefix(var_prefix='model'):
+    """This is a helper function to increment the variable prefix when
+    decoding with multiple rnnlm models. This assumes that models have
+    been prefixed 'model', 'model2', 'model3' etc.
+
+    Args:
+        variable prefix for first model
+
+    Returns:
+        variable prefix according to model index
+    """
+    global _rnnlm_count
+    _rnnlm_count += 1
+    return "%s%d" % (var_prefix, _rnnlm_count) if _rnnlm_count > 1 else var_prefix

@@ -9,7 +9,7 @@ import numpy as np
 
 
 class BeamDecoder(Decoder):
-    """This decoder implements beam search without heuristics. """
+    """This decoder implements vanilla beam search. """
     
     def __init__(self,
                  decoder_args,

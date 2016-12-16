@@ -224,9 +224,9 @@ class WordCountPredictor(Predictor):
         super(WordCountPredictor, self).__init__()
         if word < 0:
             self.posterior = {utils.EOS_ID : 0.0}
-            self.unk_prob = 1.0
+            self.unk_prob = -1.0
         else:
-            self.posterior = {word : 1.0}
+            self.posterior = {word : -1.0}
             self.unk_prob = 0.0 
         
     def get_unk_probability(self, posterior):
@@ -400,12 +400,15 @@ class NgramCountPredictor(Predictor):
                 if self.order > 0 and len(words) != self.order:
                     continue
                 hist = words[:-1]
+                last_word = words[-1]
+                if last_word == utils.GO_ID:
+                    continue
                 self.max_history_len = max(self.max_history_len, len(hist))
                 p = self.ngrams.get(hist)
                 if p:
-                    p[words[-1]] = float(score.strip())
+                    p[last_word] = float(score.strip())
                 else:
-                    self.ngrams.add(hist, {words[-1]: float(score.strip())})
+                    self.ngrams.add(hist, {last_word: float(score.strip())})
     
     def initialize(self, src_sentence):
         """Loads n-gram posteriors and resets history.
@@ -450,8 +453,30 @@ class NgramCountPredictor(Predictor):
         pass
     
     def is_equal(self, state1, state2):
-        """Returns true if histories match. Hypothesis recombination is
+        """Hypothesis recombination is
         not supported if discounting is enabled.
         """
-        return self.discount_factor < 0.0 and state1[0] == state2[0]
+        if self.discount_factor >= 0.0:
+            return False
+        hist1 = state1[0]
+        hist2 = state2[0]
+        if hist1 == hist2: # Return true if histories match
+            return True
+        if len(hist1) > len(hist2):
+            hist_long = hist1
+            hist_short = hist2
+        else:
+            hist_long = hist2
+            hist_short = hist1
+        min_len = len(hist_short)
+        for n in xrange(1, min_len+1): # Look up non matching in self.ngrams
+            key1 = hist1[-n:]
+            key2 = hist2[-n:]
+            if key1 != key2:
+                if self.ngrams.get(key1) or self.ngrams.get(key2):
+                    return False
+        for n in xrange(min_len+1, len(hist_long)+1):
+            if self.ngrams.get(hist_long[-n:]):
+                return False
+        return True
     

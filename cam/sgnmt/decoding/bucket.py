@@ -119,6 +119,8 @@ class BucketDecoder(Decoder):
                     self.max_iter = int(n)
             elif bucket_selector == 'maxscore':
                 self.get_bucket = self._get_bucket_maxscore
+            elif bucket_selector == 'score-end':
+                self.get_bucket = self._get_bucket_score_end
             elif bucket_selector == 'score':
                 self.get_bucket = self._get_bucket_score
             else:
@@ -208,6 +210,25 @@ class BucketDecoder(Decoder):
                 if score <= best_score:
                     best_score = score
                     best_length = length 
+        return best_length
+
+    def _get_bucket_score_end(self):
+        """Implements the bucket selector 'score-end' """
+        last_length = self.last_bucket
+        for length in xrange(last_length+1, self.max_len):
+            if self.buckets[length]:
+                self.last_bucket = length
+                return length
+        # Restart with best bucket
+        best_score = INF
+        best_length = -1
+        for length in xrange(self.max_len):
+            if self.buckets[length]:
+                score = self.get_bucketscore(length)
+                if score <= best_score:
+                    best_score = score
+                    best_length = length 
+        self.last_bucket = best_length
         return best_length
 
     def _get_bucket_random(self):
@@ -445,7 +466,9 @@ class BucketDecoder(Decoder):
                 idx = self.expand_backpointers[idx]
             est_score -= self.diversity_factor * cnt
         if not self.pure_heuristic_scores:
-            return est_score + hypo.score - self.best_score
+            est_score += hypo.score
+            if self.best_score != NEG_INF:
+                est_score -= self.best_score
         return est_score
     
     def _get_min_bucket_score(self, length):
