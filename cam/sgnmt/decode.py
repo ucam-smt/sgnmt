@@ -460,6 +460,7 @@ def create_decoder():
                                max(1, args.nbest))
     elif args.decoder == "vanilla":
         decoder = get_nmt_vanilla_decoder(args,
+                                          args.nmt_path,
                                           _parse_config_param(
                                                     "nmt_config",
                                                     get_default_nmt_config()))
