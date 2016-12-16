@@ -68,9 +68,9 @@ from cam.sgnmt.ui import get_args, get_parser, validate_args
 # UTF-8 support
 import codecs
 if sys.version_info < (3, 0):
-  sys.stderr = codecs.getwriter('UTF-8')(sys.stderr)
-  sys.stdout = codecs.getwriter('UTF-8')(sys.stdout)
-  sys.stdin = codecs.getreader('UTF-8')(sys.stdin)
+    sys.stderr = codecs.getwriter('UTF-8')(sys.stderr)
+    sys.stdout = codecs.getwriter('UTF-8')(sys.stdout)
+    sys.stdin = codecs.getreader('UTF-8')(sys.stdin)
 
 # Load configuration from command line arguments or configuration file
 args = get_args()
@@ -315,7 +315,7 @@ def add_predictors(decoder):
                          [float(l) for l in args.unk_count_lambdas.split(',')])
             elif pred == "length":
                 length_model_weights = [float(w) for w in 
-                                            args.length_model_weights.split(',')]
+                                          args.length_model_weights.split(',')]
                 p = NBLengthPredictor(args.src_test_raw, 
                                       length_model_weights, 
                                       args.use_length_point_probs,
@@ -337,7 +337,7 @@ def add_predictors(decoder):
                               "--predictors for spelling errors." % pred)
                 decoder.remove_predictors()
                 return
-            for wrapper_idx,wrapper in enumerate(wrappers):
+            for _,wrapper in enumerate(wrappers):
                 # Embed predictor ``p`` into wrapper predictors if necessary
                 # TODO: Use wrapper_weights
                 if wrapper == "idxmap":
@@ -637,11 +637,13 @@ def _get_sentence_indices(range_param, src_sentences):
         return []
     return xrange(len(src_sentences))
 
+
 def get_text_output_handler(output_handlers):
     for output_handler in output_handlers:
         if isinstance(output_handler, TextOutputHandler):
             return output_handler
     return None
+
 
 def do_decode(decoder, 
               output_handlers, 
@@ -697,11 +699,11 @@ def do_decode(decoder,
             start_hypo_time = time.time()
             decoder.apply_predictors_count = 0
             if isinstance(src[0], list):
-              # don't apply wordmap for multiple inputs
-              hypos = [hypo for hypo in decoder.decode(src)
+                # don't apply wordmap for multiple inputs
+                hypos = [hypo for hypo in decoder.decode(src)
                             if hypo.total_score > args.min_score]
             else:
-              hypos = [hypo for hypo
+                hypos = [hypo for hypo
                         in decoder.decode(utils.apply_src_wmap(src, src_wmap))
                             if hypo.total_score > args.min_score]
             if not hypos:
@@ -742,11 +744,11 @@ def do_decode(decoder,
                                         time.time() - start_hypo_time))
             all_hypos.append(hypos)
             try:
-              # Write text output as we go
-              if text_output_handler:
-                  text_output_handler.write_hypos([hypos])
+                # Write text output as we go
+                if text_output_handler:
+                    text_output_handler.write_hypos([hypos])
             except IOError as e:
-              logging.error("I/O error %d occurred when creating output files: %s"
+                logging.error("I/O error %d occurred when creating output files: %s"
                             % (sys.exc_info()[0], e))
         except ValueError as e:
             logging.error("Number format error at sentence id %d: %s"
@@ -768,6 +770,7 @@ def do_decode(decoder,
                       % (sys.exc_info()[0], e))
     logging.info("Decoding finished. Time: %.2f" % (time.time() - start_time))
 
+
 def process_inputs():
     inputfiles = [ args.src_test ]
     while True:
@@ -778,7 +781,7 @@ def process_inputs():
     # Read all input files
     inputs_tmp = [ [] for i in xrange(len(inputfiles)) ]
     for i in xrange(len(inputfiles)):
-        with open(inputfiles[i]) as f:
+        with codecs.open(inputfiles[i], encoding='utf-8') as f:
             for line in f:
                 inputs_tmp[i].append(line.strip().split())
     # Gather multiple input sentences for each line
@@ -789,6 +792,7 @@ def process_inputs():
             input_lst.append(inputs_tmp[j][i])
         inputs.append(input_lst)
     return inputs
+
 
 def _print_shell_help():
     """Print help text for shell usage in interactive mode."""
@@ -817,10 +821,15 @@ outputs = create_output_handlers({} if trg_cmap else trg_wmap)
 if args.input_method == 'file':
     # Check for additional input files
     if getattr(args, "src_test2"):
-        do_decode(decoder, outputs, process_inputs(), src_wmap, trg_wmap)
-    else:
-      with open(args.src_test) as f:
         do_decode(decoder,
+                  outputs,
+                  process_inputs(),
+                  src_wmap,
+                  trg_wmap,
+                  trg_cmap)
+    else:
+        with codecs.open(args.src_test, encoding='utf-8') as f:
+            do_decode(decoder,
                   outputs,
                   [line.strip().split() for line in f],
                   src_wmap, 
@@ -871,7 +880,8 @@ else: # Interactive mode: shell or stdin
                     elif len(input_) >= 4:
                         key,val = (input_[2], ' '.join(input_[3:]))
                         setattr(args, key, val) # TODO: non-string args!
-                        outputs = create_output_handlers({} if trg_cmap else trg_wmap)
+                        outputs = create_output_handlers(
+                                                {} if trg_cmap else trg_wmap)
                         if not key in ['outputs', 'output_path']:
                             decoder = update_decoder(decoder,
                                                      key, val)
@@ -883,7 +893,12 @@ else: # Interactive mode: shell or stdin
             elif input_[0] == 'quit' or input_[0] == 'exit':
                 quit_gnmt = True
             else: # Sentence to translate
-                do_decode(decoder, outputs, [input_], src_wmap, trg_wmap, trg_cmap)
+                do_decode(decoder, 
+                          outputs, 
+                          [input_], 
+                          src_wmap, 
+                          trg_wmap, 
+                          trg_cmap)
         except:
             logging.error("Error in last statement: %s" % sys.exc_info()[0])
         sys.stdout.flush()
