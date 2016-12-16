@@ -40,6 +40,45 @@ class Hypothesis:
         return "%s (%f)" % (' '.join(str(w) for w in self.trgt_sentence),
                             self.total_score)
 
+    def convert_to_char_level(self, cmap):
+        """Creates a new hypothesis on the character level from a 
+        hypothesis on the word level. Both objects will have the same 
+        total score, but the word tokens in trgt_sentence are replaced
+        by characters and score_breakdown adds word scores on the first
+        character of the word. The mapping from word ID to character ID
+        sequence is realized by using ``utils.trg_wmap`` and the char-
+        to-id map ``cmap``.
+
+        Args:
+            cmap (dict): Mapping from character to character ID
+
+        Returns:
+            Hypothesis. New hypo which corresponds to this hypo but is
+            tokenized on the character instead of the word level.
+        """
+        if not self.score_breakdown or not self.trgt_sentence:
+            return self
+        eow = cmap.get("</w>", utils.UNK_ID)
+        dummy_breakdown = [(0.0, 1.0)] * len(self.score_breakdown[0])
+        ctokens = []
+        cscore_breakdown = []
+        for idx,w in enumerate(self.trgt_sentence):
+            if w in utils.trg_wmap:
+                chars = [cmap.get(c, utils.UNK_ID) for c in utils.trg_wmap[w]]
+            else:
+                chars = [utils.UNK_ID]
+            chars.append(eow)
+            ctokens.extend(chars)
+            cscore_breakdown.extend([self.score_breakdown[idx]] +
+                                    (len(chars)-1) * [dummy_breakdown])
+	# Remove last eow
+        ctokens = ctokens[:-1]
+        cscore_breakdown = cscore_breakdown[:-1]
+        if len(self.trgt_sentence) < len(self.score_breakdown):
+            cscore_breakdown.append(self.score_breakdown[-1])
+        chypo = Hypothesis(ctokens, self.total_score, cscore_breakdown)
+        return chypo
+
 
 class PartialHypothesis:
     """Represents a partial hypothesis in various decoders. """

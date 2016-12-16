@@ -521,7 +521,13 @@ def get_parser():
                         " <id>). This is used to generate log output and the "
                         "output formats text and nbest. If empty, we directly "
                         "write word IDs.")
-    
+    group.add_argument("--trg_cmap", default="",
+                        help="Path to the target side char map (Format: <char>"
+                        " <id>). If this is not empty, all output files are "
+                        "converted to character-level. The mapping from word "
+                        "to character sequence is read from --trg_wmap. The "
+                        "char map must contain an entry for </w> which points "
+                        "to the word boundary ID.")
     
     ## Predictor options
     

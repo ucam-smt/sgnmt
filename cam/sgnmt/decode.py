@@ -155,6 +155,30 @@ def _parse_config_param(field, default):
     return default
 
 
+def _load_trg_cmap(path):
+    """Loads a character map from ``path``. Returns None if ``path`` is
+    empty or does not point to a file. In this case, output files are
+    generated on the word level.
+    
+    Args:
+        path (string): Path to the character map
+ 
+    Returns:
+        dict. Map char -> id or None if character level output is not
+        activated.
+    """
+    if not path:
+        return None
+    cmap = {}
+    with open(path) as f:
+        for line in f:
+            c,i = line.strip().split()
+            cmap[c] = int(i)
+    if not "</w>" in cmap:
+        logging.warn("Could not find </w> in char map.")
+    return cmap
+
+
 def add_predictors(decoder):
     """Adds all enabled predictors to the ``decoder``. This function 
     makes heavy use of the global ``args`` which contains the
@@ -595,7 +619,12 @@ def _get_sentence_indices(range_param, src_sentences):
     return xrange(len(src_sentences))
 
 
-def do_decode(decoder, output_handlers, src_sentences, src_wmap, trg_wmap):
+def do_decode(decoder, 
+              output_handlers, 
+              src_sentences, 
+              src_wmap, 
+              trg_wmap, 
+              trg_cmap = None):
     """This method contains the main decoding loop. It iterates through
     ``src_sentences`` and applies ``decoder.decode()`` to each of them.
     At the end, it calls the output handlers to create output files.
@@ -609,6 +638,7 @@ def do_decode(decoder, output_handlers, src_sentences, src_wmap, trg_wmap):
                                translate (e.g. '1 123 432 2')
         src_wmap (dict): Word map to apply to the source sentences
         trg_wmap (dict): Word map to apply to the target sentences
+        trg_cmap (dict): char2id map for character-level output
     """
     if not decoder.has_predictors():
         logging.fatal("Decoding cancelled because of an error in the "
@@ -653,9 +683,12 @@ def do_decode(decoder, output_handlers, src_sentences, src_wmap, trg_wmap):
                                                         hypo.total_score,
                                                         hypo.score_breakdown)
                 hypos.sort(key=lambda hypo: hypo.total_score, reverse=True)
+            if trg_cmap:
+                hypos = [h.convert_to_char_level(trg_cmap) for h in hypos]
             logging.info("Decoded (ID: %d): %s" % (
                     sen_idx+1,
-                    utils.apply_trg_wmap(hypos[0].trgt_sentence, trg_wmap)))
+                    utils.apply_trg_wmap(hypos[0].trgt_sentence, 
+                                         {} if trg_cmap else trg_wmap)))
             logging.info("Stats (ID: %d): score=%f "
                          "num_expansions=%d "
                          "time=%.2f" % (sen_idx+1,
@@ -701,8 +734,9 @@ def _print_shell_help():
 # THIS IS THE MAIN ENTRY POINT
 src_wmap = utils.load_src_wmap(args.src_wmap)
 trg_wmap = utils.load_trg_wmap(args.trg_wmap)
+trg_cmap = _load_trg_cmap(args.trg_cmap)
 decoder = create_decoder()
-outputs = create_output_handlers(trg_wmap)
+outputs = create_output_handlers({} if trg_cmap else trg_wmap)
 
 if args.input_method == 'file':
     with open(args.src_test) as f:
@@ -710,9 +744,10 @@ if args.input_method == 'file':
                   outputs,
                   [line.strip().split() for line in f],
                   src_wmap, 
-                  trg_wmap)
+                  trg_wmap,
+                  trg_cmap)
 elif args.input_method == 'dummy':
-    do_decode(decoder, outputs, False, src_wmap, trg_wmap)
+    do_decode(decoder, outputs, False, src_wmap, trg_wmap, trg_cmap)
 else: # Interactive mode: shell or stdin
     print("Start interactive mode.")
     print("PID: %d" % os.getpid())
@@ -746,7 +781,8 @@ else: # Interactive mode: shell or stdin
                                   outputs,
                                   [line.strip().split() for line in f],
                                   src_wmap,
-                                  trg_wmap)
+                                  trg_wmap,
+                                  trg_cmap)
                 elif cmd == "quit":
                     quit_gnmt = True
                 elif cmd == "config":
@@ -755,7 +791,7 @@ else: # Interactive mode: shell or stdin
                     elif len(input_) >= 4:
                         key,val = (input_[2], ' '.join(input_[3:]))
                         setattr(args, key, val) # TODO: non-string args!
-                        outputs = create_output_handlers(trg_wmap)
+                        outputs = create_output_handlers({} if trg_cmap else trg_wmap)
                         if not key in ['outputs', 'output_path']:
                             decoder = update_decoder(decoder,
                                                      key, val)
@@ -767,7 +803,7 @@ else: # Interactive mode: shell or stdin
             elif input_[0] == 'quit' or input_[0] == 'exit':
                 quit_gnmt = True
             else: # Sentence to translate
-                do_decode(decoder, outputs, [input_], src_wmap, trg_wmap)
+                do_decode(decoder, outputs, [input_], src_wmap, trg_wmap, trg_cmap)
         except:
             logging.error("Error in last statement: %s" % sys.exc_info()[0])
         sys.stdout.flush()
