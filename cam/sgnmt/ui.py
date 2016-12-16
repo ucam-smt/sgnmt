@@ -870,7 +870,7 @@ def get_parser():
                         "=1234,trg_vocab_size=2345'). Use 'config_file=' in "
                         "the parameter string to use configuration files "
                         "with the second method. Use 'model_name=X' in the "
-                        "parameter string to use one of the predefined models")
+                        "parameter string to use one of the predefined models.")
     group.add_argument("--lstm_path", default="chainer/model",
                         help="Path to the LSTM model (chainer)")
     group.add_argument("--srilm_order", default=5, type=int,

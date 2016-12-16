@@ -149,7 +149,6 @@ def _parse_config_param(field, default):
                 default[k] = type(v)(add_config[k])
     return default
 
-
 def add_predictors(decoder):
     """Adds all enabled predictors to the ``decoder``. This function 
     makes heavy use of the global ``args`` which contains the
