@@ -12,6 +12,17 @@ from cam.sgnmt.decoding.core import Decoder, PartialHypothesis
 
 
 def is_key_complete(key):
+    """Returns true if the key is complete. Complete keys are marked
+    with a blank symbol at the end of the string. A complete key
+    corresponds to a full word, incomplete keys cannot be mapped to
+    word IDs.
+
+    Args:
+        key (string): The key
+
+    Returns:
+        bool. Return true if the last character in ``key`` is blank.
+    """
     return key and key[-1] == ' '
 
 
@@ -20,11 +31,21 @@ class WordMapper(object):
     IDs. The multiseg beam search can produce words which are not in 
     the original word map. This mapper adds these words to 
    ``utils.trg_wmap``.
+
+    This class uses the GoF design pattern singleton.
     """
+
     singleton = None
+    """Singleton instance. Access via ``get_singleton()``. """
 
     @staticmethod
     def get_singleton():
+        """Get singleton instance of the word mapper. This method 
+        implements lazy initialization.
+        
+        Returns:
+            WordMapper. Singleton ``WordMapper`` instance.
+        """
         if not WordMapper.singleton:
             WordMapper.singleton = WordMapper()
         return WordMapper.singleton
@@ -61,6 +82,13 @@ class WordMapper(object):
     def get_word_id(self, key):
         """Finds a word ID for the given key. If no such key is in the
         current word map, create a new entry in ``utils.trg_wmap``.
+
+        Args:
+            key (string): key to look up
+
+        Returns:
+            int. Word ID corresponding to ``key``. Add new word ID if
+            the key cannot be found in ``utils.trg_wmap`` 
         """
         if not key:
             return utils.UNK_ID
@@ -132,7 +160,7 @@ class WordTokenizer(Tokenizer):
             for line in f:
                 key, word_id_ = line.strip().split()
                 word_id = int(word_id_)
-                if word_id < max_id:
+                if word_id < max_id and word_id != utils.UNK_ID:
                     self.id2key[word_id] = "%s " % key
                     self.key2id["%s " % key] = word_id
     
@@ -159,6 +187,8 @@ class EOWTokenizer(Tokenizer):
         with codecs.open(path, encoding='utf-8') as f:
             for line in f:
                 key, word_id = line.strip().split()
+                if word_id == str(utils.UNK_ID):
+                    continue
                 if key[-4:] == "</w>": 
                     key = "%s " % key[:-4]
                 elif key in ['<s>', '</s>']:
@@ -166,23 +196,25 @@ class EOWTokenizer(Tokenizer):
                 self.id2key[int(word_id)] = key
                 self.key2id[key] = int(word_id)
     
-    def key2tokens(self, key, max_len = 100):
+    def key2tokens(self, key):
+        tokens = self._key2tokens_recursive(key)
+        return tokens if tokens else [utils.UNK_ID]
+
+    def _key2tokens_recursive(self, key, max_len = 100):
         if not key:
             return []
         if max_len <= 0:
             return None
-        t = self.key2id.get(key)
-        if t: # Match of the full key
-            return [t]
+        if key in self.key2id: # Match of the full key
+            return [self.key2id[key]]
         if max_len <= 1:
             return None
         best_tokens = None
         for l in xrange(len(key)-1, 0, -1):
-            t = self.key2id.get(key[:l])
-            if t:
-                rest = self.key2tokens(key, max_len-1)
+            if key[:l] in self.key2id:
+                rest = self._key2tokens_recursive(key[l:], max_len-1)
                 if not rest is None and len(rest) < max_len:
-                    best_tokens = [t] + rest
+                    best_tokens = [self.key2id[key[:l]]] + rest
                     max_len = len(best_tokens) - 1
         return best_tokens
     
@@ -207,10 +239,18 @@ class MixedTokenizer(Tokenizer):
         self.e_key2id = {}
         self.id2key = {}
         self.mid_tokens = {}
+        try:
+            split = path.split(":", 1)
+            max_id = int(split[0])
+            path = split[1]
+        except:
+            max_id = utils.INF
         with codecs.open(path, encoding='utf-8') as f:
             for line in f:
                 key, token_id_ = line.strip().split()
                 token_id = int(token_id_)
+                if token_id == utils.UNK_ID or token_id >= max_id:
+                    continue
                 if key[:3] == "<b>":
                     key = key[3:]
                     self.b_key2id[key] = token_id
@@ -375,9 +415,9 @@ class Continuation(object):
             stub = self.pred_stubs[pidx]
             if not stub.has_full_score():
                 p.set_state(copy.deepcopy(stub.pred_state))
-                p.consume(stub.tokens[self.score_pos-1])
+                p.consume(stub.tokens[stub.score_pos-1])
                 posterior = p.predict_next()
-                stub.score_next(posterior[stub.tokens[self.score_pos]])
+                stub.score_next(posterior[stub.tokens[stub.score_pos]])
                 stub.pred_state = p.get_state()
 
 
@@ -439,11 +479,11 @@ class MultisegBeamDecoder(Decoder):
 
     def _best_eos(self, hypos):
         """Returns true if the best hypothesis ends with </S>"""
-        return hypos[-1].get_last_word() != utils.EOS_ID
+        return hypos[0].get_last_word() != utils.EOS_ID
 
     def _all_eos(self, hypos):
         """Returns true if the all hypotheses end with </S>"""
-        for hypo in hypos:
+        for hypo in hypos[:self.beam_size]:
             if hypo.get_last_word() != utils.EOS_ID:
                 return True
         return False
@@ -479,6 +519,16 @@ class MultisegBeamDecoder(Decoder):
         return hypos[:self.beam_size]
     
     def _get_word_initial_posteriors(self, hypo):
+        """Call ``predict_next`` on all predictors to get the 
+        distributions over the first tokens of the next word.
+
+        Args:
+            hypo (PartialHypothesis): Defines the predictor states 
+
+        Returns:
+            list. List of posterior vectors for each predictor. The
+            UNK scores are added to the vectors.
+        """
         self.apply_predictors_count += 1
         self.set_predictor_states(hypo.predictor_states)
         posteriors = []
@@ -489,6 +539,9 @@ class MultisegBeamDecoder(Decoder):
         return posteriors
 
     def _get_initial_stubs(self, predictor, start_posterior, min_score):
+        """Get the initial predictor stubs for full word search with a 
+        single predictor. 
+        """
         stubs = []
         pred_state = predictor.get_state()
         for t, s in utils.common_iterable(start_posterior):
@@ -498,11 +551,17 @@ class MultisegBeamDecoder(Decoder):
                 stubs.append(stub)
         stubs.sort(key=lambda s: s.score, reverse=True)
         return stubs
-    
+   
+    def _best_keys_complete(self, stubs, tok):
+        """Stopping criterion for single predictor full word search.
+        We stop full word search if the n best stubs are complete.
+        """
+        return all([is_key_complete(tok.tokens2key(s.tokens)) 
+                                           for s in stubs[:self.beam_size]])
+
     def _search_full_words(self, predictor, start_posterior, tok, min_score):
         stubs = self._get_initial_stubs(predictor, start_posterior, min_score)
-        best_key = tok.tokens2key(stubs[0].tokens) if stubs else " "
-        while not is_key_complete(best_key):
+        while not self._best_keys_complete(stubs, tok):
             next_stubs = []
             for stub in stubs[:self.beam_size]:
                 if is_key_complete(tok.tokens2key(stub.tokens)):
@@ -519,13 +578,7 @@ class MultisegBeamDecoder(Decoder):
                             next_stubs.append(child_stub)
             stubs = next_stubs
             stubs.sort(key=lambda s: s.score, reverse=True)
-            best_key = tok.tokens2key(stubs[0].tokens) if stubs else " "
-        complete_stubs = {}
-        for stub in stubs:
-            key = tok.tokens2key(stub.tokens)
-            if is_key_complete(key):
-                complete_stubs[key] = stub
-        return complete_stubs
+        return stubs
     
     def _get_complete_continuations(self, hypo, min_hypo_score):
         """This is a generator which yields the complete continuations 
@@ -541,17 +594,21 @@ class MultisegBeamDecoder(Decoder):
         pred_states = self.get_predictor_states()
         keys = {}
         for pidx, (p,w) in enumerate(self.predictors):
-            key2stub = self._search_full_words(p,
-                                               start_posteriors[pidx],
-                                               self.toks[pidx],
-                                               min_score / w)
-            for key, stub in key2stub.iteritems():
-                if key in keys: # Add to existing continuation
-                    keys[key].pred_stubs[pidx] = stub
-                else: # Create new continuation
-                    stubs = [None] * len(self.predictors)
-                    stubs[pidx] = stub
-                    keys[key] = Continuation(hypo, stubs, key)
+            stubs = self._search_full_words(p,
+                                            start_posteriors[pidx],
+                                            self.toks[pidx],
+                                            min_score / w)
+            n_added = 0
+            for stub in stubs:
+                key = self.toks[pidx].tokens2key(stub.tokens)
+                if is_key_complete(key):
+                    if key in keys: # Add to existing continuation
+                        keys[key].pred_stubs[pidx] = stub
+                    elif n_added < self.beam_size: # Create new continuation
+                        n_added += 1
+                        stubs = [None] * len(self.predictors)
+                        stubs[pidx] = stub
+                        keys[key] = Continuation(hypo, stubs, key)
         # Fill in stubs which are set to None
         for cont in keys.itervalues():
             for pidx in xrange(len(self.predictors)):
@@ -569,7 +626,7 @@ class MultisegBeamDecoder(Decoder):
                 yield -s,cont
             else: # Need to rescore with sec predictors
                 cont.expand(self)
-                heapq.heappush(conts, (-cont.calculate_score(pred_weights), c))
+                heapq.heappush(conts, (-cont.calculate_score(pred_weights), cont))
     
     def decode(self, src_sentence):
         """Decodes a single source sentence using beam search. """
