@@ -155,7 +155,7 @@ class LoadNMT(TrainingExtension, SaveLoadUtils):
         """Loads the dump from the root folder into the main loop."""
         logger.info(" Reloading model")
         try:
-            logger.info(" ...loading model parameters")
+            logger.debug(" ...loading model parameters")
             params_all = self.load_parameters()
             params_this = main_loop.model.get_parameter_dict()
             missing = set(params_this.keys()) - set(params_all.keys())
@@ -175,7 +175,7 @@ class LoadNMT(TrainingExtension, SaveLoadUtils):
                     logger.warning(
                         " Parameter does not exist: {}".format(pname))
             logger.info(
-                " Number of parameters loaded for computation graph: {}"
+                "Number of parameters loaded for computation graph: {}"
                 .format(len(params_this) - len(missing)))
         except Exception as e:
             logger.error(" Error {0}".format(str(e)))

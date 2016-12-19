@@ -56,7 +56,7 @@ class LoadNMTUtils(SaveLoadUtils):
             return
         logging.info("Loading the model from {}".format(self.nmt_model_path))
         try:
-            logging.info(" ...loading model parameters")
+            logging.debug(" ...loading model parameters")
             params_all = self.load_parameters()
             params_this = self.model.get_parameter_dict()
             missing = set(params_this.keys()) - set(params_all.keys())
@@ -76,7 +76,7 @@ class LoadNMTUtils(SaveLoadUtils):
                     logging.warning(
                         " Parameter does not exist: {}".format(pname))
             logging.info(
-                " Number of parameters loaded for computation graph: {}"
+                "Number of parameters loaded for computation graph: {}"
                 .format(len(params_this) - len(missing)))
         except Exception as e:
             logging.error(" Error {0}".format(str(e)))
@@ -124,14 +124,14 @@ class NMTModel:
         else:
             config = self.config
         # Create Theano variables
-        logging.info('Creating theano variables')
+        logging.debug('Creating theano variables')
         source_sentence_mask = tensor.matrix('source_mask')
         target_sentence_mask = tensor.matrix('target_mask')
     
         # Construct model (fs439: Add NoLookup options)
         if config['dec_layers'] != 1:
             logging.fatal("Only dec_layers=1 supported.")
-        logging.info('Building RNN encoder-decoder')
+        logging.debug('Building RNN encoder-decoder')
         if config['src_sparse_feat_map']:
             if config['enc_layers'] != 1:
                 logging.fatal("Only enc_layers=1 supported for sparse "

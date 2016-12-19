@@ -158,8 +158,9 @@ class WordTokenizer(Tokenizer):
             max_id = utils.INF
         with codecs.open(path, encoding='utf-8') as f:
             for line in f:
-                key, word_id_ = line.strip().split()
-                word_id = int(word_id_)
+                entry = line.strip().split()
+                key = entry[0]
+                word_id = int(entry[-1])
                 if word_id < max_id and word_id != utils.UNK_ID:
                     self.id2key[word_id] = "%s " % key
                     self.key2id["%s " % key] = word_id
@@ -464,6 +465,7 @@ class MultisegBeamDecoder(Decoder):
         self.beam_size = beam_size
         self.stop_criterion = self._best_eos if early_stopping else self._all_eos
         self.toks = []
+        self.max_word_len = 50 # TODO: add to config
         if not tokenizations:
             logging.fatal("Specify --multiseg_tokenizations!")
         for tok_config in tokenizations.split(","):
@@ -561,7 +563,11 @@ class MultisegBeamDecoder(Decoder):
 
     def _search_full_words(self, predictor, start_posterior, tok, min_score):
         stubs = self._get_initial_stubs(predictor, start_posterior, min_score)
+        it = 0
         while not self._best_keys_complete(stubs, tok):
+            it += 1
+            if it > self.max_word_len:
+                break
             next_stubs = []
             for stub in stubs[:self.beam_size]:
                 if is_key_complete(tok.tokens2key(stub.tokens)):
@@ -603,7 +609,9 @@ class MultisegBeamDecoder(Decoder):
                 key = self.toks[pidx].tokens2key(stub.tokens)
                 if is_key_complete(key):
                     if key in keys: # Add to existing continuation
-                        keys[key].pred_stubs[pidx] = stub
+                        prev_stub = keys[key].pred_stubs[pidx]
+                        if prev_stub is None or prev_stub.score < stub.score:
+                            keys[key].pred_stubs[pidx] = stub
                     elif n_added < self.beam_size: # Create new continuation
                         n_added += 1
                         stubs = [None] * len(self.predictors)
