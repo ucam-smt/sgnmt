@@ -418,7 +418,10 @@ class Continuation(object):
                 p.set_state(copy.deepcopy(stub.pred_state))
                 p.consume(stub.tokens[stub.score_pos-1])
                 posterior = p.predict_next()
-                stub.score_next(posterior[stub.tokens[stub.score_pos]])
+                stub.score_next(utils.common_get(
+                                             posterior,
+                                             stub.tokens[stub.score_pos],
+                                             p.get_unk_probability(posterior)))
                 stub.pred_state = p.get_state()
 
 
@@ -502,8 +505,9 @@ class MultisegBeamDecoder(Decoder):
         else:
             combined = False
             for idx,hypo in list(enumerate(hypos)):
-                if self.are_equal_predictor_states(hypo.predictor_states,
-                                                   new_hypo.predictor_states):
+                if hypo.predictor_states and self.are_equal_predictor_states(
+                                                    hypo.predictor_states,
+                                                    new_hypo.predictor_states):
                     if hypo.score >= new_hypo.score: # Keep old one
                         hypo1 = hypo
                         hypo2 = new_hypo
@@ -623,7 +627,10 @@ class MultisegBeamDecoder(Decoder):
                 if cont.pred_stubs[pidx] is None:
                     stub = PredictorStub(self.toks[pidx].key2tokens(cont.key),
                                          pred_states[pidx])
-                    stub.score_next(start_posteriors[pidx][stub.tokens[0]])
+                    stub.score_next(utils.common_get(
+                                         start_posteriors[pidx],
+                                         stub.tokens[0],
+                                         start_posteriors[pidx][utils.UNK_ID]))
                     cont.pred_stubs[pidx] = stub
         conts = [(-c.calculate_score(pred_weights), c) for c in keys.itervalues()]
         heapq.heapify(conts)
@@ -640,7 +647,7 @@ class MultisegBeamDecoder(Decoder):
         """Decodes a single source sentence using beam search. """
         self.initialize_predictors(src_sentence)
         hypos = [PartialHypothesis(self.get_predictor_states())]
-        guard_hypo = PartialHypothesis()
+        guard_hypo = PartialHypothesis(None)
         guard_hypo.score = utils.NEG_INF
         it = 0
         while self.stop_criterion(hypos):
