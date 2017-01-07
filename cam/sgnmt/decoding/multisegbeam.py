@@ -468,7 +468,7 @@ class MultisegBeamDecoder(Decoder):
         self.beam_size = beam_size
         self.stop_criterion = self._best_eos if early_stopping else self._all_eos
         self.toks = []
-        self.max_word_len = 50 # TODO: add to config
+        self.max_word_len = 25 # TODO: add to config
         if not tokenizations:
             logging.fatal("Specify --multiseg_tokenizations!")
         for tok_config in tokenizations.split(","):
@@ -567,14 +567,13 @@ class MultisegBeamDecoder(Decoder):
 
     def _search_full_words(self, predictor, start_posterior, tok, min_score):
         stubs = self._get_initial_stubs(predictor, start_posterior, min_score)
-        it = 0
         while not self._best_keys_complete(stubs, tok):
-            it += 1
-            if it > self.max_word_len:
-                break
             next_stubs = []
             for stub in stubs[:self.beam_size]:
-                if is_key_complete(tok.tokens2key(stub.tokens)):
+                key = tok.tokens2key(stub.tokens)
+                if len(key) > self.max_word_len:
+                    continue
+                if is_key_complete(key):
                     next_stubs.append(stub)
                     continue
                 predictor.set_state(copy.deepcopy(stub.pred_state))
@@ -582,7 +581,7 @@ class MultisegBeamDecoder(Decoder):
                 posterior = predictor.predict_next()
                 pred_state = predictor.get_state()
                 for t, s in utils.common_iterable(posterior):
-                    if not tok.is_word_begin_key(t):
+                    if t != utils.UNK_ID and not tok.is_word_begin_key(t):
                         child_stub = stub.expand(t, s, pred_state)
                         if child_stub.score >= min_score:
                             next_stubs.append(child_stub)
