@@ -6,9 +6,11 @@ import copy
 import heapq
 import logging
 import codecs
+import pywrapfst as fst
 
 from cam.sgnmt import utils
 from cam.sgnmt.decoding.core import Decoder, PartialHypothesis
+from cam.sgnmt.predictors.automata import EPS_ID
 
 
 def is_key_complete(key):
@@ -137,7 +139,7 @@ class Tokenizer(object):
         raise NotImplementedError
 
     @abstractmethod
-    def is_word_begin_key(self, token):
+    def is_word_begin_token(self, token):
         """Returns true if ``token`` is only allowed at word begins. """
         raise NotImplementedError
 
@@ -173,7 +175,7 @@ class WordTokenizer(Tokenizer):
             return ""
         return self.id2key.get(tokens[0], "")
 
-    def is_word_begin_key(self, token):
+    def is_word_begin_token(self, token):
         return True
 
 
@@ -222,7 +224,7 @@ class EOWTokenizer(Tokenizer):
     def tokens2key(self, tokens):
         return ''.join([self.id2key.get(t, "") for t in tokens])
 
-    def is_word_begin_key(self, token):
+    def is_word_begin_token(self, token):
         return token in [utils.GO_ID, utils.EOS_ID]
 
 
@@ -283,8 +285,88 @@ class MixedTokenizer(Tokenizer):
     def tokens2key(self, tokens):
         return ''.join([self.id2key.get(t, "") for t in tokens])
 
-    def is_word_begin_key(self, token):
+    def is_word_begin_token(self, token):
         return not self.mid_tokens.get(token, False)
+
+
+class FSTTokenizer(Tokenizer):
+    """This tokenizer reads in an FST which transduces a sequence
+    of subword units to a sequence of characters which constitute
+    the key. The characters must used the global target cmap.
+    """
+    
+    EPS_ID = 0
+    """OpenFST's reserved ID for epsilon arcs. """
+    
+    def __init__(self, path):
+        """Loads subword->char FST, determinizes and minimizes it.
+        
+        Args:
+            path (string): Path to an FST from subword unit to char
+                           sequence
+        """
+        self.token2char_fst = utils.load_fst(path)
+        self.token2char_fst.rmepsilon()
+        self.token2char_fst.determinize()
+        self.token2char_fst.minimize()
+        self.word_begin_tokens = {arc.ilabel: True 
+            for arc in self.token2char_fst.arcs(self.token2char_fst.start())}
+        self.char2token_fst = fst.Fst(self.token2char_fst)
+        self.char2token_fst.invert()
+        self.cmap = dict(utils.trg_cmap)
+        self.cmap[" "] = self.cmap["</w>"]
+        del self.cmap["</w>"]
+        self.inv_cmap = {(i,c) for c,i in self.cmap.iteritems()}
+    
+    def key2tokens(self, key):
+        idxs = [self.cmap.get(c, utils.UNK_ID) for c in key]
+        tokens = self._transduce(self.char2token_fst, idxs)
+        return tokens if tokens else [utils.UNK_ID]
+    
+    def tokens2key(self, tokens):
+        idxs = self._transduce(self.token2char_fst, tokens)
+        if not idxs:
+            return ""
+        return ''.join([self.inv_cmap.get(i, '') for i in idxs])
+    
+    def _transduce(self, trans_fst, seq):
+        """Returns the output sequence produced by ``trans_fst`` when
+        consuming ``seq``. We don't check if the last state is a final
+        state
+        """
+        return self._dfs(trans_fst, trans_fst.start(), seq, [])
+            
+    def _dfs(self, trans_fst, root, in_seq, out_seq_stub):
+        """Perform DFS as subroutine of ``_transduce`` """
+        if not in_seq:
+            return out_seq_stub
+        for arc in trans_fst.arcs(root):
+            out_seq = None
+            if arc.ilabel == EPS_ID:
+                out_seq = self._dfs(trans_fst,
+                                    arc.nextstate,
+                                    in_seq, 
+                                    out_seq_stub)
+            elif arc.ilabel == in_seq[0]:
+                out_seq = self._dfs(trans_fst, 
+                                    arc.nextstate, 
+                                    in_seq[1:], 
+                                    out_seq_stub + [arc.olabel])
+            if out_seq:
+                return out_seq
+        return None
+
+    def is_word_begin_token(self, token):
+        """Returns true if there is an arc labeled with ``token`` from
+        the start state in the token2char FST.
+        
+        Args:
+            token (int): token ID
+        
+        Returns:
+            bool. True if a word can start with ``token`` 
+        """
+        return token in self.word_begin_tokens
 
 
 class PredictorStub(object):
@@ -571,7 +653,7 @@ class MultisegBeamDecoder(Decoder):
             next_stubs = []
             for stub in stubs[:self.beam_size]:
                 key = tok.tokens2key(stub.tokens)
-                if len(key) > self.max_word_len:
+                if (not key) or len(key) > self.max_word_len:
                     continue
                 if is_key_complete(key):
                     next_stubs.append(stub)
@@ -581,7 +663,7 @@ class MultisegBeamDecoder(Decoder):
                 posterior = predictor.predict_next()
                 pred_state = predictor.get_state()
                 for t, s in utils.common_iterable(posterior):
-                    if t != utils.UNK_ID and not tok.is_word_begin_key(t):
+                    if t != utils.UNK_ID and not tok.is_word_begin_token(t):
                         child_stub = stub.expand(t, s, pred_state)
                         if child_stub.score >= min_score:
                             next_stubs.append(child_stub)

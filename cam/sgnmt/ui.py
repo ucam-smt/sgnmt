@@ -841,6 +841,11 @@ def get_parser():
                         "character IDs (format: <word-id> <char-id1> <char-id2"
                         ">...). All character IDs which do not occur in this "
                         "mapping are treated as word boundary symbols.")
+    group.add_argument("--fsttok_path", default="tok.fst",
+                        help="For the fsttok wrapper. Defines the path to the "
+                        "FSt which transduces sequences of SGNMT tokens (eg. "
+                        "characters) to predictor tokens (eg BPEs). FST may "
+                        "be non-deterministic and contain epsilons.")
 
     # Hiero predictor
     group = parser.add_argument_group('Hiero predictor options')
@@ -955,6 +960,8 @@ def get_parser():
                         help="Overrides --altsrc_test for the %s altsrc" % w)
         group.add_argument("--word2char_map%s" % n, default="",
                         help="Overrides --word2char_map for the %s word2char" % w)
+        group.add_argument("--fsttok_path%s" % n, default="",
+                        help="Overrides --fsttok_path for the %s fsttok" % w)
         group.add_argument("--src_idxmap%s" % n, default="",
                         help="Overrides --src_idxmap for the %s indexmap" % w)
         group.add_argument("--trg_idxmap%s" % n, default="",

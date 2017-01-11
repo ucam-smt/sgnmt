@@ -7,16 +7,12 @@ The ``word2char`` predictor maintains an explicit list of word boundary
 characters and applies consume and predict_next whenever a word boundary
 character is consumed.
 
-The ``char2word`` predictor masks character-based predictors and 
-presents word level posterior distributions to the decoder. In order to
-form these posteriors, ``char2word`` internally searches until a list
-of full words is found. Note that since char2word can produce words
-without word ID, it maintains an internal word map which is updated
-accordingly. Therefore, the ``output_chars`` option should be used to
-create output files on the character level, otherwise the new word IDs
-cannot be mapped back to words.
+The ``fsttok`` predictor also masks coarse grained predictors when SGNMT
+uses fine-grained tokens such as characters. This wrapper loads an FST
+which transduces character to predictor-unit sequences.
 """
 
+import copy
 import logging
 
 from cam.sgnmt import utils
@@ -25,75 +21,221 @@ from cam.sgnmt.predictors.core import UnboundedVocabularyPredictor, Predictor
 from cam.sgnmt.utils import NEG_INF, common_get
 
 
-class Char2wordPredictor(Predictor):
-    """This wrapper can be used if the SGNMT decoder operates on the
-    word level, but a predictor uses a finer grained tokenization. The
-    wrapper internally implements a search for full words with the
-    character-based model (predictor) and presents the found full word
-    continuations to the decoder. If the wrapped predictor produces a
-    word which has not have an assigned word ID, it updates
-    ``Char2wordPredictor.wmap`` with a new word. This word map is taken
-    into account when the SGNMT option ``output_chars`` is activated.
-    
-    TODO Implement
+EPS_ID = 0
+"""OpenFST's reserved ID for epsilon arcs. """
+
+
+class CombinedState(object):
+    """Combines an FST state with predictor state. Use by the fsttok
+    predictor.
     """
     
-    def __init__(self, src_test, slave_predictor):
-        """TODO
+    def __init__(self, fst_node, pred_state, posterior, unconsumed = []):
+        self.fst_node = fst_node
+        self.pred_state = pred_state
+        self.posterior = posterior
+        self.unconsumed = unconsumed
+        self.pending_score = 0.0
+    
+    def traverse_fst(self, trans_fst, char):
+        """Returns a list of ``CombinedState``s with the same predictor
+        state and posterior, but an ``fst_node`` which is reachable
+        via the input label ``char``. If the output tabe contains
+        symbols, add them to ``unconsumed``.
         
         Args:
-            TODO
+            trans_fst (Fst): FST to traverse
+            char (int): Index of character
+        
+        Returns:
+            list. List of combined states reachable via ``char``
         """
-        super(Char2wordPredictor, self).__init__()
+        ret = []
+        self._dfs(trans_fst, ret, self.fst_node, char, self.unconsumed)
+        return ret
+    
+    def _dfs(self, trans_fst, acc, root_node, char, cur_unconsumed):
+        """Helper method for ``traverse_fst`` for traversing the FST
+        along ``char`` and epsilon arcs with DFS.
+        
+        Args:
+            trans_fst (Fst): FST to traverse
+            acc (list): Accumulator list
+            root_node (int): State in the FST to start
+            char (int): Index of character
+            cur_unconsumed (list): Unconsumed predictor tokens so far
+        """
+        for arc in trans_fst.arcs(root_node):
+            next_unconsumed = list(cur_unconsumed)
+            if arc.olabel != EPS_ID:
+                next_unconsumed.append(arc.olabel)
+            if arc.ilabel == EPS_ID:
+                self._dfs(trans_fst, acc, arc.nextstate, char, next_unconsumed)
+            elif arc.ilabel == char:
+                acc.append(CombinedState(arc.nextstate,
+                                         self.pred_state,
+                                         self.posterior,
+                                         next_unconsumed))
+    
+    def score(self, token):
+        """Returns a score which can be added if ``token`` is consumed
+        next. This is not necessarily the full score but an upper bound
+        on it: Continuations will have a score lower or equal than
+        this. We only use the current posterior vector and do not
+        consume tokens with the wrapped predictor.
+        """
+        s = self.pending_score
+        if self.unconsumed:
+            s += utils.common_get(self.posterior,
+                                  self.unconsumed[0], 
+                                  utils.UNK_ID)
+        elif token:
+            s += utils.common_get(self.posterior, 
+                                  token, 
+                                  utils.UNK_ID)
+        return s
+    
+    def consume_all(self, predictor):
+        """Consume all unconsumed tokens and update pred_state, 
+        pending_score, and posterior accordingly.
+        
+        Args:
+            predictor (Predictor): Predictor instance
+        """
+        if not self.unconsumed:
+            return
+        predictor.set_state(copy.deepcopy(self.pred_state))
+        for token in self.unconsumed:
+            self.pending_score += utils.common_get(self.posterior,
+                                                   token,
+                                                   utils.UNK_ID)
+            predictor.consume(token)
+            self.posterior = predictor.predict_next()
+        self.pred_state = copy.deepcopy(predictor.get_state())
+        self.unconsumed = []
+        
+
+class FSTTokPredictor(Predictor):
+    """This wrapper can be used if the SGNMT decoder operates on the
+    character level, but a predictor uses a more coarse grained 
+    tokenization. The mapping is defined by an FST which transduces
+    character to predictor unit sequences. This wrapper maintains a
+    list of ``CombinedState`` objects which are tuples of an FST node
+    and a predictor state for which holds:
+    
+    - The input labels on the path to the node are consistent with the
+      consumed characters
+    - The output labels on the path to the node are consistent with the
+      predictor states
+    """
+    
+    def __init__(self, path, slave_predictor):
+        """Constructor for the fsttok wrapper
+        
+        Args:
+            path (string): Path to an FST which transduces characters 
+                           to predictor tokens
+            slave_predictor (Predictor): Wrapped predictor
+        """
+        super(FSTTokPredictor, self).__init__()
         self.slave_predictor = slave_predictor
         if isinstance(slave_predictor, UnboundedVocabularyPredictor):
-            logging.fatal("char2word cannot wrap an unbounded "
+            logging.fatal("fsttok cannot wrap an unbounded "
                           "vocabulary predictor.")
-        raise NotImplementedError
+        self.trans_fst = utils.load_fst(path)
     
     def initialize(self, src_sentence):
         """Pass through to slave predictor. The source sentence is not
-        modified 
+        modified. ``states`` is updated to the initial FST node and
+        predictor posterior and state.
         """
         self.slave_predictor.initialize(src_sentence)
+        posterior = self.slave_predictor.predict_next()
+        self.states = [CombinedState(self.trans_fst.start(),
+                                     self.slave_predictor.get_state(),
+                                     posterior)]
+        self.last_prediction = {}
     
     def initialize_heuristic(self, src_sentence):
         """Pass through to slave predictor. The source sentence is not
         modified 
         """
+        logging.warning("fsttok does not support predictor heuristics")
         self.slave_predictor.initialize_heuristic(src_sentence)
     
     def predict_next(self):
-        pass
+        self.last_prediction = {}
+        for state in self.states:
+            self._collect_chars(state, state.fst_node, None)
+        return self.last_prediction
+    
+    def _collect_chars(self, state, root_node, first_olabel):
+        """Recursively builds up ``last_prediction`` by traversing
+        epsilon arcs in the FST from ``root_node``
+        """
+        for arc in self.trans_fst.arcs(root_node):
+            arc_first_olabel = first_olabel if first_olabel else arc.olabel
+            if arc.ilabel == EPS_ID:
+                self._collect_chars(state, arc.nextstate, arc_first_olabel)
+            else:
+                score = state.score(arc_first_olabel)
+                if arc.ilabel in self.last_prediction: 
+                    self.last_prediction[arc.ilabel] = max(
+                                            self.last_prediction[arc.ilabel], 
+                                            score)
+                else:
+                    self.last_prediction[arc.ilabel] = score
         
     def get_unk_probability(self, posterior):
-        pass
+        """Always returns negative infinity. Handling UNKs needs to be 
+        realized by the FST.
+        """
+        return utils.NEG_INF
     
     def consume(self, word):
-        pass
+        """Update ``self.states`` to be consistent with ``word`` and 
+        consumes all the predictor tokens.
+        """
+        next_states = []
+        for state in self.states:
+            next_states.extend(state.traverse_fst(self.trans_fst, word))
+        consumed_score = self.last_prediction.get(word, 0.0)
+        for state in next_states:
+            state.pending_score -= consumed_score
+            state.consume_all(self.slave_predictor)
+        # if two states have the same fst_node, keep only the better one
+        uniq_states = {}
+        for state in next_states:
+            n = state.fst_node
+            if (not n in uniq_states 
+                    or uniq_states[n].pending_score < state.pending_score):
+                uniq_states[n] = state
+        self.states = list(uniq_states.itervalues())
     
     def get_state(self):
-        pass
+        return self.states, self.last_prediction
     
     def set_state(self, state):
-        pass
+        self.states, self.last_prediction = state
 
     def reset(self):
         """Pass through to slave predictor """
         self.slave_predictor.reset()
 
     def estimate_future_cost(self, hypo):
-        pass
+        """Not implemented yet"""
+        return 0.0
 
     def set_current_sen_id(self, cur_sen_id):
         """We need to override this method to propagate current\_
         sentence_id to the slave predictor
         """
-        super(Char2wordPredictor, self).set_current_sen_id(cur_sen_id)
+        super(FSTTokPredictor, self).set_current_sen_id(cur_sen_id)
         self.slave_predictor.set_current_sen_id(cur_sen_id)
     
     def is_equal(self, state1, state2):
-        pass
+        """Not implemented yet"""
+        return False
     
 
 class Word2charPredictor(UnboundedVocabularyPredictor):

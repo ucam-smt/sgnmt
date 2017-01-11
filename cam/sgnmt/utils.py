@@ -9,6 +9,12 @@ import numpy
 import operator
 from scipy.misc import logsumexp
 import codecs
+from subprocess import call
+from shutil import copyfile
+import logging
+import os
+import pywrapfst as fst
+import sys
 
 # Reserved IDs
 PAD_ID = None
@@ -80,7 +86,7 @@ log_sum = log_sum_log_semiring
 """Defines which log summation function to use. """
 
 
-def oov_to_unk(seq, vocab_size, unk_idx=UNK_ID):
+def oov_to_unk(seq, vocab_size, unk_idx = UNK_ID):
     return [x if x < vocab_size else unk_idx for x in seq]
 
 # Maximum functions
@@ -163,6 +169,7 @@ def common_get(obj, key, default):
     else:
         return obj[key] if key < len(obj) else default
 
+
 def common_contains(obj, key):
     """Checks the existence of a key or index in a mapping.
     Works with numpy arrays, lists, and dicts.
@@ -184,11 +191,15 @@ def common_contains(obj, key):
 
 
 src_wmap = {}
-""" Source language word map """
+""" Source language word map (word -> id)"""
 
 
 trg_wmap = {}
-""" Target language word map """
+""" Target language word map (id -> word)"""
+
+
+trg_cmap = None
+""" Target language character map (char -> id)"""
 
 
 def load_src_wmap(path):
@@ -227,7 +238,33 @@ def load_trg_wmap(path):
         trg_wmap = dict(map(lambda e: (int(e[1]), e[0]),
                         [line.strip().split(None, 1) for line in f]))
     return trg_wmap
-        
+
+
+def load_trg_cmap(path):
+    """Loads a character map from ``path``. Returns None if ``path`` is
+    empty or does not point to a file. In this case, output files are
+    generated on the word level.
+    
+    Args:
+        path (string): Path to the character map
+ 
+    Returns:
+        dict. Map char -> id or None if character level output is not
+        activated.
+    """
+    global trg_cmap
+    if not path:
+        trg_cmap = None
+        return None
+    trg_cmap = {}
+    with codecs.open(path, encoding='utf-8') as f:
+        for line in f:
+            c,i = line.strip().split()
+            trg_cmap[c] = int(i)
+    if not "</w>" in trg_cmap:
+        logging.warn("Could not find </w> in char map.")
+    return trg_cmap
+
 
 def apply_src_wmap(seq, wmap = None):
     """Converts a string to a sequence of integers by applying the
@@ -267,6 +304,44 @@ def apply_trg_wmap(seq, inv_wmap = None):
     if not inv_wmap:
         return ' '.join([str(i) for i in seq])
     return ' '.join([inv_wmap.get(i, 'UNK') for i in seq])
+
+
+# FST utilities
+
+
+TMP_FILENAME = '/tmp/sgnmt.%s.fst' % os.getpid()
+"""Temporary file name to use if a FST file is zipped. """
+
+
+def w2f(fstweight):
+    """Converts an arc weight to float """
+    return float(str(fstweight))
+
+
+def load_fst(path):
+    """Loads a FST from the file system using PyFSTs ``read()`` method.
+    GZipped format is also supported. The arc type must be standard
+    or log, otherwise PyFST cannot load them.
+    
+    Args:
+        path (string):  Path to the FST file to load
+    Returns:
+        fst. PyFST FST object or ``None`` if FST could not be read
+    """
+    try:
+        if path[-3:].lower() == ".gz":
+            copyfile(path, "%s.gz" % TMP_FILENAME)
+            call(["gunzip", "%s.gz" % TMP_FILENAME])
+            ret = fst.Fst.read(TMP_FILENAME)
+            os.remove(TMP_FILENAME)
+        else: # Fst not zipped
+            ret = fst.Fst.read(path)
+        logging.debug("Read fst from %s" % path)
+        return ret
+    except Exception as e:
+        logging.error("%s error reading fst from %s: %s" %
+            (sys.exc_info()[1], path, e))
+    return None
 
 
 # Miscellaneous
