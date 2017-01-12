@@ -108,7 +108,7 @@ class CombinedState(object):
         """
         if not self.unconsumed:
             return
-        if not self.posterior:
+        if self.posterior is None:
             self.update_posterior(predictor)
         predictor.set_state(copy.deepcopy(self.pred_state))
         for token in self.unconsumed:
@@ -123,14 +123,14 @@ class CombinedState(object):
     def consume_single(self, predictor):
         if not self.unconsumed:
             return
-        if self.posterior:
+        if not self.posterior is None:
             self.pending_score += utils.common_get(self.posterior,
                                                    self.unconsumed[0],
                                                    self.posterior[utils.UNK_ID])
             self.posterior = None
         
     def update_posterior(self, predictor):
-        if self.posterior is None:
+        if not self.posterior is None:
             return
         predictor.set_state(copy.deepcopy(self.pred_state))
         predictor.consume(self.unconsumed[0])

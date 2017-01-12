@@ -80,6 +80,9 @@ class BeamDecoder(Decoder):
         hypos = [PartialHypothesis(self.get_predictor_states())]
         it = 0
         while self.stop_criterion(hypos):
+            #print("HYPOS:")
+            #for h in hypos:
+            #    print(utils.apply_trg_wmap(h.trgt_sentence))
             if it > self.max_len: # prevent infinite loops
                 break
             it = it + 1
