@@ -30,12 +30,17 @@ class CombinedState(object):
     predictor.
     """
     
-    def __init__(self, fst_node, pred_state, posterior, unconsumed = []):
+    def __init__(self, 
+                 fst_node, 
+                 pred_state, 
+                 posterior, 
+                 unconsumed = [], 
+                 pending_score = 0.0):
         self.fst_node = fst_node
         self.pred_state = pred_state
         self.posterior = posterior
         self.unconsumed = unconsumed
-        self.pending_score = 0.0
+        self.pending_score = pending_score
     
     def traverse_fst(self, trans_fst, char):
         """Returns a list of ``CombinedState``s with the same predictor
@@ -75,22 +80,21 @@ class CombinedState(object):
                 acc.append(CombinedState(arc.nextstate,
                                          self.pred_state,
                                          self.posterior,
-                                         next_unconsumed))
+                                         next_unconsumed,
+                                         self.pending_score))
     
-    def score(self, token):
+    def score(self, token, predictor):
         """Returns a score which can be added if ``token`` is consumed
         next. This is not necessarily the full score but an upper bound
         on it: Continuations will have a score lower or equal than
         this. We only use the current posterior vector and do not
         consume tokens with the wrapped predictor.
         """
+        if token and self.unconsumed:
+            self.consume_all(predictor)
         s = self.pending_score
-        if self.unconsumed:
+        if token:
             s += utils.common_get(self.posterior,
-                                  self.unconsumed[0], 
-                                  utils.UNK_ID)
-        elif token:
-            s += utils.common_get(self.posterior, 
                                   token, 
                                   utils.UNK_ID)
         return s
@@ -104,6 +108,8 @@ class CombinedState(object):
         """
         if not self.unconsumed:
             return
+        if not self.posterior:
+            self.update_posterior(predictor)
         predictor.set_state(copy.deepcopy(self.pred_state))
         for token in self.unconsumed:
             self.pending_score += utils.common_get(self.posterior,
@@ -113,6 +119,24 @@ class CombinedState(object):
             self.posterior = predictor.predict_next()
         self.pred_state = copy.deepcopy(predictor.get_state())
         self.unconsumed = []
+    
+    def consume_single(self, predictor):
+        if not self.unconsumed:
+            return
+        if self.posterior:
+            self.pending_score += utils.common_get(self.posterior,
+                                                   self.unconsumed[0],
+                                                   utils.UNK_ID)
+            self.posterior = None
+        
+    def update_posterior(self, predictor):
+        if self.posterior is None:
+            return
+        predictor.set_state(copy.deepcopy(self.pred_state))
+        predictor.consume(self.unconsumed[0])
+        self.posterior = predictor.predict_next()
+        self.pred_state = copy.deepcopy(predictor.get_state())
+        self.unconsumed = self.unconsumed[1:]
         
 
 class FSTTokPredictor(Predictor):
@@ -202,7 +226,7 @@ class FSTTokPredictor(Predictor):
         consumed_score = self.last_prediction.get(word, 0.0)
         for state in next_states:
             state.pending_score -= consumed_score
-            state.consume_all(self.slave_predictor)
+            state.consume_single(self.slave_predictor)
         # if two states have the same fst_node, keep only the better one
         uniq_states = {}
         for state in next_states:
