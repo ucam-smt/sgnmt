@@ -60,7 +60,7 @@ from cam.sgnmt.predictors.misc import IdxmapPredictor, UnboundedIdxmapPredictor,
     UnboundedAltsrcPredictor, AltsrcPredictor, UnkvocabPredictor
 from cam.sgnmt.predictors.misc import UnkCountPredictor
 from cam.sgnmt.predictors.ngram import SRILMPredictor
-from cam.sgnmt.predictors.tokenization import Word2charPredictor
+from cam.sgnmt.predictors.tokenization import Word2charPredictor, FSTTokPredictor
 from cam.sgnmt.tf.interface import tf_get_nmt_predictor, tf_get_nmt_vanilla_decoder, \
     tf_get_rnnlm_predictor, tf_get_default_nmt_config, tf_get_rnnlm_prefix
 from cam.sgnmt.ui import get_args, get_parser, validate_args
@@ -337,7 +337,7 @@ def add_predictors(decoder):
                 elif wrapper == "fsttok":
                     fsttok_path = _get_override_args("fsttok_path")
                     # word2char always wraps unbounded predictors
-                    p = Word2charPredictor(fsttok_path, p)
+                    p = FSTTokPredictor(fsttok_path, p)
                 elif wrapper == "unkvocab":
                     # unkvocab always wraps bounded predictors
                     p = UnkvocabPredictor(args.trg_vocab_size, p)
@@ -363,7 +363,7 @@ def add_predictors(decoder):
         logging.fatal("A number format error occurred while configuring the "
                       "predictors: %s. Please double-check all integer- or "
                       "float-valued parameters such as --predictor_weights and"
-                      " try again." % e)
+                      " try again. Stack trace: %s" % (e, traceback.format_exc()))
         decoder.remove_predictors()
     except Exception as e:
         logging.fatal("An unexpected %s has occurred while setting up the pre"
@@ -724,8 +724,10 @@ def do_decode(decoder,
                 logging.error("I/O error %d occurred when creating output files: %s"
                             % (sys.exc_info()[0], e))
         except ValueError as e:
-            logging.error("Number format error at sentence id %d: %s"
-                      % (sen_idx+1, e))
+            logging.error("Number format error at sentence id %d: %s, "
+                          "Stack trace: %s" % (sen_idx+1, 
+                                               e,
+                                               traceback.format_exc()))
         except Exception as e:
             logging.error("An unexpected %s error has occurred at sentence id "
                           "%d: %s, Stack trace: %s" % (sys.exc_info()[0],
