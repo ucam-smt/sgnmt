@@ -74,15 +74,69 @@ class BeamDecoder(Decoder):
                 return True
         return False
     
+    def _expand_hypo(self, hypo):
+        """Get the best beam size expansions of ``hypo``.
+        
+        Args:
+            hypo (PartialHypothesis): Hypothesis to expans
+        
+        Returns:
+            list. List of child hypotheses
+        """
+        self.set_predictor_states(copy.deepcopy(hypo.predictor_states))
+        if not hypo.word_to_consume is None: # Consume if cheap expand
+            self.consume(hypo.word_to_consume)
+            hypo.word_to_consume = None
+        posterior,score_breakdown = self.apply_predictors()
+        hypo.predictor_states = self.get_predictor_states()
+        top = utils.argmax_n(posterior, self.beam_size)
+        return [hypo.cheap_expand(
+                            trgt_word,
+                            posterior[trgt_word],
+                            score_breakdown[trgt_word]) for trgt_word in top]
+    
+    def _filter_equal_hypos(self, hypos, scores):
+        """Apply hypo recombination to the hypotheses in ``hypos``.
+        
+        Args:
+            hypos (list): List of hypotheses
+            scores (list): hypo scores with heuristic estimates
+        
+        Return:
+            list. List with hypotheses in ``hypos`` after applying
+            hypotheses recombination.
+        """
+        new_hypos = []
+        for idx in reversed(np.argsort(scores)):
+            candidate = hypos[idx]
+            self.set_predictor_states(copy.deepcopy(candidate.predictor_states))
+            if not candidate.word_to_consume is None:
+                self.consume(candidate.word_to_consume)
+                candidate.word_to_consume = None
+                candidate.predictor_states = self.get_predictor_states()
+            valid = True
+            for hypo in new_hypos:
+                if self.are_equal_predictor_states(
+                                                hypo.predictor_states,
+                                                candidate.predictor_states):
+                    logging.debug("Hypo recombination: %s > %s" % (
+                                                 hypo.trgt_sentence,
+                                                 candidate.trgt_sentence))
+                    valid = False
+                    break
+            if valid:
+                new_hypos.append(candidate)
+                if len(new_hypos) >= self.beam_size:
+                    break
+        new_hypos.reverse()
+        return new_hypos
+    
     def decode(self, src_sentence):
         """Decodes a single source sentence using beam search. """
         self.initialize_predictors(src_sentence)
         hypos = [PartialHypothesis(self.get_predictor_states())]
         it = 0
         while self.stop_criterion(hypos):
-            #print("HYPOS:")
-            #for h in hypos:
-            #    print(utils.apply_trg_wmap(h.trgt_sentence))
             if it > self.max_len: # prevent infinite loops
                 break
             it = it + 1
@@ -93,45 +147,11 @@ class BeamDecoder(Decoder):
                     next_hypos.append(hypo)
                     next_scores.append(self._get_combined_score(hypo))
                     continue 
-                self.set_predictor_states(copy.deepcopy(hypo.predictor_states))
-                if not hypo.word_to_consume is None: # Consume if cheap expand
-                    self.consume(hypo.word_to_consume)
-                    hypo.word_to_consume = None
-                posterior,score_breakdown = self.apply_predictors()
-                hypo.predictor_states = self.get_predictor_states()
-                top = utils.argmax_n(posterior, self.beam_size)
-                for trgt_word in top:
-                    next_hypo = hypo.cheap_expand(trgt_word,
-                                                  posterior[trgt_word],
-                                                  score_breakdown[trgt_word])
+                for next_hypo in self._expand_hypo(hypo):
                     next_hypos.append(next_hypo)
                     next_scores.append(self._get_combined_score(next_hypo))
             if self.hypo_recombination:
-                new_hypos = []
-                for idx in reversed(np.argsort(next_scores)):
-                    candidate = next_hypos[idx]
-                    self.set_predictor_states(copy.deepcopy(
-                                                    candidate.predictor_states))
-                    if not candidate.word_to_consume is None:
-                        self.consume(candidate.word_to_consume)
-                        candidate.word_to_consume = None
-                        candidate.predictor_states = self.get_predictor_states()
-                    valid = True
-                    for hypo in new_hypos:
-                        if self.are_equal_predictor_states(
-                                                hypo.predictor_states,
-                                                candidate.predictor_states):
-                            logging.debug("Hypo recombination: %s > %s" % (
-                                                 hypo.trgt_sentence,
-                                                 candidate.trgt_sentence))
-                            valid = False
-                            break
-                    if valid:
-                        new_hypos.append(candidate)
-                        if len(new_hypos) >= self.beam_size:
-                            break
-                new_hypos.reverse()
-                hypos = new_hypos
+                hypos = self._filter_equal_hypos(next_hypos, next_scores)
             else:
                 hypos = [next_hypos[idx]
                         for idx in np.argsort(next_scores)[-self.beam_size:]]

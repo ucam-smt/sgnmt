@@ -15,6 +15,7 @@ Note that the configuration is handled through this module and the ``ui``
 module. 
 """
 
+import codecs
 import logging
 import os
 import sys
@@ -41,6 +42,7 @@ from cam.sgnmt.decoding.heuristics import GreedyHeuristic, \
                                          ScorePerWordHeuristic, StatsHeuristic
 from cam.sgnmt.decoding.multisegbeam import MultisegBeamDecoder
 from cam.sgnmt.decoding.restarting import RestartingDecoder
+from cam.sgnmt.decoding.syncbeam import SyncBeamDecoder
 from cam.sgnmt.output import TextOutputHandler, \
                              NBestOutputHandler, \
                              FSTOutputHandler, \
@@ -65,8 +67,8 @@ from cam.sgnmt.tf.interface import tf_get_nmt_predictor, tf_get_nmt_vanilla_deco
     tf_get_rnnlm_predictor, tf_get_default_nmt_config, tf_get_rnnlm_prefix
 from cam.sgnmt.ui import get_args, get_parser, validate_args
 
+
 # UTF-8 support
-import codecs
 if sys.version_info < (3, 0):
     sys.stderr = codecs.getwriter('UTF-8')(sys.stderr)
     sys.stdout = codecs.getwriter('UTF-8')(sys.stdout)
@@ -399,7 +401,17 @@ def create_decoder():
                                       args.hypo_recombination,
                                       args.beam,
                                       args.multiseg_tokenizations,
-                                      args.early_stopping)
+                                      args.early_stopping,
+                                      args.max_word_len)
+    elif args.decoder == "syncbeam":
+        decoder = SyncBeamDecoder(args,
+                                  args.hypo_recombination,
+                                  args.beam,
+                                  args.pure_heuristic_scores,
+                                  args.decoder_diversity_factor,
+                                  args.early_stopping,
+                                  args.sync_symbol,
+                                  args.max_word_len)
     elif args.decoder == "dfs":
         decoder = DFSDecoder(args, 
                              args.early_stopping,

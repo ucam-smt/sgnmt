@@ -255,6 +255,7 @@ def get_parser():
                         choices=['greedy',
                                  'beam',
                                  'multisegbeam',
+                                 'syncbeam',
                                  'dfs',
                                  'restarting',
                                  'bow',
@@ -278,6 +279,9 @@ def get_parser():
                         "pruning behavior.\n"
                         "* 'multisegbeam': Beam search for predictors with "
                         "multiple tokenizations ([sub]word/char-levels).\n"
+                        "* 'syncbeam': beam search which compares after "
+                        "consuming a special synchronization symbol instead "
+                        "of after each iteration.\n"
                         "* 'bow': Restarting decoder optimized for bag-of-words "
                         "problems.\n"
                         "* 'flip': This decoder works only for bag problems. "
@@ -478,6 +482,13 @@ def get_parser():
                        "* The 'bucket' decoder reorders the hypotheses in a "
                        "bucket by penalizing hypotheses with the number of "
                        "expanded hypotheses from the same parent.")
+    group.add_argument("--sync_symbol", default=-1, type=int,
+                       help="Used for the syncbeam decoder. Synchronization "
+                       "symbol for hypothesis comparision. If negative, use "
+                       "the </w> entry in --trg_cmap.")
+    group.add_argument("--max_word_len", default=25, type=int,
+                       help="Maximum length of a single word. Only applicable "
+                       "to the decoders multisegbeam and syncbeam.")
 
     ## Output options
     group = parser.add_argument_group('Output options')

@@ -525,7 +525,8 @@ class MultisegBeamDecoder(Decoder):
                  hypo_recombination,
                  beam_size,
                  tokenizations,
-                 early_stopping = True):
+                 early_stopping = True,
+                 max_word_len = 25):
         """Creates a new beam decoder instance for predictors with
         multiple tokenizations.
         
@@ -544,13 +545,14 @@ class MultisegBeamDecoder(Decoder):
                                    only interested in the single best
                                    decoding result. If you want to 
                                    create full 12-best lists, disable
+            max_word_len (int): Maximum length of a single word
         """
         super(MultisegBeamDecoder, self).__init__(decoder_args)
         self.hypo_recombination = hypo_recombination
         self.beam_size = beam_size
         self.stop_criterion = self._best_eos if early_stopping else self._all_eos
         self.toks = []
-        self.max_word_len = 25 # TODO: add to config
+        self.max_word_len = max_word_len
         if not tokenizations:
             logging.fatal("Specify --multiseg_tokenizations!")
         for tok_config in tokenizations.split(","):
