@@ -96,7 +96,7 @@ class CombinedState(object):
         if token:
             s += utils.common_get(self.posterior,
                                   token, 
-                                  utils.UNK_ID)
+                                  self.posterior[utils.UNK_ID])
         return s
     
     def consume_all(self, predictor):
@@ -114,7 +114,7 @@ class CombinedState(object):
         for token in self.unconsumed:
             self.pending_score += utils.common_get(self.posterior,
                                                    token,
-                                                   utils.UNK_ID)
+                                                   self.posterior[utils.UNK_ID])
             predictor.consume(token)
             self.posterior = predictor.predict_next()
         self.pred_state = copy.deepcopy(predictor.get_state())
@@ -126,7 +126,7 @@ class CombinedState(object):
         if self.posterior:
             self.pending_score += utils.common_get(self.posterior,
                                                    self.unconsumed[0],
-                                                   utils.UNK_ID)
+                                                   self.posterior[utils.UNK_ID])
             self.posterior = None
         
     def update_posterior(self, predictor):
