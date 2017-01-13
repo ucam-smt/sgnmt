@@ -65,7 +65,7 @@ class BeamDecoder(Decoder):
 
     def _best_eos(self, hypos):
         """Returns true if the best hypothesis ends with </S>"""
-        return hypos[-1].get_last_word() != utils.EOS_ID
+        return hypos[0].get_last_word() != utils.EOS_ID
 
     def _all_eos(self, hypos):
         """Returns true if the all hypotheses end with </S>"""
@@ -128,8 +128,14 @@ class BeamDecoder(Decoder):
                 new_hypos.append(candidate)
                 if len(new_hypos) >= self.beam_size:
                     break
-        new_hypos.reverse()
         return new_hypos
+
+    def _get_next_hypos(self, all_hypos, all_scores):
+        """Get hypos for the next beam iteration. """
+        hypos = [all_hypos[idx]
+                        for idx in np.argsort(all_scores)[-self.beam_size:]]
+        hypos.reverse()
+        return hypos
     
     def decode(self, src_sentence):
         """Decodes a single source sentence using beam search. """
@@ -153,8 +159,7 @@ class BeamDecoder(Decoder):
             if self.hypo_recombination:
                 hypos = self._filter_equal_hypos(next_hypos, next_scores)
             else:
-                hypos = [next_hypos[idx]
-                        for idx in np.argsort(next_scores)[-self.beam_size:]]
+                hypos = self._get_next_hypos(next_hypos, next_scores)
         for idx in xrange(len(hypos)):
             if hypos[-idx-1].get_last_word() == utils.EOS_ID:
                 self.add_full_hypo(hypos[-idx-1].generate_full_hypothesis()) 

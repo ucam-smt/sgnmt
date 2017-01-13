@@ -87,8 +87,16 @@ class SyncBeamDecoder(BeamDecoder):
         Return:
             list. List of expanded hypotheses.
         """
-        hypos = [hypo]
-        it = 0
+        print("EXPAND %s (%f)" % (utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score))
+        # Get initial expansions
+        next_hypos = []
+        next_scores = []
+        for next_hypo in super(SyncBeamDecoder, self)._expand_hypo(hypo):
+            next_hypos.append(next_hypo)
+            next_scores.append(self._get_combined_score(next_hypo))
+        hypos = self._get_next_hypos(next_hypos, next_scores)
+        # Expand until all hypos are closed
+        it = 1
         while self._all_eos_or_eow(hypos):
             if it > self.max_word_len: # prevent infinite loops
                 break
@@ -96,13 +104,14 @@ class SyncBeamDecoder(BeamDecoder):
             next_hypos = []
             next_scores = []
             for hypo in hypos:
+                print("-> %s (%f)" % (utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score))
                 if self._is_closed(hypo):
                     next_hypos.append(hypo)
                     next_scores.append(self._get_combined_score(hypo))
                     continue 
-                for next_hypo in self._expand_hypo(hypo):
+                for next_hypo in super(SyncBeamDecoder, self)._expand_hypo(hypo):
                     next_hypos.append(next_hypo)
                     next_scores.append(self._get_combined_score(next_hypo))
-            hypos = [next_hypos[idx]
-                        for idx in np.argsort(next_scores)[-self.beam_size:]]
+            hypos = self._get_next_hypos(next_hypos, next_scores)
         return [h for h in hypos if self._is_closed(h)]
+
