@@ -55,6 +55,9 @@ class BeamDecoder(Decoder):
         self.beam_size = beam_size
         self.hypo_recombination = hypo_recombination
         self.stop_criterion = self._best_eos if early_stopping else self._all_eos
+        self.maintain_best_scores = early_stopping and not hypo_recombination 
+        if self.maintain_best_scores:
+            logging.debug("Risk-free beam-search pruning enabled")
         self.pure_heuristic_scores = pure_heuristic_scores
     
     def _get_combined_score(self, hypo):
@@ -83,6 +86,8 @@ class BeamDecoder(Decoder):
         Returns:
             list. List of child hypotheses
         """
+        if hypo.score <= self.min_score:
+            return []
         self.set_predictor_states(copy.deepcopy(hypo.predictor_states))
         if not hypo.word_to_consume is None: # Consume if cheap expand
             self.consume(hypo.word_to_consume)
@@ -137,6 +142,17 @@ class BeamDecoder(Decoder):
         hypos.reverse()
         return hypos
     
+    def _register_score(self, score):
+        """Updates best_scores and min_score.
+        """
+        if not self.maintain_best_scores:
+            return
+        self.best_scores.append(score)
+        self.best_scores.sort(reverse=True)
+        if len(self.best_scores) >= self.beam_size:
+            self.best_scores = self.best_scores[:self.beam_size]
+            self.min_score = self.best_scores[-1] 
+    
     def decode(self, src_sentence):
         """Decodes a single source sentence using beam search. """
         self.initialize_predictors(src_sentence)
@@ -148,23 +164,28 @@ class BeamDecoder(Decoder):
             it = it + 1
             next_hypos = []
             next_scores = []
+            self.min_score = utils.NEG_INF
+            self.best_scores = []
             for hypo in hypos:
                 if hypo.get_last_word() == utils.EOS_ID:
                     next_hypos.append(hypo)
                     next_scores.append(self._get_combined_score(hypo))
                     continue 
                 for next_hypo in self._expand_hypo(hypo):
-                    next_hypos.append(next_hypo)
-                    next_scores.append(self._get_combined_score(next_hypo))
+                    next_score = self._get_combined_score(next_hypo)
+                    if next_score > self.min_score:
+                        next_hypos.append(next_hypo)
+                        next_scores.append(next_score)
+                        self.register_score(next_score)
             if self.hypo_recombination:
                 hypos = self._filter_equal_hypos(next_hypos, next_scores)
             else:
                 hypos = self._get_next_hypos(next_hypos, next_scores)
-        for idx in xrange(len(hypos)):
-            if hypos[-idx-1].get_last_word() == utils.EOS_ID:
-                self.add_full_hypo(hypos[-idx-1].generate_full_hypothesis()) 
+        for hypo in hypos:
+            if hypo.get_last_word() == utils.EOS_ID:
+                self.add_full_hypo(hypo.generate_full_hypothesis()) 
         if not self.full_hypos:
             logging.warn("No complete hypotheses found for %s" % src_sentence)
-            for idx in xrange(len(hypos)):
-                self.add_full_hypo(hypos[-idx-1].generate_full_hypothesis())
+            for hypo in hypos:
+                self.add_full_hypo(hypo.generate_full_hypothesis())
         return self.get_full_hypos_sorted()
