@@ -155,10 +155,14 @@ class BeamDecoder(Decoder):
             self.min_score = self.best_scores[-1] 
             print("Min score is now %f" % self.min_score)
     
+    def _get_initial_hypos(self):
+        """Get the list of initial ``PartialHypothesis``. """
+        return [PartialHypothesis(self.get_predictor_states())]
+    
     def decode(self, src_sentence):
         """Decodes a single source sentence using beam search. """
         self.initialize_predictors(src_sentence)
-        hypos = [PartialHypothesis(self.get_predictor_states())]
+        hypos = self._get_initial_hypos()
         it = 0
         while self.stop_criterion(hypos):
             if it > self.max_len: # prevent infinite loops

@@ -256,6 +256,7 @@ def get_parser():
                                  'beam',
                                  'multisegbeam',
                                  'syncbeam',
+                                 'sepbeam',
                                  'dfs',
                                  'restarting',
                                  'bow',
@@ -282,6 +283,9 @@ def get_parser():
                         "* 'syncbeam': beam search which compares after "
                         "consuming a special synchronization symbol instead "
                         "of after each iteration.\n"
+                        "* 'sepbeam': Associates predictors with hypos in "
+                        "beam search and applies only one predictor instead "
+                        "of all for hypo expansion.\n"
                         "* 'bow': Restarting decoder optimized for bag-of-words "
                         "problems.\n"
                         "* 'flip': This decoder works only for bag problems. "
