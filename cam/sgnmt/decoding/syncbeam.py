@@ -3,7 +3,6 @@
 
 from cam.sgnmt import utils
 from cam.sgnmt.decoding.beam import BeamDecoder
-import numpy as np
 
 
 class SyncBeamDecoder(BeamDecoder):

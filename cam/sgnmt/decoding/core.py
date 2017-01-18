@@ -73,7 +73,7 @@ class Hypothesis:
             ctokens.extend(chars)
             cscore_breakdown.extend([self.score_breakdown[idx]] +
                                     (len(chars)-1) * [dummy_breakdown])
-	# Remove last eow
+        # Remove last eow
         ctokens = ctokens[:-1]
         cscore_breakdown = cscore_breakdown[:-1]
         if len(self.trgt_sentence) < len(self.score_breakdown):
