@@ -39,7 +39,7 @@ class CombinedState(object):
         self.fst_node = fst_node
         self.pred_state = pred_state
         self.posterior = posterior
-        self.unconsumed = unconsumed
+        self.unconsumed = list(unconsumed)
         self.pending_score = pending_score
     
     def traverse_fst(self, trans_fst, char):
@@ -115,6 +115,7 @@ class CombinedState(object):
             self.pending_score += utils.common_get(self.posterior,
                                                    token,
                                                    self.posterior[utils.UNK_ID])
+            #print("consume %d (consume all, %d)" % (token, predictor.config['src_vocab_size']))
             predictor.consume(token)
             self.posterior = predictor.predict_next()
         self.pred_state = copy.deepcopy(predictor.get_state())
@@ -133,6 +134,7 @@ class CombinedState(object):
         if not self.posterior is None:
             return
         predictor.set_state(copy.deepcopy(self.pred_state))
+        #print("consume %s (update post, %d) " % (self.unconsumed, predictor.config['src_vocab_size']))
         predictor.consume(self.unconsumed[0])
         self.posterior = predictor.predict_next()
         self.pred_state = copy.deepcopy(predictor.get_state())
@@ -162,6 +164,7 @@ class FSTTokPredictor(Predictor):
             slave_predictor (Predictor): Wrapped predictor
         """
         super(FSTTokPredictor, self).__init__()
+        self.max_pending_score = 5.0 # TODO: Add to config
         self.slave_predictor = slave_predictor
         if isinstance(slave_predictor, UnboundedVocabularyPredictor):
             logging.fatal("fsttok cannot wrap an unbounded "
@@ -215,6 +218,25 @@ class FSTTokPredictor(Predictor):
         realized by the FST.
         """
         return utils.NEG_INF
+
+    def _choose_better(self, s1, s2):
+        """``consume`` merges states if they have the same ``fst_node``
+        This method defines which one to keep. We prefer states that
+        
+        1) have less unconsumed UNK tokens
+        2) have higher pending_score
+        """
+        if s1 is None:
+            return s2
+        n_unk1 = len([1 for t in s1.unconsumed if t > 100000])# TODO: This should read unk_id!
+        n_unk2 = len([1 for t in s2.unconsumed if t > 100000])
+        if n_unk1 > n_unk2:
+            return s2
+        if n_unk1 < n_unk2:
+            return s1
+        if s1.pending_score < s2.pending_score:
+            return s2
+        return s1
     
     def consume(self, word):
         """Update ``self.states`` to be consistent with ``word`` and 
@@ -228,12 +250,14 @@ class FSTTokPredictor(Predictor):
             state.pending_score -= consumed_score
             state.consume_single(self.slave_predictor)
         # if two states have the same fst_node, keep only the better one
+        # Also: Remove states with too large pending_score
         uniq_states = {}
         for state in next_states:
+            if state.pending_score < -self.max_pending_score:
+                continue
             n = state.fst_node
-            if (not n in uniq_states 
-                    or uniq_states[n].pending_score < state.pending_score):
-                uniq_states[n] = state
+            uniq_states[n] = self._choose_better(uniq_states.get(n, None),
+                                                 state)
         self.states = list(uniq_states.itervalues())
     
     def get_state(self):

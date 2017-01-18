@@ -86,7 +86,10 @@ class SyncBeamDecoder(BeamDecoder):
         Return:
             list. List of expanded hypotheses.
         """
-        print("EXPAND %s (%f)" % (utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score))
+        #print("EXPAND: %s (%f: %f, %f, %f)" % (utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score, sum([s[0][0] for s in hypo.score_breakdown]), sum([s[1][0] for s in hypo.score_breakdown]), sum([s[2][0] for s in hypo.score_breakdown])))
+        #print("N-STATES: %d %d %d" % (len(self.predictors[0][0].states), len(self.predictors[1][0].slave_predictor.states), len(self.predictors[2][0].slave_predictor.states)))
+        #if min(len(self.predictors[0][0].states), len(self.predictors[1][0].slave_predictor.states), len(self.predictors[2][0].slave_predictor.states)) > 0:
+        #    print("PENDING: %f %f %f" % (self.predictors[0][0].states[0].pending_score, self.predictors[1][0].slave_predictor.states[0].pending_score, self.predictors[1][0].slave_predictor.states[0].pending_score))
         # Get initial expansions
         next_hypos = []
         next_scores = []
@@ -103,7 +106,7 @@ class SyncBeamDecoder(BeamDecoder):
             next_hypos = []
             next_scores = []
             for hypo in hypos:
-                print("-> %s (%f)" % (utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score))
+                #print("-> %s (%f: %f, %f, %f)" % (utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score, sum([s[0][0] for s in hypo.score_breakdown]), sum([s[1][0] for s in hypo.score_breakdown]), sum([s[2][0] for s in hypo.score_breakdown])))
                 if self._is_closed(hypo):
                     next_hypos.append(hypo)
                     next_scores.append(self._get_combined_score(hypo))
@@ -112,5 +115,7 @@ class SyncBeamDecoder(BeamDecoder):
                     next_hypos.append(next_hypo)
                     next_scores.append(self._get_combined_score(next_hypo))
             hypos = self._get_next_hypos(next_hypos, next_scores)
+        #for hypo in hypos:
+        #    print("SYNCRESULT %s (%f: %f, %f, %f)" % (utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score, sum([s[0][0] for s in hypo.score_breakdown]), sum([s[1][0] for s in hypo.score_breakdown]), sum([s[2][0] for s in hypo.score_breakdown])))
         return [h for h in hypos if self._is_closed(h)]
 
