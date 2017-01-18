@@ -138,7 +138,8 @@ class BeamDecoder(Decoder):
     def _get_next_hypos(self, all_hypos, all_scores):
         """Get hypos for the next beam iteration. """
         hypos = [all_hypos[idx]
-                        for idx in np.argsort(all_scores)[-self.beam_size:]]
+                        for idx in np.argsort(all_scores)[-self.beam_size:]
+                        if all_hypos[idx].score > self.min_score]
         hypos.reverse()
         return hypos
     
@@ -152,6 +153,7 @@ class BeamDecoder(Decoder):
         if len(self.best_scores) >= self.beam_size:
             self.best_scores = self.best_scores[:self.beam_size]
             self.min_score = self.best_scores[-1] 
+            print("Min score is now %f" % self.min_score)
     
     def decode(self, src_sentence):
         """Decodes a single source sentence using beam search. """
@@ -166,7 +168,11 @@ class BeamDecoder(Decoder):
             next_scores = []
             self.min_score = utils.NEG_INF
             self.best_scores = []
+            print("HYPOS")
             for hypo in hypos:
+                print("it%d: %s (%f)" % (it, utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score))
+            for hypo in hypos:
+                print("H: %s (%f)" % (utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score))
                 if hypo.get_last_word() == utils.EOS_ID:
                     next_hypos.append(hypo)
                     next_scores.append(self._get_combined_score(hypo))
@@ -176,7 +182,7 @@ class BeamDecoder(Decoder):
                     if next_score > self.min_score:
                         next_hypos.append(next_hypo)
                         next_scores.append(next_score)
-                        self.register_score(next_score)
+                        self._register_score(next_score)
             if self.hypo_recombination:
                 hypos = self._filter_equal_hypos(next_hypos, next_scores)
             else:
