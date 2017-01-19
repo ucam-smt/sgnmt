@@ -94,9 +94,7 @@ class CombinedState(object):
             self.consume_all(predictor)
         s = self.pending_score
         if token:
-            s += utils.common_get(self.posterior,
-                                  token, 
-                                  self.posterior[utils.UNK_ID])
+            s += self._get_token_score(token, predictor)
         return s
     
     def consume_all(self, predictor):
@@ -112,29 +110,38 @@ class CombinedState(object):
             self.update_posterior(predictor)
         predictor.set_state(copy.deepcopy(self.pred_state))
         for token in self.unconsumed:
-            self.pending_score += utils.common_get(self.posterior,
-                                                   token,
-                                                   self.posterior[utils.UNK_ID])
-            #print("consume %d (consume all, %d)" % (token, predictor.config['src_vocab_size']))
+            self.pending_score += self._get_token_score(token, predictor)
             predictor.consume(token)
             self.posterior = predictor.predict_next()
         self.pred_state = copy.deepcopy(predictor.get_state())
         self.unconsumed = []
     
     def consume_single(self, predictor):
+        """Consume a single token in ``self.unconsumed``.
+        
+        Args:
+            predictor (Predictor): Predictor instance
+        """
         if not self.unconsumed:
             return
         if not self.posterior is None:
-            self.pending_score += utils.common_get(self.posterior,
-                                                   self.unconsumed[0],
-                                                   self.posterior[utils.UNK_ID])
+            self.pending_score += self._get_token_score(self.unconsumed[0],
+                                                        predictor)
             self.posterior = None
+    
+    def _get_token_score(self, token, predictor):
+        """Look up ``token`` in ``self.posterior``. """
+        return utils.common_get(self.posterior,
+                                token,
+                                predictor.get_unk_probability(self.posterior))
         
     def update_posterior(self, predictor):
+        """If ``self.posterior`` is None, call ``predict_next`` to
+        be able to score the next tokens.
+        """
         if not self.posterior is None:
             return
         predictor.set_state(copy.deepcopy(self.pred_state))
-        #print("consume %s (update post, %d) " % (self.unconsumed, predictor.config['src_vocab_size']))
         predictor.consume(self.unconsumed[0])
         self.posterior = predictor.predict_next()
         self.pred_state = copy.deepcopy(predictor.get_state())
@@ -155,16 +162,21 @@ class FSTTokPredictor(Predictor):
       predictor states
     """
     
-    def __init__(self, path, slave_predictor):
+    def __init__(self, path, fst_unk_id, max_pending_score, slave_predictor):
         """Constructor for the fsttok wrapper
         
         Args:
             path (string): Path to an FST which transduces characters 
                            to predictor tokens
+            fst_unk_id (int): ID used to represent UNK in the FSTs
+                              (usually 999999998)
+            max_pending_score (float): Maximum pending score in a
+                                       ``CombinedState`` instance.
             slave_predictor (Predictor): Wrapped predictor
         """
         super(FSTTokPredictor, self).__init__()
-        self.max_pending_score = 5.0 # TODO: Add to config
+        self.max_pending_score = max_pending_score 
+        self.fst_unk_id = fst_unk_id
         self.slave_predictor = slave_predictor
         if isinstance(slave_predictor, UnboundedVocabularyPredictor):
             logging.fatal("fsttok cannot wrap an unbounded "
@@ -228,8 +240,8 @@ class FSTTokPredictor(Predictor):
         """
         if s1 is None:
             return s2
-        n_unk1 = len([1 for t in s1.unconsumed if t > 100000])# TODO: This should read unk_id!
-        n_unk2 = len([1 for t in s2.unconsumed if t > 100000])
+        n_unk1 = len([1 for t in s1.unconsumed if t == self.fst_unk_id])
+        n_unk2 = len([1 for t in s2.unconsumed if t == self.fst_unk_id])
         if n_unk1 > n_unk2:
             return s2
         if n_unk1 < n_unk2:

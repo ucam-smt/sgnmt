@@ -340,7 +340,10 @@ def add_predictors(decoder):
                 elif wrapper == "fsttok":
                     fsttok_path = _get_override_args("fsttok_path")
                     # word2char always wraps unbounded predictors
-                    p = FSTTokPredictor(fsttok_path, p)
+                    p = FSTTokPredictor(fsttok_path,
+                                        args.fst_unk_id,
+                                        args.fsttok_max_pending_score,
+                                        p)
                 elif wrapper == "unkvocab":
                     # unkvocab always wraps bounded predictors
                     p = UnkvocabPredictor(args.trg_vocab_size, p)
@@ -555,11 +558,11 @@ def create_output_handlers():
         elif name == "fst":
             outputs.append(FSTOutputHandler(path,
                                             start_sen_id,
-                                            args.output_fst_unk_id))
+                                            args.fst_unk_id))
         elif name == "sfst":
             outputs.append(StandardFSTOutputHandler(path,
                                                     start_sen_id,
-                                                    args.output_fst_unk_id))
+                                                    args.fst_unk_id))
         else:
             logging.fatal("Output format %s not available. Please double-check"
                           " the --outputs parameter." % name)
