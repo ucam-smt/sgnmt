@@ -153,7 +153,7 @@ class BeamDecoder(Decoder):
         if len(self.best_scores) >= self.beam_size:
             self.best_scores = self.best_scores[:self.beam_size]
             self.min_score = self.best_scores[-1] 
-            print("Min score is now %f" % self.min_score)
+            #print("Min score is now %f" % self.min_score)
     
     def _get_initial_hypos(self):
         """Get the list of initial ``PartialHypothesis``. """
@@ -172,11 +172,11 @@ class BeamDecoder(Decoder):
             next_scores = []
             self.min_score = utils.NEG_INF
             self.best_scores = []
-            print("HYPOS")
+            #print("HYPOS")
+            #for hypo in hypos:
+            #    print("it%d: %s (%f)" % (it, utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score))
             for hypo in hypos:
-                print("it%d: %s (%f)" % (it, utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score))
-            for hypo in hypos:
-                print("H: %s (%f)" % (utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score))
+                #print("H: %s (%f)" % (utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score))
                 if hypo.get_last_word() == utils.EOS_ID:
                     next_hypos.append(hypo)
                     next_scores.append(self._get_combined_score(hypo))

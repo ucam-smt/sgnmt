@@ -89,7 +89,8 @@ class SepBeamDecoder(BeamDecoder):
         return ret
     
     def _expand_hypo(self, hypo):
-        """TODO
+        """Expands hypothesis by calling predict_next() only on one
+        single predictor.
         """
         if hypo.score <= self.min_score:
             return []
@@ -98,16 +99,17 @@ class SepBeamDecoder(BeamDecoder):
             if not s is None:
                 pred_idx = idx
                 break
+        self.apply_predictors_count += 1
         predictor = self.predictors[pred_idx][0]
         predictor.set_state(copy.deepcopy(hypo.predictor_states[pred_idx]))
         if not hypo.word_to_consume is None: # Consume if cheap expand
             predictor.consume(hypo.word_to_consume)
             hypo.word_to_consume = None
         posterior = predictor.predict_next()
-        score_breakdown = None
+        hypo.predictor_states = list(hypo.predictor_states)
         hypo.predictor_states[pred_idx] = predictor.get_state()
-        ret = []
         breakdown_dummy = [(0.0, 1.0)] * len(self.predictors)
+        ret = []
         for trgt_word in utils.argmax_n(posterior, self.beam_size):
             score_breakdown = list(breakdown_dummy)
             score_breakdown[pred_idx] = (posterior[trgt_word], 1.0)
