@@ -91,7 +91,7 @@ class FstPredictor(Predictor):
             together with their scores, or an empty set if we currently
             have no active node or fst.
         """
-        if not self.cur_node:
+        if self.cur_node < 0:
             return {}
         scores = {arc.olabel: self.weight_factor*w2f(arc.weight)
                 for arc in self.cur_fst.arcs(self.cur_node)}
