@@ -216,8 +216,8 @@ def load_src_wmap(path):
         src_wmap = {}
         return src_wmap
     with codecs.open(path, encoding='utf-8') as f:
-        src_wmap = dict(map(lambda e: (e[0], int(e[1])),
-                        [line.strip().split(None, 1) for line in f]))
+        src_wmap = dict(map(lambda e: (e[0], int(e[-1])),
+                        [line.strip().split() for line in f]))
     return src_wmap
 
 
@@ -235,8 +235,8 @@ def load_trg_wmap(path):
         trg_wmap = {}
         return trg_wmap
     with codecs.open(path, encoding='utf-8') as f:
-        trg_wmap = dict(map(lambda e: (int(e[1]), e[0]),
-                        [line.strip().split(None, 1) for line in f]))
+        trg_wmap = dict(map(lambda e: (int(e[-1]), e[0]),
+                        [line.strip().split() for line in f]))
     return trg_wmap
 
 
