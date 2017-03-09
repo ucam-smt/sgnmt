@@ -279,7 +279,7 @@ class Decoder(Initializable):
 
         # Initialize gru with special initial state
         self.transition = GRUInitialState(
-            attended_dim=state_dim,
+            attended_dim=representation_dim / 2,
             init_strategy=init_strategy, 
             dim=state_dim,
             activation=Tanh(), 
