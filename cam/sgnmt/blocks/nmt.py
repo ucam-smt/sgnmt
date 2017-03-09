@@ -281,7 +281,7 @@ def blocks_get_nmt_config_help():
                             "direct, hierarchical"
     config['dec_init'] = "Decoder state initialisation: last, average, constant"
     config['attention'] = "Attention mechanism: none, content, nbest-<n>, " \
-                          "coverage-<n>, tree"
+                          "coverage-<n>, tree, content-<n>"
     config['memory'] = 'External memory: none, stack'
     config['memory_size'] = 'Size of external memory structure'
     config['saveto'] = "Where to save model, same as 'prefix' in groundhog"

@@ -44,6 +44,7 @@ from fuel.streams import DataStream
 
 from cam.sgnmt import utils
 from cam.sgnmt.blocks import stream
+from cam.sgnmt.blocks.pruning import PruningGradientDescent
 from cam.sgnmt.blocks.checkpoint import CheckpointNMT, LoadNMT
 from cam.sgnmt.blocks.model import NMTModel
 from cam.sgnmt.blocks.nmt import blocks_get_default_nmt_config
@@ -385,13 +386,24 @@ def main(config,
                     break
             if add_param:
                 train_params.append(p)
-    # Change cost=cost to cg.outputs[0] ?
-    algorithm = GradientDescent(
-        cost=nmt_model.cg.outputs[0] if config['dropout'] < 1.0 else nmt_model.cost,
-        parameters=train_params,
-        step_rule=CompositeRule([StepClipping(config['step_clipping']),
-                                 eval(config['step_rule'])()])
-    )
+    if args.prune_every < 1:
+        # Change cost=cost to cg.outputs[0] ?
+        algorithm = GradientDescent(
+            cost=nmt_model.cg.outputs[0] if config['dropout'] < 1.0 else nmt_model.cost,
+            parameters=train_params,
+            step_rule=CompositeRule([StepClipping(config['step_clipping']),
+                                     eval(config['step_rule'])()])
+        )
+    else:
+        # Change cost=cost to cg.outputs[0] ?
+        algorithm = PruningGradientDescent(
+            prune_every=args.prune_every,
+            nmt_model=nmt_model,
+            cost=nmt_model.cg.outputs[0] if config['dropout'] < 1.0 else nmt_model.cost,
+            parameters=train_params,
+            step_rule=CompositeRule([StepClipping(config['step_clipping']),
+                                     eval(config['step_rule'])()])
+        )
 
     # Initialize main loop
     logging.info("Initializing main loop")
