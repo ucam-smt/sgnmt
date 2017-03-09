@@ -5,25 +5,26 @@ of search algorithms, this module defines bricks which can be used to
 combine the final encoder-decoder network.
 """
 
-from blocks.bricks import (Tanh, Logistic, Maxout, Linear, FeedforwardSequence,
-                           Bias, Initializable, MLP)
-from blocks.bricks.attention import SequenceContentAttention
-from blocks.bricks.base import application, lazy
-from blocks.bricks.cost import SquaredError
-from blocks.bricks.parallel import Fork
-import logging
-
 from blocks.bricks.recurrent import GatedRecurrent
 from blocks.bricks.sequence_generators import (
     LookupFeedback, Readout, SoftmaxEmitter,
     SequenceGenerator, AbstractEmitter, TrivialFeedback)
 from blocks.roles import add_role, WEIGHT, INITIAL_STATE
 from blocks.utils import shared_floatx_nans, shared_floatx_zeros
+import logging
 from theano import tensor
+
+from blocks.bricks import (Tanh, Logistic, Maxout, Linear, FeedforwardSequence,
+                           Bias, Initializable, MLP)
+from blocks.bricks.attention import SequenceContentAttention
+from blocks.bricks.base import application, lazy
+from blocks.bricks.cost import SquaredError
+from blocks.bricks.parallel import Fork
 
 from cam.sgnmt.blocks.attention import AlignmentAttention, \
     ThresholdedSequenceContentAttention, PushDownSequenceContentAttention, \
-    PushDownThresholdedAttention, CoverageContentAttention
+    PushDownThresholdedAttention, CoverageContentAttention, \
+    SequenceMultiContentAttention
 
 
 class InitializableFeedforwardSequence(FeedforwardSequence, Initializable):
@@ -189,6 +190,18 @@ def _initialize_attention(attention_strategy,
                     match_dim=state_dim, name="attention")
             else:
                 attention = SequenceContentAttention(
+                    state_names=att_src_names,
+                    attended_dim=representation_dim,
+                    match_dim=state_dim, name="attention")
+        elif 'content-' in attention_strategy:
+            if memory == 'stack':
+                logging.error("Memory 'stack' cannot used in combination "
+                              "with multi content attention strategy (not "
+                              "implemented yet)")
+            else:
+                _,n = attention_strategy.split('-')
+                attention = SequenceMultiContentAttention(
+                    n_att_weights=int(n),
                     state_names=att_src_names,
                     attended_dim=representation_dim,
                     match_dim=state_dim, name="attention")

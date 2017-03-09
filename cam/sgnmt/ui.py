@@ -127,6 +127,9 @@ def get_train_parser():
                         "If the most frequent word in the backtranslated "
                         "sentence has relative frequency higher than this, "
                          "discard this sentence pair")
+    parser.add_argument("--prune_every", default=-1, type=int,
+                        help="Prune model every n iterations. Pruning is " 
+                        "disabled if this is < 1")
     parser.add_argument("--sampling_freq", default=13, type=int,
                         help="NOT USED, just to prevent old code from breaking")
     parser.add_argument("--hook_samples", default=0, type=int,

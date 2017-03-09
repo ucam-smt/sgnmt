@@ -6,7 +6,13 @@ attention is defined by a trainable alignment matrix. We also consider
 using an external memory like a neural stack as part of the attention.
 """
 
-from blocks.bricks import Initializable, Linear, MLP, Logistic, Tanh
+from blocks.bricks import Initializable, \
+                          Linear, \
+                          MLP, \
+                          Logistic, \
+                          Tanh, \
+                          Sequence, \
+                          Feedforward
 from blocks.bricks.attention import SequenceContentAttention, \
                                     GenericSequenceAttention, \
                                     ShallowEnergyComputer
@@ -16,7 +22,6 @@ from blocks.bricks.parallel import Parallel
 from blocks.roles import add_role, WEIGHT, INITIAL_STATE
 from blocks.utils import shared_floatx_nans
 from theano import tensor
-import theano
 
 
 class AlignmentAttention(GenericSequenceAttention, Initializable):
@@ -687,3 +692,140 @@ class TreeAttention(GenericSequenceAttention, Initializable):
             return self.attended_dim
         return super(TreeAttention, self).get_dim(name)
 
+
+class SequenceMultiContentAttention(GenericSequenceAttention, Initializable):
+    
+    @lazy(allocation=['match_dim'])
+    def __init__(self, n_att_weights, match_dim, state_transformer=None,
+                 attended_transformer=None, energy_computer=None, **kwargs):
+        super(SequenceContentAttention, self).__init__(**kwargs)
+        self.n_att_weights = n_att_weights
+        if not state_transformer:
+            state_transformer = Linear(use_bias=False)
+        self.match_dim = match_dim
+        self.state_transformer = state_transformer
+
+        self.state_transformers = Parallel(input_names=self.state_names,
+                                           prototype=state_transformer,
+                                           name="state_trans")
+        if not attended_transformer:
+            attended_transformer = Linear(name="preprocess")
+        if not energy_computer:
+            energy_computer = MultiShallowEnergyComputer(n_att_weights,
+                                                         name="energy_comp")
+        self.attended_transformer = attended_transformer
+        self.energy_computer = energy_computer
+
+        self.children = [self.state_transformers, attended_transformer,
+                         energy_computer]
+
+    def _push_allocation_config(self):
+        self.state_transformers.input_dims = self.state_dims
+        self.state_transformers.output_dims = [self.match_dim
+                                               for name in self.state_names]
+        self.attended_transformer.input_dim = self.attended_dim
+        self.attended_transformer.output_dim = self.match_dim
+        self.energy_computer.input_dim = self.match_dim
+        self.energy_computer.output_dim = 1
+
+    @application
+    def compute_energies(self, attended, preprocessed_attended, states):
+        if not preprocessed_attended:
+            preprocessed_attended = self.preprocess(attended)
+        transformed_states = self.state_transformers.apply(as_dict=True,
+                                                           **states)
+        # Broadcasting of transformed states should be done automatically
+        match_vectors = sum(transformed_states.values(),
+                            preprocessed_attended)
+        energies = self.energy_computer.apply(match_vectors).reshape(
+            match_vectors.shape[:-1], ndim=match_vectors.ndim - 1)
+        return energies
+
+    @application(outputs=['weighted_averages', 'weights'])
+    def take_glimpses(self, attended, preprocessed_attended=None,
+                      attended_mask=None, **states):
+        r"""Compute attention weights and produce glimpses.
+
+        Parameters
+        ----------
+        attended : :class:`~tensor.TensorVariable`
+            The sequence, time is the 1-st dimension.
+        preprocessed_attended : :class:`~tensor.TensorVariable`
+            The preprocessed sequence. If ``None``, is computed by calling
+            :meth:`preprocess`.
+        attended_mask : :class:`~tensor.TensorVariable`
+            A 0/1 mask specifying available data. 0 means that the
+            corresponding sequence element is fake.
+        \*\*states
+            The states of the network.
+
+        Returns
+        -------
+        weighted_averages : :class:`~theano.Variable`
+            Linear combinations of sequence elements with the attention
+            weights.
+        weights : :class:`~theano.Variable`
+            The attention weights. The first dimension is batch, the second
+            is time.
+
+        """
+        energies = self.compute_energies(attended, preprocessed_attended,
+                                         states)
+        weights = self.compute_weights(energies, attended_mask)
+        weighted_averages = self.compute_weighted_averages(weights, attended)
+        return weighted_averages, weights.T
+
+    @take_glimpses.property('inputs')
+    def take_glimpses_inputs(self):
+        return (['attended', 'preprocessed_attended', 'attended_mask'] +
+                self.state_names)
+
+    @application(outputs=['weighted_averages', 'weights'])
+    def initial_glimpses(self, batch_size, attended):
+        return [tensor.zeros((batch_size, self.attended_dim)),
+                tensor.zeros((batch_size, attended.shape[0]))]
+
+    @application(inputs=['attended'], outputs=['preprocessed_attended'])
+    def preprocess(self, attended):
+        """Preprocess the sequence for computing attention weights.
+
+        Parameters
+        ----------
+        attended : :class:`~tensor.TensorVariable`
+            The attended sequence, time is the 1-st dimension.
+
+        """
+        return self.attended_transformer.apply(attended)
+
+    def get_dim(self, name):
+        if name in ['weighted_averages']:
+            return self.attended_dim
+        if name in ['weights']:
+            return 0
+        return super(SequenceContentAttention, self).get_dim(name)
+
+
+class MultiShallowEnergyComputer(Sequence, Initializable, Feedforward):
+    """A simple energy computer: first tanh, then weighted sum."""
+    @lazy()
+    def __init__(self, n_att_weights, **kwargs):
+        self.n_att_weights = n_att_weights
+        super(ShallowEnergyComputer, self).__init__(
+            [Tanh().apply, Linear(use_bias=False).apply], **kwargs)
+
+    @property
+    def input_dim(self):
+        return self.children[1].input_dim
+
+    @input_dim.setter
+    def input_dim(self, value):
+        self.children[1].input_dim = value
+
+    @property
+    def output_dim(self):
+        return self.children[1].output_dim
+
+    @output_dim.setter
+    def output_dim(self, value):
+        self.children[1].output_dim = value
+        
