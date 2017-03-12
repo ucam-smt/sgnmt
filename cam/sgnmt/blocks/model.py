@@ -112,7 +112,7 @@ class NMTModel:
         """
         self.config = config
     
-    def set_up(self, config = None):
+    def set_up(self, config = None, make_prunable = False):
         """Loads and initializes all the theano variables for the
         training model and the decoding model.
         
@@ -160,6 +160,7 @@ class NMTModel:
             decoder = NoLookupDecoder(config['trg_vocab_size'],
                                       config['dec_embed'], 
                                       config['dec_nhids'],
+                                      config['att_nhids'],
                                       config['enc_nhids'] * 2,
                                       config['attention'],
                                       config['dec_attention_sources'],
@@ -173,6 +174,7 @@ class NMTModel:
             decoder = Decoder(config['trg_vocab_size'],
                               config['dec_embed'], 
                               config['dec_nhids'],
+                              config['att_nhids'],
                               config['enc_nhids'] * 2,
                               config['attention'],
                               config['dec_attention_sources'],
@@ -180,7 +182,8 @@ class NMTModel:
                               config['memory'],
                               config['memory_size'],
                               config['seq_len'],
-                              config['dec_init'])
+                              config['dec_init'],
+                              make_prunable=make_prunable)
         if config['annotations'] != 'direct':
             annotators = []
             add_direct = False
@@ -272,4 +275,5 @@ class NMTModel:
                 ComputationGraph(generated[1]))  # generated[1] is next_outputs
         self.samples = generated_outputs[1]
         self.encoder = encoder
+        self.decoder = decoder
     

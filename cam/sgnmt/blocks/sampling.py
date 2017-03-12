@@ -73,7 +73,6 @@ class BleuValidator(SimpleExtension):
         self.n_best = n_best
         self.track_n_models = track_n_models
         self.normalize = normalize
-        self.verbose = config.get('val_set_out', None)
         self.best_models = []
         self.val_bleu_curve = []
         self.multibleu_cmd = (self.config['bleu_script'] % self.config['val_set_grndtruth']).split()
@@ -123,8 +122,7 @@ class BleuValidator(SimpleExtension):
         val_start_time = time.time()
         mb_subprocess = Popen(self.multibleu_cmd, stdin=PIPE, stdout=PIPE)
         total_cost = 0.0
-        if self.verbose:
-            ftrans = open(self.config['val_set_out'], 'w')
+        ftrans = open(self.config['saveto'] + '/validation_out.txt', 'w')
         for i, line in enumerate(self.data_stream.get_epoch_iterator()):
             seq = self.src_sparse_feat_map.words2dense(utils.oov_to_unk(
                 line[0], self.config['src_vocab_size']))
@@ -160,8 +158,7 @@ class BleuValidator(SimpleExtension):
                 if j == 0:
                     # Write to subprocess and file if it exists
                     print(trans_out, file=mb_subprocess.stdin)
-                    if self.verbose:
-                        print(trans_out, file=ftrans)
+                    print(trans_out, file=ftrans)
             if i != 0 and i % 100 == 0:
                 logging.info(
                     "Translated {} lines of validation set...".format(i))
@@ -169,8 +166,7 @@ class BleuValidator(SimpleExtension):
             mb_subprocess.stdin.flush()
         logging.info("Total cost of the validation: {}".format(total_cost))
         self.data_stream.reset()
-        if self.verbose:
-            ftrans.close()
+        ftrans.close()
         # send end of file, read output.
         mb_subprocess.stdin.close()
         stdout = mb_subprocess.stdout.readline()

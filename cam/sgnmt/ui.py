@@ -127,9 +127,31 @@ def get_train_parser():
                         "If the most frequent word in the backtranslated "
                         "sentence has relative frequency higher than this, "
                          "discard this sentence pair")
+    parser.add_argument("--learning_rate", default=0.002, type=float,
+                        help="Learning rate for AdaGrad and Adam")
     parser.add_argument("--prune_every", default=-1, type=int,
                         help="Prune model every n iterations. Pruning is " 
                         "disabled if this is < 1")
+    parser.add_argument("--prune_n_steps", default=10, type=int,
+                        help="Number of pruning steps until the target layer "
+                        "sizes should be reached")
+    parser.add_argument("--prune_layers",  
+                        default="encfwdgru:1000,encbwdgru:1000,decgru:1000",
+                        help="A comma separated list of <layer>:<size> pairs. "
+                        "<layer> is one of 'encfwdgru', 'encbwdgru', 'decgru',"
+                        " 'decmaxout' which should be shrunk to <size> during "
+                        "training. Pruned neurons are marked by setting all "
+                        "in- and output connection to zero.")
+    parser.add_argument("--prune_layout_path",  
+                        default="prune.layout",
+                        help="Points to a file which defines which weight "
+                        "matrices are connected to which prunable layers. The "
+                        "rows/columns of these matrices are set to zero for "
+                        "all removed neurons. The format of this file is \n"
+                        "<layer> <in|out> <mat_name> <dim> <start-idx>=0.0\n"
+                        "<layer> is one of the layer names specified via "
+                        "--prune_layers. Set <start-idx> to 0.5 to add an "
+                        "offset of half the matrix dimension to the indices.")
     parser.add_argument("--sampling_freq", default=13, type=int,
                         help="NOT USED, just to prevent old code from breaking")
     parser.add_argument("--hook_samples", default=0, type=int,

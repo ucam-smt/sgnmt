@@ -1,4 +1,4 @@
-""""This script starts training an NMT system with blocks. This largely
+""""This script starts training an NMT system with blocks. This
 follows the NMT blocks 0.1 example except the following points:
 
 - This implementation supports reshuffling between training epochs
@@ -36,8 +36,8 @@ import logging
 import pprint
 import signal
 
-from blocks.algorithms import (GradientDescent, StepClipping, AdaDelta,
-                               CompositeRule)
+from blocks.algorithms import (GradientDescent, StepClipping, AdaDelta, Adam,
+                               AdaGrad, Scale, CompositeRule)
 from blocks.main_loop import MainLoop
 from fuel.datasets import TextFile
 from fuel.streams import DataStream
@@ -319,7 +319,7 @@ def main(config,
     """
     
     nmt_model = NMTModel(config)
-    nmt_model.set_up()
+    nmt_model.set_up(make_prunable = (args.prune_every > 0))
 
     # Set extensions
     logging.info("Initializing extensions")
@@ -381,29 +381,35 @@ def main(config,
             add_param = True
             for ann in p.tag.annotations:
                 if ann.name in embedding_params:
-                    logging.info("Do not train %s due to annotation %s" % (p, ann))
+                    logging.info("Do not train %s: %s" % (p, ann))
                     add_param = False
                     break
             if add_param:
                 train_params.append(p)
-    if args.prune_every < 1:
-        # Change cost=cost to cg.outputs[0] ?
-        algorithm = GradientDescent(
-            cost=nmt_model.cg.outputs[0] if config['dropout'] < 1.0 else nmt_model.cost,
-            parameters=train_params,
-            step_rule=CompositeRule([StepClipping(config['step_clipping']),
-                                     eval(config['step_rule'])()])
-        )
+    # Change cost=cost to cg.outputs[0] ?
+    cost_func = nmt_model.cg.outputs[0] if config['dropout'] < 1.0 \
+                                        else nmt_model.cost
+    if config['step_rule'] in ['AdaGrad', 'Adam']:
+        step_rule = eval(config['step_rule'])(learning_rate=args.learning_rate)
     else:
-        # Change cost=cost to cg.outputs[0] ?
+        step_rule = eval(config['step_rule'])()
+    step_rule = CompositeRule([StepClipping(config['step_clipping']),
+                               step_rule])
+    if args.prune_every < 1:
+        algorithm = GradientDescent(
+            cost=cost_func,
+            parameters=train_params,
+            step_rule=step_rule)
+    else:
         algorithm = PruningGradientDescent(
+            prune_layer_configs=args.prune_layers.split(','),
+            prune_layout_path=args.prune_layout_path,
+            prune_n_steps=args.prune_n_steps,
             prune_every=args.prune_every,
             nmt_model=nmt_model,
-            cost=nmt_model.cg.outputs[0] if config['dropout'] < 1.0 else nmt_model.cost,
+            cost=cost_func,
             parameters=train_params,
-            step_rule=CompositeRule([StepClipping(config['step_clipping']),
-                                     eval(config['step_rule'])()])
-        )
+            step_rule=step_rule)
 
     # Initialize main loop
     logging.info("Initializing main loop")

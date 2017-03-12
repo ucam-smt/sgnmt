@@ -21,6 +21,9 @@ from cam.sgnmt.blocks.attention import SelfAttendableContentAttention
 
 class BidirectionalWMT15(Bidirectional):
     """Wrap two Gated Recurrents each having separate parameters."""
+    def __init__(self, prototype, **kwargs):
+        self.pruning_variables_initialized = False
+        super(BidirectionalWMT15, self).__init__(prototype, **kwargs)
 
     @application
     def apply(self, forward_dict, backward_dict):
@@ -31,6 +34,10 @@ class BidirectionalWMT15(Bidirectional):
         backward = [x[::-1] for x in
                     self.children[1].apply(reverse=True, as_list=True,
                                            **backward_dict)]
+        if not self.pruning_variables_initialized:
+            self.forward = forward[0]
+            self.backward = backward[0]
+            self.pruning_variables_initialized = True
         return [tensor.concatenate([f, b], axis=2)
                 for f, b in equizip(forward, backward)]
 

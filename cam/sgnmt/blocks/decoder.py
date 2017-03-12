@@ -21,6 +21,8 @@ from blocks.bricks.base import application, lazy
 from blocks.bricks.cost import SquaredError
 from blocks.bricks.parallel import Fork
 
+from cam.sgnmt.blocks.pruning import PrunableSequenceGenerator, \
+                                     PrunableInitializableFeedforwardSequence
 from cam.sgnmt.blocks.attention import AlignmentAttention, \
     ThresholdedSequenceContentAttention, PushDownSequenceContentAttention, \
     PushDownThresholdedAttention, CoverageContentAttention, \
@@ -118,7 +120,7 @@ def _initialize_attention(attention_strategy,
                           seq_len, 
                           transition, 
                           representation_dim, 
-                          state_dim,
+                          att_dim,
                           attention_sources='s',
                           readout_sources='sfa',
                           memory="none",
@@ -145,7 +147,7 @@ def _initialize_attention(attention_strategy,
                                 decoder network which is to be equipped
                                 with an attention mechanism
         representation_dim (int): Dimension of source annotations
-        state_dim (int): Number of hidden units in decoder RNN
+        att_dim (int): Number of hidden units in match vector
         attention_sources (string): Defines the sources used by the 
                                     attention model 's' for decoder
                                     states, 'f' for feedback
@@ -187,12 +189,12 @@ def _initialize_attention(attention_strategy,
                     stack_dim=memory_size,
                     state_names=att_src_names,
                     attended_dim=representation_dim,
-                    match_dim=state_dim, name="attention")
+                    match_dim=att_dim, name="attention")
             else:
                 attention = SequenceContentAttention(
                     state_names=att_src_names,
                     attended_dim=representation_dim,
-                    match_dim=state_dim, name="attention")
+                    match_dim=att_dim, name="attention")
         elif 'content-' in attention_strategy:
             if memory == 'stack':
                 logging.error("Memory 'stack' cannot used in combination "
@@ -204,7 +206,7 @@ def _initialize_attention(attention_strategy,
                     n_att_weights=int(n),
                     state_names=att_src_names,
                     attended_dim=representation_dim,
-                    match_dim=state_dim, name="attention")
+                    match_dim=att_dim, name="attention")
         elif 'nbest-' in attention_strategy:
             _,n = attention_strategy.split('-')
             if memory == 'stack':
@@ -213,13 +215,13 @@ def _initialize_attention(attention_strategy,
                     nbest=int(n),
                     state_names=att_src_names,
                     attended_dim=representation_dim,
-                    match_dim=state_dim, name="attention")
+                    match_dim=att_dim, name="attention")
             else:
                 attention = ThresholdedSequenceContentAttention(
                     nbest=int(n),
                     state_names=att_src_names,
                     attended_dim=representation_dim,
-                    match_dim=state_dim, name="attention")
+                    match_dim=att_dim, name="attention")
         elif 'coverage-' in attention_strategy:
             _,n = attention_strategy.split('-')
             if memory == 'stack':
@@ -231,7 +233,7 @@ def _initialize_attention(attention_strategy,
                     max_fertility=int(n),
                     state_names=att_src_names,
                     attended_dim=representation_dim,
-                    match_dim=state_dim, name="attention")
+                    match_dim=att_dim, name="attention")
         else:
             logging.fatal("Unknown attention strategy '%s'"
                               % attention_strategy)
@@ -249,6 +251,7 @@ class Decoder(Initializable):
                  vocab_size, 
                  embedding_dim, 
                  state_dim,
+                 att_dim,
                  representation_dim, 
                  attention_strategy='content',
                  attention_sources='s',
@@ -257,6 +260,7 @@ class Decoder(Initializable):
                  memory_size=500,
                  seq_len=50,
                  init_strategy='last', 
+                 make_prunable=False,
                  theano_seed=None, 
                  **kwargs):
         """Creates a new decoder brick.
@@ -265,6 +269,7 @@ class Decoder(Initializable):
             vocab_size (int): Target language vocabulary size
             embedding_dim (int): Size of feedback embedding layer
             state_dim (int): Number of hidden units
+            att_dim (int): Size of attention match vector
             representation_dim (int): Dimension of source annotations
             attention_strategy (string): Which attention should be used
                                          cf.  ``_initialize_attention``
@@ -299,11 +304,12 @@ class Decoder(Initializable):
             name='decoder')
 
         # Initialize the attention mechanism
+        att_dim = att_dim if att_dim > 0 else state_dim
         self.attention,src_names = _initialize_attention(attention_strategy,
                                                          seq_len, 
                                                          self.transition, 
                                                          representation_dim, 
-                                                         state_dim,
+                                                         att_dim,
                                                          attention_sources,
                                                          readout_sources,
                                                          memory,
@@ -311,27 +317,40 @@ class Decoder(Initializable):
 
         # Initialize the readout, note that SoftmaxEmitter emits -1 for
         # initial outputs which is used by LookupFeedBackWMT15
+        post_layers = [Bias(dim=state_dim, name='maxout_bias').apply,
+                       Maxout(num_pieces=2, name='maxout').apply,
+                       Linear(input_dim=state_dim / 2, output_dim=embedding_dim,
+                           use_bias=False, name='softmax0').apply,
+                       Linear(input_dim=embedding_dim, name='softmax1').apply]
+        if make_prunable:
+            post_merge = PrunableInitializableFeedforwardSequence(post_layers)
+        else:
+            post_merge = InitializableFeedforwardSequence(post_layers)
         readout = Readout(
             source_names=src_names,
             readout_dim=self.vocab_size,
             emitter=SoftmaxEmitter(initial_output=-1, theano_seed=theano_seed),
             feedback_brick=LookupFeedbackWMT15(vocab_size, embedding_dim),
-            post_merge=InitializableFeedforwardSequence(
-                [Bias(dim=state_dim, name='maxout_bias').apply,
-                 Maxout(num_pieces=2, name='maxout').apply,
-                 Linear(input_dim=state_dim / 2, output_dim=embedding_dim,
-                        use_bias=False, name='softmax0').apply,
-                 Linear(input_dim=embedding_dim, name='softmax1').apply]),
+            post_merge=post_merge,
             merged_dim=state_dim)
 
         # Build sequence generator accordingly
-        self.sequence_generator = SequenceGenerator(
-            readout=readout,
-            transition=self.transition,
-            attention=self.attention,
-            fork=Fork([name for name in self.transition.apply.sequences
-                       if name != 'mask'], prototype=Linear())
-        )
+        if make_prunable:
+            self.sequence_generator = PrunableSequenceGenerator(
+                readout=readout,
+                transition=self.transition,
+                attention=self.attention,
+                fork=Fork([name for name in self.transition.apply.sequences
+                           if name != 'mask'], prototype=Linear())
+            )
+        else:
+            self.sequence_generator = SequenceGenerator(
+                readout=readout,
+                transition=self.transition,
+                attention=self.attention,
+                fork=Fork([name for name in self.transition.apply.sequences
+                           if name != 'mask'], prototype=Linear())
+            )
 
         self.children = [self.sequence_generator]
 
@@ -410,6 +429,7 @@ class NoLookupDecoder(Initializable):
                  vocab_size, 
                  embedding_dim, 
                  state_dim,
+                 att_dim,
                  representation_dim,
                  attention_strategy='content',
                  attention_sources='s',
@@ -426,6 +446,7 @@ class NoLookupDecoder(Initializable):
             vocab_size (int): Target language vocabulary size
             embedding_dim (int): Size of feedback embedding layer
             state_dim (int): Number of hidden units
+            att_dim (int): Size of attention match vector
             representation_dim (int): Dimension of source annotations
             attention_strategy (string): Which attention should be used
                                          cf.  ``_initialize_attention``
@@ -460,11 +481,12 @@ class NoLookupDecoder(Initializable):
             name='decoder')
 
         # Initialize the attention mechanism
+        att_dim = att_dim if att_dim > 0 else state_dim
         self.attention,src_names = _initialize_attention(attention_strategy,
                                                          seq_len, 
                                                          self.transition, 
                                                          representation_dim, 
-                                                         state_dim,
+                                                         att_dim,
                                                          attention_sources,
                                                          readout_sources,
                                                          memory,
