@@ -12,7 +12,8 @@ BLOCKS_AVAILABLE = True
 try:
     from blocks.search import BeamSearch # To check if blocks is available
     
-    from cam.sgnmt.blocks.vanilla_decoder import BlocksNMTVanillaDecoder
+    from cam.sgnmt.blocks.vanilla_decoder import BlocksNMTVanillaDecoder,\
+                                                 BlocksNMTEnsembleVanillaDecoder
     from cam.sgnmt.predictors.blocks_nmt import BlocksNMTPredictor
     from cam.sgnmt.predictors.blocks_nmt import BlocksUnboundedNMTPredictor
 except:
@@ -64,12 +65,13 @@ def blocks_get_nmt_predictor(args, nmt_path, nmt_config):
                               nmt_config)
 
 
-def blocks_get_nmt_vanilla_decoder(args, nmt_path, nmt_config):
+def blocks_get_nmt_vanilla_decoder(args, nmt_specs):
     """Get the Blocks NMT vanilla decoder.
     
     Args:
         args (object): SGNMT arguments from ``ArgumentParser``
-        nmt_config (dict): NMT configuration
+        nmt_specs (list): List of (nmt_path,nmt_config) tuples, one
+                          entry for each model in the ensemble
     
     Returns:
         Predictor. An instance of ``BlocksNMTVanillaDecoder``
@@ -77,12 +79,19 @@ def blocks_get_nmt_vanilla_decoder(args, nmt_path, nmt_config):
     if not BLOCKS_AVAILABLE:
         logging.fatal("Could not find Blocks!")
         return None
-    nmt_config = _add_sparse_feat_maps_to_config(nmt_config)
-    if nmt_path:
-        nmt_config['saveto'] = nmt_path
-    return BlocksNMTVanillaDecoder(get_nmt_model_path(args.nmt_model_selector,
-                                                      nmt_config),
-				                    nmt_config, args)
+    nmt_specs_blocks = []
+    for nmt_path, nmt_config in nmt_specs:
+        nmt_config = _add_sparse_feat_maps_to_config(nmt_config)
+        if nmt_path:
+            nmt_config['saveto'] = nmt_path
+        nmt_specs_blocks.append((get_nmt_model_path(args.nmt_model_selector,
+                                                    nmt_config),
+                                 nmt_config))
+    if len(nmt_specs_blocks) == 1:        
+        return BlocksNMTVanillaDecoder(nmt_specs_blocks[0][0],
+                                       nmt_specs_blocks[0][1],
+                                       args)
+    return BlocksNMTEnsembleVanillaDecoder(nmt_specs_blocks, args)
 
 
 def blocks_add_nmt_config(parser):

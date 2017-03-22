@@ -61,20 +61,16 @@ def tf_get_default_nmt_config():
       config[key] = value
     return config
 
-def tf_get_nmt_vanilla_decoder(args, nmt_config):
-  """Get the TensorFlow NMT vanilla decoder.
-
-  Args:
-    args (object): SGNMT arguments from ``ArgumentParser``
-    nmt_config (string): NMT configuration
+def tf_get_nmt_vanilla_decoder(args, nmt_specs):
+  """Get the TensorFlow NMT vanilla decoder. Not implemented yet.
 
   Returns:
-    Predictor. An instance of ``TensorFlowNMTVanillaDecoder``
+    None.
   """
   if not TENSORFLOW_AVAILABLE:
     logging.fatal("Could not find TensorFlow!")
-    return None
-  return TensorFlowNMTVanillaDecoder(nmt_config)
+  logging.fatal("Vanilla decoder not implemented in TensorFlow!")
+  return None
 
 def tf_get_rnnlm_predictor(rnnlm_path, rnnlm_config, variable_prefix="model"):
   """Get the TensorFlow RNNLM predictor.
