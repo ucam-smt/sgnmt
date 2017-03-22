@@ -145,7 +145,7 @@ class BlocksNMTEnsembleVanillaDecoder(Decoder):
         self.beam_size = global_config['beam_size']
         self.src_sparse_feat_map = global_config['src_sparse_feat_map'] \
             if global_config['src_sparse_feat_map'] else FlatSparseFeatMap()
-        if self.config['trg_sparse_feat_map']:
+        if global_config['trg_sparse_feat_map']:
             logging.fatal("Using sparse feature maps on the target size is "
                           "currently not supported by the ensemble vanilla "
                           "decoder")
@@ -208,7 +208,9 @@ class BlocksNMTEnsembleVanillaDecoder(Decoder):
             contexts, states, _ = \
                 self.beam_searches[sys_idx].compute_initial_states_and_contexts(
                             {self.nmt_models[sys_idx].sampling_input: input_})
-            contexts_and_states.append((contexts, states))
+            contexts_and_states.append((contexts, 
+                                        states, 
+                                        self.beam_searches[sys_idx]))
 
         # This array will store all generated outputs, including those from
         # previous step and those from already finished sequences.
@@ -220,9 +222,8 @@ class BlocksNMTEnsembleVanillaDecoder(Decoder):
             if all_masks[-1].sum() == 0:
                 break
             logprobs_lst = []
-            for sys_idx, (contexts, states) in enumerate(contexts_and_states):
-                logprobs_lst.append(self.beam_searches[sys_idx].compute_logprobs(
-                                                        contexts, states))
+            for contexts, states, search in contexts_and_states:
+                logprobs_lst.append(search.compute_logprobs(contexts, states))
             
             logprobs = np.sum(logprobs_lst, axis=0)
             next_costs = (all_costs[-1, :, None] +
@@ -241,10 +242,12 @@ class BlocksNMTEnsembleVanillaDecoder(Decoder):
             all_costs = all_costs[:, indexes]
             
             # Rearrange everything
-            for contexts, states in contexts_and_states:
+            for contexts, states, search in contexts_and_states:
                 for name in states:
                     states[name] = states[name][indexes]
-                states.update(self.compute_next_states(contexts, states, outputs))
+                states.update(search.compute_next_states(contexts, 
+                                                         states, 
+                                                         outputs))
             
             all_outputs = np.vstack([all_outputs, outputs[None, :]])
             all_costs = np.vstack([all_costs, chosen_costs[None, :]])
