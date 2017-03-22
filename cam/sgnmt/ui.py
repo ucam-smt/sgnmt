@@ -132,6 +132,9 @@ def get_train_parser():
     parser.add_argument("--prune_every", default=-1, type=int,
                         help="Prune model every n iterations. Pruning is " 
                         "disabled if this is < 1")
+    parser.add_argument("--prune_reset_every", default=-1, type=int,
+                        help="Reset pruning statistics every n iterations. If " 
+                        "set to -1, use --prune_every")
     parser.add_argument("--prune_n_steps", default=10, type=int,
                         help="Number of pruning steps until the target layer "
                         "sizes should be reached")

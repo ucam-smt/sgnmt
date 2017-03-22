@@ -23,7 +23,12 @@ INF_DIST = 10000.0
 
 class PrunableLayer(object):
 
-    def __init__(self, name, theano_variable, trg_size, n_steps):
+    def __init__(self, 
+                 name, 
+                 theano_variable, 
+                 trg_size, 
+                 n_steps, 
+                 store_obs = False):
         self.name = name
         self.theano_variable = theano_variable
         self.dists = None
@@ -34,21 +39,32 @@ class PrunableLayer(object):
         self.n_steps = n_steps
         self.connections = []
         self.pruned_neurons = []
+        self.obs = []
+        self.store_obs = store_obs
+        self.store_obs = True
 
     def reset(self):
         self.dists = None
         self.activities = None
         self.n_obs = 0.0
+        self.obs = []
+        logging.info("Layer %s reset" % self.name)
 
     def initialize_mask(self):
         self.mask = np.triu(INF_DIST * np.ones_like(self.dists))
 
     def derive_step_size(self):
-        self.step_size = int((self.dists.shape[0] - self.trg_size) / self.n_steps)
+        self.step_size = int((self.get_size() - self.trg_size) / self.n_steps)
         self.step_size += 1
 
+    def get_size(self):
+        return self.mask.shape[0]
+
     def register_activities(self, activity):
+        # TODO: Decoder training stream mask!
         x = activity.reshape((-1, activity.shape[-1])).transpose()
+        if self.store_obs:
+            self.obs.append(x)
         # http://stackoverflow.com/questions/15556116/implementing-support-
         # vector-machine-efficiently-computing-gram-matrix-k
         pt_sq_norms = (x ** 2).sum(axis=1)
@@ -63,10 +79,10 @@ class PrunableLayer(object):
         else:
             self.dists += dists_sq
             self.activities += activities_sq
-        self.n_obs += x.shape[0]
+        self.n_obs += x.shape[1]
 
     def count_unpruned_neurons(self):
-        return self.mask.shape[0] - len(self.pruned_neurons)
+        return self.get_size() - len(self.pruned_neurons)
 
     def prune(self, params_dict):
         if self.mask is None:
@@ -80,46 +96,33 @@ class PrunableLayer(object):
             return
         self.activities /= self.n_obs
         self.dists /= self.n_obs
-        activity_discounts = self.activities.reshape((-1, 1)) \
-                             + self.activities.reshape((1, -1))
-        search_mat = np.multiply(self.dists, activity_discounts)
-        search_mat += self.mask
+        activity_discounts = get_activity_discounts(self)
+        search_mat = np.multiply(self.dists, activity_discounts) + self.mask
         idxs_flat = np.argsort(search_mat, None)
         idxs = np.unravel_index(idxs_flat, search_mat.shape)
-        n_deleted = 0
         min_score = search_mat[idxs[0][0], idxs[1][0]]
+        to_delete = []
         for i,j in zip(idxs[0], idxs[1]):
             if i in self.pruned_neurons or j in self.pruned_neurons:
                 continue
             max_score = search_mat[i,j]
             if self.activities[i] < self.activities[j]:
                 i,j = j,i
-            # Prune neuron j, add output connections to i
-            for conn in self.connections:
-                mat = params_dict[conn.mat_name].get_value()
-                mat_i = i
-                mat_j = j
-                if conn.start_idx > 0.0:
-                    offset = int(mat.shape[conn.dim] * conn.start_idx)
-                    mat_i += offset
-                    mat_j += offset
-                if conn.direction == "out": # Add j connections to i connections
-                    mat = add_in_mat(mat, conn.dim, mat_j, mat_i)
-                mat = set_zero_in_mat(mat, conn.dim, mat_j)
-                params_dict[conn.mat_name].set_value(mat)
+            to_delete.append((i, j))
             self.pruned_neurons.append(j)
             self.mask[j,:] = INF_DIST
             self.mask[:,j] = INF_DIST
-            n_deleted += 1
-            if n_deleted >= n_to_delete:
+            if len(to_delete) >= n_to_delete:
                 break
+        compensate_for_pruning(to_delete, self, params_dict)
         logging.info("%s: Prune %d neurons obs=%d min=%f max=%f" % (
                                  self.name,
-                                 n_deleted,
+                                 len(to_delete),
                                  self.n_obs,
                                  min_score,
                                  max_score))
-        self.reset()
+
+    
 
     def sanity_check(self, params_dict):
         geps = 0.0
@@ -140,7 +143,60 @@ class PrunableLayer(object):
                                                     len(self.pruned_neurons), 
                                                     geps))
             
+def _get_activity_discounts_sum(layer):
+    return layer.activities.reshape((-1, 1)) + layer.activities.reshape((1, -1))
 
+def _get_activity_discounts_min(layer):
+    return np.minimum(layer.activities.reshape((-1, 1)),
+                      layer.activities.reshape((1, -1)))
+
+get_activity_discounts = _get_activity_discounts_min
+
+def _compensate_for_pruning_sum(to_delete, layer, params_dict):
+    for i,j in to_delete:
+        # Prune neuron j, add output connections to i
+        for conn in layer.connections:
+            mat = params_dict[conn.mat_name].get_value()
+            mat_i = i
+            mat_j = j
+            if conn.start_idx > 0.0:
+                offset = int(mat.shape[conn.dim] * conn.start_idx)
+                mat_i += offset
+                mat_j += offset
+            if conn.direction == "out": # Add j connections to i connections
+                mat = add_in_mat(mat, conn.dim, mat_j, mat_i)
+            mat = set_zero_in_mat(mat, conn.dim, mat_j)
+            params_dict[conn.mat_name].set_value(mat)
+
+def _compensate_for_pruning_interpol(to_delete, layer, params_dict):
+    reduced_obs = np.hstack(layer.obs)[:,np.random.randint(layer.n_obs, 
+                                                           size=50000)].transpose()
+    delete_idxs = [j for i,j in to_delete]
+    survive_mask = np.ones((layer.get_size(),), dtype=bool)
+    survive_mask[layer.pruned_neurons] = False
+    survive_idxs = np.where(survive_mask)[0]
+    A = reduced_obs[:,survive_idxs]
+    y = reduced_obs[:,delete_idxs]
+    logging.info("Least square A=%s y=%s" % (A.shape, y.shape))
+    weights = np.linalg.lstsq(A, y)[0]
+    for conn in layer.connections:
+        mat = params_dict[conn.mat_name].get_value()
+        work = mat
+        if conn.dim == 1:
+            work = work.transpose()
+        offset = int(work.shape[0] * conn.start_idx)
+        if len(work.shape) == 2:
+            work = work[offset:offset+layer.get_size(), :]
+        else:
+            work = work[offset:offset+layer.get_size()]
+        if conn.direction == "out": 
+            work[survive_idxs,:] += np.dot(weights, work[delete_idxs])
+        for j in delete_idxs:
+            work = set_zero_in_mat(work, 0, j)
+        params_dict[conn.mat_name].set_value(mat)
+
+
+compensate_for_pruning = _compensate_for_pruning_interpol
 
 def add_in_mat(mat, dim, f_idx, t_idx):
     if len(mat.shape) == 1:
@@ -262,15 +318,20 @@ class PruningGradientDescent(GradientDescent):
                  prune_layer_configs, 
                  prune_layout_path, 
                  prune_every, 
+                 prune_reset_every, 
                  prune_n_steps, 
                  nmt_model, 
                  **kwargs):
         self.prune_every = prune_every
+        self.prune_reset_every = prune_reset_every if prune_reset_every > 0 \
+                                                   else prune_every
         self.n_batches = 0
         self.nmt_model = nmt_model
         self.prune_n_steps = prune_n_steps
         self.initialize_layers(prune_layer_configs, prune_layout_path)
         self.params_dict = nmt_model.training_model.get_parameter_dict()
+        self.next_layer_to_prune = -len(self.prunable_layers)
+        self.next_layer_to_reset = -len(self.prunable_layers)
         super(PruningGradientDescent, self).__init__(**kwargs)
 
     def initialize_layers(self, layer_configs, layout_path):
@@ -332,7 +393,15 @@ class PruningGradientDescent(GradientDescent):
         for activity, layer in zip(activities, self.prunable_layers):
             layer.register_activities(activity)
         if self.n_batches % self.prune_every == 0:
-            for layer in self.prunable_layers:
+            self.next_layer_to_prune += 1
+            if self.next_layer_to_prune >= 0:
+                self.next_layer_to_prune %= len(self.prunable_layers)
+                layer = self.prunable_layers[self.next_layer_to_prune]
                 layer.prune(self.params_dict)
                 layer.sanity_check(self.params_dict)
+        if self.n_batches % self.prune_reset_every == 0:
+            self.next_layer_to_reset += 1
+            if self.next_layer_to_reset >= 0:
+                self.next_layer_to_reset %= len(self.prunable_layers)
+                self.prunable_layers[self.next_layer_to_reset].reset()
 

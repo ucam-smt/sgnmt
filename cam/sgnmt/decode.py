@@ -666,12 +666,12 @@ def do_decode(decoder,
         logging.fatal("Decoding cancelled because of an error in the "
                       "predictor configuration.")
         return
-    start_time = time.time()
-    logging.info("Start time: %s" % start_time)
     all_hypos = []
     text_output_handler = get_text_output_handler(output_handlers)
     if text_output_handler:
         text_output_handler.open_file()
+    start_time = time.time()
+    logging.info("Start time: %s" % start_time)
     for sen_idx in _get_sentence_indices(args.range, src_sentences):
         try:
             if src_sentences is False:
@@ -757,6 +757,7 @@ def do_decode(decoder,
                                                        sen_idx+1,
                                                        e,
                                                        traceback.format_exc()))
+    logging.info("Decoding finished. Time: %.2f" % (time.time() - start_time))
     try:
         for output_handler in output_handlers:
             if output_handler == text_output_handler:
@@ -766,7 +767,6 @@ def do_decode(decoder,
     except IOError as e:
         logging.error("I/O error %s occurred when creating output files: %s"
                       % (sys.exc_info()[0], e))
-    logging.info("Decoding finished. Time: %.2f" % (time.time() - start_time))
 
 
 def process_inputs():

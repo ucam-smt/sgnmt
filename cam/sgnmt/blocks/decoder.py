@@ -252,6 +252,7 @@ class Decoder(Initializable):
                  embedding_dim, 
                  state_dim,
                  att_dim,
+                 maxout_dim,
                  representation_dim, 
                  attention_strategy='content',
                  attention_sources='s',
@@ -270,6 +271,7 @@ class Decoder(Initializable):
             embedding_dim (int): Size of feedback embedding layer
             state_dim (int): Number of hidden units
             att_dim (int): Size of attention match vector
+            maxout_dim (int): Size of maxout layer
             representation_dim (int): Dimension of source annotations
             attention_strategy (string): Which attention should be used
                                          cf.  ``_initialize_attention``
@@ -317,9 +319,10 @@ class Decoder(Initializable):
 
         # Initialize the readout, note that SoftmaxEmitter emits -1 for
         # initial outputs which is used by LookupFeedBackWMT15
-        post_layers = [Bias(dim=state_dim, name='maxout_bias').apply,
+        maxout_dim = maxout_dim if maxout_dim > 0 else state_dim
+        post_layers = [Bias(dim=maxout_dim, name='maxout_bias').apply,
                        Maxout(num_pieces=2, name='maxout').apply,
-                       Linear(input_dim=state_dim / 2, output_dim=embedding_dim,
+                       Linear(input_dim=maxout_dim / 2, output_dim=embedding_dim,
                            use_bias=False, name='softmax0').apply,
                        Linear(input_dim=embedding_dim, name='softmax1').apply]
         if make_prunable:
@@ -332,7 +335,7 @@ class Decoder(Initializable):
             emitter=SoftmaxEmitter(initial_output=-1, theano_seed=theano_seed),
             feedback_brick=LookupFeedbackWMT15(vocab_size, embedding_dim),
             post_merge=post_merge,
-            merged_dim=state_dim)
+            merged_dim=maxout_dim)
 
         # Build sequence generator accordingly
         if make_prunable:
@@ -430,6 +433,7 @@ class NoLookupDecoder(Initializable):
                  embedding_dim, 
                  state_dim,
                  att_dim,
+                 maxout_dim,
                  representation_dim,
                  attention_strategy='content',
                  attention_sources='s',
@@ -447,6 +451,7 @@ class NoLookupDecoder(Initializable):
             embedding_dim (int): Size of feedback embedding layer
             state_dim (int): Number of hidden units
             att_dim (int): Size of attention match vector
+            maxout_dim (int): Size of maxout layer
             representation_dim (int): Dimension of source annotations
             attention_strategy (string): Which attention should be used
                                          cf.  ``_initialize_attention``
@@ -494,6 +499,7 @@ class NoLookupDecoder(Initializable):
 
         # Initialize the readout, note that SoftmaxEmitter emits -1 for
         # initial outputs which is used by LookupFeedBackWMT15
+        maxout_dim = maxout_dim if maxout_dim > 0 else state_dim
         readout = Readout(
             source_names=src_names,
             readout_dim=embedding_dim,
@@ -503,12 +509,12 @@ class NoLookupDecoder(Initializable):
             #                        cost_brick=CategoricalCrossEntropy()),
             feedback_brick=TrivialFeedback(output_dim=embedding_dim),
             post_merge=InitializableFeedforwardSequence(
-                [Bias(dim=state_dim, name='maxout_bias').apply,
+                [Bias(dim=maxout_dim, name='maxout_bias').apply,
                  Maxout(num_pieces=2, name='maxout').apply,
-                 Linear(input_dim=state_dim / 2, output_dim=embedding_dim,
+                 Linear(input_dim=maxout_dim / 2, output_dim=embedding_dim,
                         use_bias=False, name='softmax0').apply,
                  Logistic(name='softmax1').apply]),
-            merged_dim=state_dim)
+            merged_dim=maxout_dim)
 
         # Build sequence generator accordingly
         self.sequence_generator = SequenceGenerator(

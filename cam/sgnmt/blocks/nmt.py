@@ -117,6 +117,7 @@ def blocks_get_default_nmt_config():
     config['enc_nhids'] = 1000
     config['dec_nhids'] = 1000
     config['att_nhids'] = -1
+    config['maxout_nhids'] = -1
 
     # Dimension of the word embedding matrix in encoder/decoder
     config['enc_embed'] = 620
@@ -268,6 +269,8 @@ def blocks_get_nmt_config_help():
     config['dec_nhids'] = "Number of hidden units in decoder GRU"
     config['att_nhids'] = "Dimensionality of attention match vector (-1 to " \
                           "use dec_nhids)"
+    config['maxout_nhids'] = "Dimensionality of maxout output layer (-1 to " \
+                             "use dec_nhids)"
     config['enc_embed'] = "Dimension of the word embedding matrix in encoder"
     config['dec_embed'] = "Dimension of the word embedding matrix in decoder"
     config['enc_layers'] = "Number of encoder layers"
