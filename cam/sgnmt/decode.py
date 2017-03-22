@@ -473,11 +473,7 @@ def create_decoder():
                                args.early_stopping,
                                max(1, args.nbest))
     elif args.decoder == "vanilla":
-        decoder = get_nmt_vanilla_decoder(args,
-                                          args.nmt_path,
-                                          _parse_config_param(
-                                                    "nmt_config",
-                                                    get_default_nmt_config()))
+        decoder = construct_nmt_vanilla_decoder()
         args.predictors = "vanilla"
     else:
         logging.fatal("Decoder %s not available. Please double-check the "
@@ -493,6 +489,28 @@ def create_decoder():
         idx,_ = args.range.split(":") if (":" in args.range) else (args.range,0)  
         decoder.set_start_sen_id(int(idx)-1) # -1 because indices start with 1
     return decoder
+
+
+def construct_nmt_vanilla_decoder():
+    """Creates the vanilla NMT decoder which bypasses the predictor 
+    framework. It uses the template methods ``get_nmt_vanilla_decoder``
+    for uniform access to the blocks or tensorflow frameworks.
+    
+    Returns:
+        NMT vanilla decoder using all specified NMT models, or None if
+        an error occurred.
+    """
+    is_nmt = ["nmt" == p for p in args.predictors.split(",")]
+    n = len(is_nmt)
+    if not all(is_nmt):
+        logging.fatal("Vanilla decoder can only be used with nmt predictors")
+        return None
+    nmt_specs = []
+    for _ in xrange(n): 
+        nmt_specs.append((_get_override_args("nmt_path"),
+                          _parse_config_param("nmt_config",
+                                              get_default_nmt_config())))
+    return get_nmt_vanilla_decoder(args, nmt_specs)
 
 
 def add_heuristics(decoder):
