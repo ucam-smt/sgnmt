@@ -28,7 +28,8 @@ class PrunableLayer(object):
                  theano_variable, 
                  trg_size, 
                  n_steps, 
-                 store_obs = False):
+                 store_obs = False,
+                 maxout=False):
         self.name = name
         self.theano_variable = theano_variable
         self.dists = None
@@ -42,6 +43,7 @@ class PrunableLayer(object):
         self.obs = []
         self.store_obs = store_obs
         self.store_obs = True
+        self.maxout = maxout
 
     def reset(self):
         self.dists = None
@@ -163,9 +165,13 @@ def _compensate_for_pruning_sum(to_delete, layer, params_dict):
                 offset = int(mat.shape[conn.dim] * conn.start_idx)
                 mat_i += offset
                 mat_j += offset
-            if conn.direction == "out": # Add j connections to i connections
-                mat = add_in_mat(mat, conn.dim, mat_j, mat_i)
-            mat = set_zero_in_mat(mat, conn.dim, mat_j)
+            #if conn.direction == "out": # Add j connections to i connections
+            #    mat = add_in_mat(mat, conn.dim, mat_j, mat_i)
+            if conn.direction == "in" and layer.maxout:
+                mat = set_zero_in_mat(mat, conn.dim, mat_j*2)
+                mat = set_zero_in_mat(mat, conn.dim, mat_j*2+1)
+            else:
+                mat = set_zero_in_mat(mat, conn.dim, mat_j)
             params_dict[conn.mat_name].set_value(mat)
 
 def _compensate_for_pruning_interpol(to_delete, layer, params_dict):
@@ -184,19 +190,25 @@ def _compensate_for_pruning_interpol(to_delete, layer, params_dict):
         work = mat
         if conn.dim == 1:
             work = work.transpose()
-        offset = int(work.shape[0] * conn.start_idx)
-        if len(work.shape) == 2:
-            work = work[offset:offset+layer.get_size(), :]
-        else:
-            work = work[offset:offset+layer.get_size()]
+        if not layer.maxout:
+            offset = int(work.shape[0] * conn.start_idx)
+            if len(work.shape) == 2:
+                work = work[offset:offset+layer.get_size(), :]
+            else:
+                work = work[offset:offset+layer.get_size()]
         if conn.direction == "out": 
             work[survive_idxs,:] += np.dot(weights, work[delete_idxs])
         for j in delete_idxs:
-            work = set_zero_in_mat(work, 0, j)
+            if conn.direction == "in" and layer.maxout:
+                work = set_zero_in_mat(work, 0, j*2)
+                work = set_zero_in_mat(work, 0, j*2+1)
+            else:
+                work = set_zero_in_mat(work, 0, j)
         params_dict[conn.mat_name].set_value(mat)
 
 
 compensate_for_pruning = _compensate_for_pruning_interpol
+compensate_for_pruning = _compensate_for_pruning_sum
 
 def add_in_mat(mat, dim, f_idx, t_idx):
     if len(mat.shape) == 1:
@@ -356,6 +368,7 @@ class PruningGradientDescent(GradientDescent):
         self.prunable_layers = []
         for conf in layer_configs:
             n,s = conf.split(":")
+            maxout = False
             if n == 'encfwdgru':
                 theano_var = self.nmt_model.encoder.bidir.forward
             elif n == 'encbwdgru':
@@ -364,10 +377,15 @@ class PruningGradientDescent(GradientDescent):
                 theano_var = seq_gen.results['states']
             elif n == 'decmaxout':
                 theano_var = seq_gen.readout.post_merge.layer_activities[1]
+                maxout = True
             else:
                 logging.warn("Unknown prunable layer name %s" % n)
                 continue
-            l = PrunableLayer(n, theano_var, int(s), self.prune_n_steps)
+            l = PrunableLayer(n, 
+                              theano_var, 
+                              int(s), 
+                              self.prune_n_steps,
+                              maxout=maxout)
             l.connections = conns.get(n, [])
             self.prunable_layers.append(l)
     
