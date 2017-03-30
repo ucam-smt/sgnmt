@@ -178,6 +178,36 @@ def get_align_parser():
     return parser
 
 
+def get_batch_decode_parser():
+    """Get the parser object for NMT batch decoding. """
+    parser = argparse.ArgumentParser()
+    parser.register('type','bool',str2bool)
+    
+    parser.add_argument("--src_test", default="test_en",
+                        help="Path to source test set. This is expected to be "
+                        "a plain text file with one source sentence in each "
+                        "line. Words need to be indexed, i.e. use word IDs "
+                        "instead of their string representations.")
+    parser.add_argument("--range", default="",
+                         help="Defines the range of sentences to be processed. "
+                         "Syntax is equal to HiFSTs printstrings and lmerts "
+                         "idxrange parameter: <start-idx>:<end-idx> (both "
+                         "inclusive, start with 1). E.g. 2:5 means: skip the "
+                         "first sentence, process next 4 sentences")
+    parser.add_argument("--enc_max_words", default=400, type=int,
+                        help="Maximum encoder batch size in terms of source "
+                        "words. This batch size is used to compute source "
+                        "side annotations. Encoder batches are clustered by "
+                        "source sentence length, so smaller batches are "
+                        "possible.")
+    parser.add_argument("--dec_batch_size", default=60, type=int,
+                        help="Decoder batch size. This batch size is used "
+                        "on the decoder side.")
+    
+    blocks_add_nmt_config(parser)
+    return parser
+
+
 def get_parser():
     """Get the parser object which is used to build the configuration
     argument ``args``. This is a helper method for ``get_args()``
