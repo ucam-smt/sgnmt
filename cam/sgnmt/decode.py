@@ -53,7 +53,6 @@ from cam.sgnmt.predictors.automata import FstPredictor, \
                                          NondeterministicFstPredictor
 from cam.sgnmt.predictors.bow import BagOfWordsPredictor, \
     BagOfWordsSearchPredictor
-from cam.sgnmt.predictors.chainer_lstm import ChainerLstmPredictor
 from cam.sgnmt.predictors.ffnnlm import NPLMPredictor
 from cam.sgnmt.predictors.forced import ForcedPredictor, ForcedLstPredictor
 from cam.sgnmt.predictors.grammar import RuleXtractPredictor
@@ -281,8 +280,6 @@ def add_predictors(decoder):
                 p = tf_get_rnnlm_predictor(_get_override_args("rnnlm_path"),
                                            _get_override_args("rnnlm_config"),
                                            tf_get_rnnlm_prefix())
-            elif pred == "lstm":
-                p = ChainerLstmPredictor(args.lstm_path)
             elif pred == "wc":
                 p = WordCountPredictor(args.wc_word)
             elif pred == "ngramc":

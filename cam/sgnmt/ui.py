@@ -220,14 +220,44 @@ def get_batch_decode_parser():
                          "inclusive, start with 1). E.g. 2:5 means: skip the "
                          "first sentence, process next 4 sentences")
     parser.add_argument("--enc_max_words", default=5000, type=int,
-                        help="Maximum encoder batch size in terms of source "
-                        "words. This batch size is used to compute source "
-                        "side annotations. Encoder batches are clustered by "
-                        "source sentence length, so smaller batches are "
-                        "possible.")
-    parser.add_argument("--dec_batch_size", default=60, type=int,
-                        help="Decoder batch size. This batch size is used "
-                        "on the decoder side.")
+                        help="Maximum number of words in an encoder batch. "
+                        "These batches compute source side annotations. "
+                        "Encoder batches are clustered by source sentence "
+                        "length, so smaller batches are possible.")
+    parser.add_argument("--min_jobs", default=2, type=int,
+                        help="The CPU scheduler starts to construct small "
+                        "jobs when the total number of jobs in the pipelines "
+                        "is below this threshold. This prevents the computation "
+                        "thread from being idle, at the cost of smaller " 
+                        "batches")
+    parser.add_argument("--max_tasks_per_job", default=450, type=int,
+                        help="The maximum number of tasks in a single decoder "
+                        "batch. Larger batches can exploit GPU parallelism "
+                        "more efficiently, but limit the flexibility of the "
+                        "CPU scheduler")
+    parser.add_argument("--max_tasks_per_state_update_job", default=100, type=int,
+                        help="Maximum number of tasks in a state update batch. "
+                        "Larger batches are more efficient to compute on the "
+                        "GPU, but delaying state updates for too long may "
+                        "lead to smaller forward pass jobs.")
+    parser.add_argument("--max_rows_per_job", default=20, type=int,
+                        help="Maximum number of entries in a forward pass "
+                        "batch. Note that each task in the batch gets at least "
+                        "one entry, so this parameters applies only if there "
+                        "are less than this threshold tasks left.")
+    parser.add_argument("--min_tasks_per_bucket", default=100, type=int,
+                        help="Minimum number of tasks in a bucket. Large "
+                        "buckets give the CPU scheduler more flexibility, "
+                        "but more padding may be required on the source "
+                        "side, leading to more wasted computation.")
+    parser.add_argument("--min_bucket_tolerance", default=8, type=int,
+                        help="Minimum padding width in a bucket. Increasing "
+                        "this leads to larger buckets and more flexible "
+                        "scheduling and larger batches, but potentially "
+                        "more wasteful state update computation due to "
+                        "padding.")
+    parser.add_argument("--beam", default=5, type=int,
+                        help="Size of the beam.")
     
     blocks_add_nmt_config(parser)
     return parser
@@ -624,8 +654,6 @@ def get_parser():
                         "          Options: nplm_path, normalize_nplm_probs\n"
                         "* 'rnnlm': RNN language model based on TensorFlow.\n"
                         "          Options: rnnlm_config, rnnlm_path\n"
-                        "* 'lstm': Pure lstm predictor (chainer-based).\n"
-                        "          Options: lstm_path.\n"
                         "* 'forced': Forced decoding with one reference\n"
                         "            Options: trg_test\n"
                         "* 'forcedlst': Forced decoding with a Moses n-best "
@@ -967,8 +995,6 @@ def get_parser():
                         "the parameter string to use configuration files "
                         "with the second method. Use 'model_name=X' in the "
                         "parameter string to use one of the predefined models.")
-    group.add_argument("--lstm_path", default="chainer/model",
-                        help="Path to the LSTM model (chainer)")
     group.add_argument("--srilm_order", default=5, type=int,
                         help="Order of ngram for srilm predictor")
     group.add_argument("--normalize_nplm_probs", default=False, type='bool',

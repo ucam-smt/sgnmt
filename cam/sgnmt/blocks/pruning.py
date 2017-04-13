@@ -1,10 +1,20 @@
-"""This module contains  code for model pruning during training
+"""This module contains code for model pruning during training. This
+implements the data-bound neuron removal algorithm descibed in
+
+Unfolding and Shrinking Neural Machine Translation Ensembles
+Felix Stahlberg and Bill Byrne
+https://arxiv.org/abs/1704.03279
+
+Note that to avoid rebuilding the computation graph after each
+prunning operation, we do not remove neurons but set their connections
+to zero. To realize speed ups, neurons with zero weights must be
+removed in a postprocessing step.
 """
+
 import logging
 
 from blocks.algorithms import GradientDescent
 from blocks.graph import ComputationGraph
-from blocks.bricks.recurrent import GatedRecurrent, recurrent
 from blocks.bricks.sequence_generators import SequenceGenerator
 from blocks.bricks.base import application
 from blocks.utils import dict_union, dict_subset
@@ -12,24 +22,37 @@ from blocks.bricks import FeedforwardSequence, Initializable
 from blocks.utils import pack
 from theano import tensor
 import theano
-from var_dump import var_dump
-import sys
 import numpy as np
-
 
 logger = logging.getLogger(__name__)
 
 INF_DIST = 10000.0
 
 class PrunableLayer(object):
+    """This class represents a layer definition loaded from the file
+    system and keeps track of neurons which have been removed in the
+    layer.
+    """
 
     def __init__(self, 
                  name, 
                  theano_variable, 
                  trg_size, 
                  n_steps, 
-                 store_obs = False,
                  maxout=False):
+        """Creates a new ``PrunableLayer`` instance.
+        
+        Args:
+            name (string): Name of the layer
+            theano_variable (TheanoVariable): Variable in the 
+                                              computation graph which
+                                              stores the neuron
+                                              activities in the layer
+            trg_size (int): Remove neurons in this layer until this
+                            layer size is reached
+            n_steps (int): Number of pruning operations
+            maxout (bool): Whether this layer is a maxout layer.
+        """
         self.name = name
         self.theano_variable = theano_variable
         self.dists = None
@@ -41,11 +64,12 @@ class PrunableLayer(object):
         self.connections = []
         self.pruned_neurons = []
         self.obs = []
-        self.store_obs = store_obs
-        self.store_obs = True
         self.maxout = maxout
 
     def reset(self):
+        """Resets the activity records. Can be called after a pruning
+        operation to maintain recency.
+        """ 
         self.dists = None
         self.activities = None
         self.n_obs = 0.0
@@ -53,20 +77,32 @@ class PrunableLayer(object):
         logging.info("Layer %s reset" % self.name)
 
     def initialize_mask(self):
+        """Initialize the neuron mask to a upper triangular matrix, ie.
+        no neuron has been removed.
+        """
         self.mask = np.triu(INF_DIST * np.ones_like(self.dists))
 
     def derive_step_size(self):
+        """Calculate the required step size to reach the target size
+        for this layer.
+        """
         self.step_size = int((self.get_size() - self.trg_size) / self.n_steps)
         self.step_size += 1
 
     def get_size(self):
+        """Get the size of the layer. """
         return self.mask.shape[0]
 
     def register_activities(self, activity):
-        # TODO: Decoder training stream mask!
+        """Store the layer activities in a training batch and update 
+        the distance matrix.
+        
+        Args:
+            activity (array): Neuron activity in the most recent batch
+        """
+        # TODO: Use Decoder training stream mask!
         x = activity.reshape((-1, activity.shape[-1])).transpose()
-        if self.store_obs:
-            self.obs.append(x)
+        self.obs.append(x)
         # http://stackoverflow.com/questions/15556116/implementing-support-
         # vector-machine-efficiently-computing-gram-matrix-k
         pt_sq_norms = (x ** 2).sum(axis=1)
@@ -84,9 +120,17 @@ class PrunableLayer(object):
         self.n_obs += x.shape[1]
 
     def count_unpruned_neurons(self):
+        """Get the number of unpruned neurons in the layer. """
         return self.get_size() - len(self.pruned_neurons)
 
     def prune(self, params_dict):
+        """Perform a single pruning operation. The number of neurons to
+        delete depends on the step size and the difference between the
+        current and the target layer size.
+        
+        Args:
+            params_dict (dict): Dictionary of numpy arrays
+        """
         if self.mask is None:
             self.initialize_mask()
             self.derive_step_size()
@@ -118,15 +162,20 @@ class PrunableLayer(object):
                 break
         compensate_for_pruning(to_delete, self, params_dict)
         logging.info("%s: Prune %d neurons obs=%d min=%f max=%f" % (
-                                 self.name,
-                                 len(to_delete),
-                                 self.n_obs,
-                                 min_score,
-                                 max_score))
-
-    
+                                                         self.name,
+                                                         len(to_delete),
+                                                         self.n_obs,
+                                                         min_score,
+                                                         max_score))
 
     def sanity_check(self, params_dict):
+        """Checks whether the weight matrices are consistent with the
+        list of neurons which have been removed so far. All incoming
+        and outgoing connections of prunned neurons should be zero.
+        
+        Args:
+            params_dict (dict): Dictionary with numpy arrays
+        """
         geps = 0.0
         for conn in self.connections:
             mat = params_dict[conn.mat_name].get_value()
@@ -146,15 +195,55 @@ class PrunableLayer(object):
                                                     geps))
             
 def _get_activity_discounts_sum(layer):
+    """For a pair of neurons, use the sum of their activities to 
+    discount their distance.
+    
+    Args:
+        layer (PrunableLayer): The layer which is to be pruned
+    
+    Returns:
+        array. Discount matrix for the layer.
+    """ 
     return layer.activities.reshape((-1, 1)) + layer.activities.reshape((1, -1))
 
 def _get_activity_discounts_min(layer):
+    """For a pair of neurons, use the minimum of their activities to 
+    discount their distance.
+    
+    Args:
+        layer (PrunableLayer): The layer which is to be pruned
+    
+    Returns:
+        array. Discount matrix for the layer.
+    """ 
     return np.minimum(layer.activities.reshape((-1, 1)),
                       layer.activities.reshape((1, -1)))
 
 get_activity_discounts = _get_activity_discounts_min
+"""We decide which neuron to prune based on (a) their similarity, and
+(b) we prefer neurons with small activity. We provide two strategies
+for (b): Using the minimum or the sum of the activities in neuron
+pairs. The original method uses the minimum.  
+    
+Args:
+    layer (PrunableLayer): The layer which is to be pruned
+    
+Returns:
+    array. Discount matrix for the layer.
+""" 
 
 def _compensate_for_pruning_sum(to_delete, layer, params_dict):
+    """This is a data-bound version of the approach of Srinivas and
+    Babu (2015) which compensates for a neuron removal by adding
+    the outgoing weights to the weights of a similar neuron. The 
+    parameter dictionary ``params_dict`` is updated accordingly.
+    
+    Args:
+        to_delete (list): List of i,j neuron pairs which were selected
+                          for deletion
+        layer (PrunableLayer): The layer which we are currently pruning
+        params_dict (dict): Dictionary of numpy arrays (weight matrices)
+    """
     for i,j in to_delete:
         # Prune neuron j, add output connections to i
         for conn in layer.connections:
@@ -165,8 +254,6 @@ def _compensate_for_pruning_sum(to_delete, layer, params_dict):
                 offset = int(mat.shape[conn.dim] * conn.start_idx)
                 mat_i += offset
                 mat_j += offset
-            #if conn.direction == "out": # Add j connections to i connections
-            #    mat = add_in_mat(mat, conn.dim, mat_j, mat_i)
             if conn.direction == "in" and layer.maxout:
                 mat = set_zero_in_mat(mat, conn.dim, mat_j*2)
                 mat = set_zero_in_mat(mat, conn.dim, mat_j*2+1)
@@ -174,9 +261,21 @@ def _compensate_for_pruning_sum(to_delete, layer, params_dict):
                 mat = set_zero_in_mat(mat, conn.dim, mat_j)
             params_dict[conn.mat_name].set_value(mat)
 
+
 def _compensate_for_pruning_interpol(to_delete, layer, params_dict):
-    reduced_obs = np.hstack(layer.obs)[:,np.random.randint(layer.n_obs, 
-                                                           size=50000)].transpose()
+    """This is the data-bound removal algorithm from Stahlberg and
+    Byrne (2017) based on linear interpolations. The parameter
+    dictionary ``params_dict`` is updated accordingly.
+    
+    Args:
+        to_delete (list): List of i,j neuron pairs which were selected
+                          for deletion
+        layer (PrunableLayer): The layer which we are currently pruning
+        params_dict (dict): Dictionary of numpy arrays (weight matrices)
+    """
+    reduced_obs = np.hstack(layer.obs)[:,np.random.randint(
+                                                    layer.n_obs, 
+                                                    size=50000)].transpose()
     delete_idxs = [j for i,j in to_delete]
     survive_mask = np.ones((layer.get_size(),), dtype=bool)
     survive_mask[layer.pruned_neurons] = False
@@ -207,10 +306,34 @@ def _compensate_for_pruning_interpol(to_delete, layer, params_dict):
         params_dict[conn.mat_name].set_value(mat)
 
 
-compensate_for_pruning = _compensate_for_pruning_interpol
 compensate_for_pruning = _compensate_for_pruning_sum
+"""This the the strategy used to compensate for the removal of a 
+neuron. It can be set to ``_compensate_for_pruning_interpol`` or
+``_compensate_for_pruning_sum``. The first one is based on linear
+combinations of the remaining neurons and should be preferred for
+NMT networks as shown in https://arxiv.org/abs/1704.03279. The
+parameter dictionary ``params_dict`` is updated accordingly.
+    
+Args:
+    to_delete (list): List of i,j neuron pairs which were selected
+                        for deletion
+    layer (PrunableLayer): The layer which we are currently pruning
+    params_dict (dict): Dictionary of numpy arrays (weight matrices)
+"""
 
 def add_in_mat(mat, dim, f_idx, t_idx):
+    """Helper method to add a row or column to another one in a matrix.
+    
+    Args:
+        mat (array): two dimensional numpy array.
+        dim (int): 0 for rows, 1 for columns
+        f_idx (int): Index of the first row or column
+        t_idx (int): Index of the second row or column
+    
+    Returns:
+        array. Matrix in which the first row or column is added to the
+        second one.
+    """
     if len(mat.shape) == 1:
         mat[t_idx] += mat[f_idx]
     elif dim == 0:
@@ -221,6 +344,17 @@ def add_in_mat(mat, dim, f_idx, t_idx):
 
 
 def set_zero_in_mat(mat, dim, idx):
+    """Helper method to set a row or column to zero.
+    
+    Args:
+        mat (array): two dimensional numpy array.
+        dim (int): 0 for rows, 1 for columns
+        idx (int): Index of the row or column
+    
+    Returns:
+        array. Matrix in which the ``idx``-the row or column is
+        set to zero.
+    """
     if len(mat.shape) == 1:
         mat[idx] = 0.0
     elif dim == 0:
@@ -229,16 +363,36 @@ def set_zero_in_mat(mat, dim, idx):
         mat[:,idx] = 0.0
     return mat
 
+
 class Connection(object):
+    """A connection between layer which is represented by a weight 
+    matrix.
+    """
 
     def __init__(self, direction, mat_name, dim, start_idx = 0.0):
+        """Creates a new connection.
+        
+        Args:
+            direction (string): 'in' if incoming, 'out' if outgoing
+            mat_name (string): Name of the corresponding weight matrix
+            dim (int): Dimension along which this layer is adjacent
+            start_idx (float): Blocks uses single weight matrices for
+                               both forget and reset gates. Set this to
+                               0.5 if the layer is just connected to 
+                               the lower half of the matrix.
+        """
         self.mat_name = mat_name
         self.direction = direction
         self.dim = dim
         self.start_idx = start_idx
 
+
 class PrunableInitializableFeedforwardSequence(FeedforwardSequence, 
                                                Initializable):
+    """Version of ``InitializableFeedforwardSequence`` which allows
+    keeping track of internal neuron activities.
+    """
+    
     def __init__(self, application_methods, **kwargs):
         self.pruning_variables_initialized = False
         self.layer_activities = []
@@ -260,15 +414,17 @@ class PrunableInitializableFeedforwardSequence(FeedforwardSequence,
 
 
 class PrunableSequenceGenerator(SequenceGenerator):
-    r"""A sequence generator which keeps prunable layers as class 
+    """A sequence generator which keeps prunable layers as class 
     variables s.t. they can be accessed later.
     """
+    
     def __init__(self, readout, transition, **kwargs):
         self.pruning_variables_initialized = False
-        super(PrunableSequenceGenerator, self).__init__(readout, 
-                                                        transition, 
-                                                        name='sequencegenerator', 
-                                                        **kwargs)
+        super(PrunableSequenceGenerator, self).__init__(
+                                                    readout, 
+                                                    transition, 
+                                                    name='sequencegenerator', 
+                                                    **kwargs)
 
     @application
     def cost_matrix(self, application_call, outputs, mask=None, **kwargs):
@@ -325,6 +481,11 @@ class PrunableSequenceGenerator(SequenceGenerator):
 
 
 class PruningGradientDescent(GradientDescent):
+    """This is a drop-in replacement for Blocks GradientDescent 
+    optimizer. We intersperse the normal SGD updates with pruning
+    operations and record the neuron activities after each training
+    batch.
+    """
 
     def __init__(self, 
                  prune_layer_configs, 
@@ -334,6 +495,18 @@ class PruningGradientDescent(GradientDescent):
                  prune_n_steps, 
                  nmt_model, 
                  **kwargs):
+        """Constructor for the pruning SGD optimizer.
+        
+        Args:
+            prune_layer_configs (dict): Layer configurations.
+            prune_layout_path (string): Path to the network layout
+                                        file.
+            prune_every (int): Prune every n training iterations
+            prune_reset_every (int): Reset neuron activity records
+                                     every n training iterations.
+            prune_n_steps (int): Number of pruning operations
+            nmt_model (NMTModel): The initialized NMT model.
+        """
         self.prune_every = prune_every
         self.prune_reset_every = prune_reset_every if prune_reset_every > 0 \
                                                    else prune_every
@@ -347,6 +520,13 @@ class PruningGradientDescent(GradientDescent):
         super(PruningGradientDescent, self).__init__(**kwargs)
 
     def initialize_layers(self, layer_configs, layout_path):
+        """Initialize all layers which should be pruned in the course 
+        of this training.
+        
+        Args:
+            layer_configs (dict): Layer configurations.
+            layout_path (string): Path to the network layout file.
+        """
         conns = {}
         with open(layout_path) as f:
             for line in f:
@@ -390,6 +570,8 @@ class PruningGradientDescent(GradientDescent):
             self.prunable_layers.append(l)
     
     def initialize(self):
+        """Initialize the training algorithm.
+        """
         logger.info("Initializing the training algorithm")
         update_values = [new_value for _, new_value in self.updates]
         activity_variables = [l.theano_variable for l in self.prunable_layers]
@@ -402,8 +584,14 @@ class PruningGradientDescent(GradientDescent):
                                          **self.theano_func_kwargs)
         logger.info("The training algorithm is initialized")
 
-
     def process_batch(self, batch):
+        """Overrides ``GradientDescent.process_batch`` and adds 
+        recording neuron activities and pruning neurons to the
+        pipeline.
+        
+        Args:
+            batch (array): Current training batch
+        """
         self.n_batches += 1
         self._validate_source_names(batch)
         ordered_batch = [batch[v.name] for v in self.inputs]

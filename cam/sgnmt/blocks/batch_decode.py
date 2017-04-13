@@ -1,14 +1,21 @@
 """This is a highly optimized version of single NMT beam search
 decoding for blocks. It runs completely separated from the rest of
 SGNMT and does not use the predictor frameworks or the ``Decoder``
-search strategy abstraction.
+search strategy abstraction. The central concepts of this decoder can
+be summarized as follows:
+
+  * Use a CPU scheduler to construct large batches of computation for
+    the GPU
+  * Run encoder first for all sentences, and store the result as shared
+    variable in the GPU memory to minimize CPU/GPU communication costs
+  * Use buckets to cluster sentences with similar lengths which can be
+    grouped in a single batch for the GPU
 """
 
 import logging
 import time
 import pprint
 import threading
-import sys
 import os
 import theano
 import theano.tensor as T
@@ -25,9 +32,8 @@ from cam.sgnmt import utils
 from blocks.search import BeamSearch
 import Queue
 import numpy as np
-import heapq
 from collections import OrderedDict
-from blocks.utils import shared_floatx_nans, shared_floatx_zeros
+from blocks.utils import shared_floatx_zeros
 from picklable_itertools.extras import equizip
 
 logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s')
@@ -39,17 +45,38 @@ state_names = ['outputs', 'states', 'weights', 'weighted_averages']
 parser = get_batch_decode_parser()
 args = parser.parse_args()
 
-PARAM_MIN_JOBS = 2
-PARAM_MAX_TASKS_PER_JOB = 450
-PARAM_MAX_TASKS_PER_STATE_UPDATE_JOB = 100
-PARAM_MAX_DEPTH_PER_JOB = 5
-PARAM_MAX_ROWS_PER_JOB = 20
-PARAM_BEAM_SIZE = 5
-PARAM_MIN_TASKS_PER_BUCKET = 100
-PARAM_MIN_BUCKET_TOLERANCE = 8
+PARAM_ENC_MAX_WORDS = args.enc_max_words
+"""Global variable storing ``--enc_max_words``. """
+
+PARAM_MIN_JOBS = args.min_jobs
+"""Global variable storing ``--min_jobs``. """
+
+PARAM_MAX_TASKS_PER_JOB = args.max_tasks_per_job
+"""Global variable storing ``--max_tasks_per_job``. """
+
+PARAM_MAX_TASKS_PER_STATE_UPDATE_JOB = args.max_tasks_per_state_update_job
+"""Global variable storing ``--max_tasks_per_state_update_job``. """
+
+PARAM_MAX_DEPTH_PER_JOB = args.beam
+"""Global variable storing ``--beam``. This is used to determine the 
+maximum depth of a single task in a job.
+"""
+
+PARAM_MAX_ROWS_PER_JOB = args.max_rows_per_job
+"""Global variable storing ``--enc_max_rows_per_job``. """
+
+PARAM_BEAM_SIZE = args.beam
+"""Global variable storing ``--beam``. """
+
+PARAM_MIN_TASKS_PER_BUCKET = args.min_tasks_per_bucket
+"""Global variable storing ``--min_tasks_per_bucket``. """
+
+PARAM_MIN_BUCKET_TOLERANCE = args.min_bucket_tolerance
+"""Global variable storing ``--min_bucket_tolerance``. """
+
 
 def load_sentences(path, _range, src_vocab_size):
-    """Loads the source sentences to decode.
+    """Loads the source sentences to decode from the file system.
     
     Args:
         path (string): path to the plain text file with indexed
@@ -85,19 +112,16 @@ def load_sentences(path, _range, src_vocab_size):
 
 
 def compute_encoder(tasks):
-    """Computes the contexts and initial states for the given sentences
-    and adds them to the contexts and initial_states list
+    """Computes the contexts and initial states for the given sentences.
 
     Returns:
-        attendeds,states
+        tuple. A tuple of numpy arrays with the source annotations 
+        (attended) and the initial decoder states
     """
-    attendeds = []
-    initial_states = {n: [] for n in state_names}
     sen = np.array([t.src_sentence for t in tasks], dtype=int)
     logging.debug("Run encoder on shape %s" % (sen.shape,))
     contexts, states, _ = beam_search.compute_initial_states_and_contexts(
                                         {nmt_model.sampling_input: sen})
-    #return np.transpose(contexts['attended'], (1, 0, 2)), states
     return contexts['attended'], states
 
 
@@ -107,12 +131,27 @@ class DecodingTask(object):
     """
 
     def __init__(self, sen_id, src_sentence):
+        """Creates a new decoding task. This task needs to be
+        initialized before with the initial states before it can be
+        put into the queues.
+        
+        Args:
+            sen_id (int): Sentence ID
+            src_sentence (list): Source sentence to decode
+        """
         self.sen_id = sen_id
         self.src_sentence = src_sentence
         self.index = -1
         self.bucket = None
 
     def initialize(self, initial_states):
+        """Initializes this task by initializing the current stack
+        with a single empty hypothesis with ``initial_states``.
+        
+        Args:
+            initial_states (dict): Initial decoder states for this
+                                   task
+        """
         self.states = [initial_states]
         self.outputs = [[-1]]
         self.continuations= [] # List of next possible continuations
@@ -122,9 +161,14 @@ class DecodingTask(object):
         self.n_expansions = 0
 
     def get_source_length(self):
+        """Returns the length of the source sentence. """
         return len(self.src_sentence)
 
     def switch_to_continuations(self):
+        """This is called when the current stack is expanded
+        sufficiently. Updates the internal states, costs, and
+        outputs variables and triggers a state update on this task.
+        """
         self.n_expansions += len(self.continuations)
         self.states = [c.states for c in self.continuations]
         self.costs = [c.cost for c in self.continuations]
@@ -134,25 +178,42 @@ class DecodingTask(object):
         self.needs_state_update = True
 
     def is_finished(self):
+        """Returns true if the best hypothesis ends with EOS or the 
+        maximum target sentence length is exceeded.
+        """
         return self.outputs[0][-1] == utils.EOS_ID \
                or len(self.outputs[0]) > 2*self.get_source_length()
 
     def get_best_translation(self):
+        """Get the best (partial) translation. """
         return self.outputs[0][1:-1]
 
     def get_stats_string(self):
+        """Returns a string with information about this task. """
         return "score=%f num_expansions=%d" % (self.costs[0], self.n_expansions)
 
     def __hash__(self):
         return self.sen_id
 
     def __eq__(self, other):
-        self.sen_id == other.sen_id
+        return self.sen_id == other.sen_id
 
 
 class Continuation(object):
+    """A continuation lives inside a decoding task and represents a
+    possible candidate for the next time step.
+    """
 
     def __init__(self, states, outputs, cost):
+        """Create a new hypothesis continuation.
+        
+        Args:
+            states (dict): decoder states before consuming the last 
+                           word in ``outputs``
+            outputs (list): Complete translation associated with this
+                            continuation.
+            cost (float): Total cost of this (partial) translation.
+        """
         self.states = states
         self.outputs = outputs
         self.cost = cost
@@ -162,19 +223,24 @@ class Continuation(object):
 
 
 class ComputationJob(object):
-    """This represents a single theano function call. The computation
-    is usually a batch consisting of multiple DecodingTasks, either
-    logprob or state update.
+    """This represents a single batch which can be send to the GPU for 
+    computation. It consists of multiple ``DecodingTasks``. Depending
+    on the queue this job is scheduled, it represents either a logprobs
+    job or a state update job.
     """
     
     def __init__(self, bucket, tasks, src_indices, states, outputs = None):
-        """Sole consructor.
+        """Sole constructor.
         
         Args:
-            tasks (list): List of tasks which are comoputed with this
+            bucket (Bucket): A reference to the bucket which all 
+                             tasks of this job are in. Used to access
+                             the theano function.
+            tasks (list): List of tasks which are computed with this
                           batch
-            states (OrderedDict): passed through to theano function
-            outputs (OrderedDict): passed through to theano function
+            src_indices (OrderedDict): passed through to Theano function
+            states (OrderedDict): passed through to Theano function
+            outputs (OrderedDict): passed through to Theano function
         """
         self.bucket = bucket
         self.tasks = tasks
@@ -185,16 +251,34 @@ class ComputationJob(object):
                                    
 
 class Pipeline(object):
-    """Global place to reference all the queues.
+    """Global place to reference all the queues. This includes the
+    following special purpose queues:
+    
+    * unscheduled_tasks: Contains tasks whichh have not been assigned
+                         to a job
+    * logprobs_jobs_queues: Logprobs computation jobs, one queue for
+                            each bucket
+    * state_update_jobs_queues: State update computation jobs, one 
+                                queue for each bucket
+    * logprobs_result_queue: The computation worker puts logprobs jobs
+                             in here after processing them
+    * state_update_result_queue: The computation worker puts state update
+                                 jobs in here after processing them
+    * finished_tasks_queue: All finished tasks end up here.
     """
     
     def __init__(self, buckets):
+        """Initializes all the queues with empty lists.
+        
+        Args:
+            buckets (list): List of all the buckets
+        """
         self.buckets = buckets
         n_buckets = len(buckets)
         self.unscheduled_tasks = Queue.Queue() # Lists of tasks 
 
-        self.logprobs_jobs_queues = [Queue.Queue() for _ in xrange(n_buckets)] # Jobs for each bucket
-        self.state_update_jobs_queues = [Queue.Queue() for _ in xrange(n_buckets)] # Jobs for each bucket
+        self.logprobs_jobs_queues = [Queue.Queue() for _ in xrange(n_buckets)]
+        self.state_update_jobs_queues = [Queue.Queue() for _ in xrange(n_buckets)]
         self.logprobs_result_queue = Queue.Queue() # Jobs
         self.state_update_result_queue = Queue.Queue() # Jobs
         self.finished_tasks_queue = Queue.Queue() # Tasks
@@ -202,15 +286,36 @@ class Pipeline(object):
         self.update_bucket_order()
 
     def update_bucket_order(self):
-        new_bucket_order = [bucket_id for bucket_id in range(len(self.buckets)) if not self.buckets[bucket_id].is_finished()]
+        """Buckets are processed according their priority. We aim to
+        finish all buckets in about the same time so that the CPU 
+        scheduler has the flexibility of switching between buckets as
+        long as possible. This implementation is thread safe.
+        """
+        new_bucket_order = [bucket_id for bucket_id in range(len(self.buckets))
+                                if not self.buckets[bucket_id].is_finished()]
         for bucket_id in new_bucket_order:
             self.buckets[bucket_id].update_priority()
-        new_bucket_order.sort(key=lambda bucket_id: self.buckets[bucket_id].priority)
+        new_bucket_order.sort(
+                        key=lambda bucket_id: self.buckets[bucket_id].priority)
         self.bucket_order = new_bucket_order
 
+
 class Bucket(object):
+    """A bucket is a set of decoding tasks which correspond to source
+    sentences with similar lengths. Batches can be constructed within
+    buckets, but not across buckets. Slight differences in source
+    sentence lengths are addressed using padding. We create one shared
+    variable per bucket which stores all the source annotations of
+    the tasks in the bucket in the GPU memory.
+    """
     
     def __init__(self, bucket_id):
+        """Creates a new bucket.
+        
+        Args:
+            bucket_id (int): Index of this bucket. Low indices should
+                             refer to long sentences.
+        """
         self.tasks = []
         self.bucket_id = bucket_id
         self.max_size = 0
@@ -218,22 +323,36 @@ class Bucket(object):
         self.priority = 0.0
 
     def update_priority(self):
+        """Set the priority to the average length of partial hypotheses
+        in the bucket divided by the source sentence lengths.
+        """
         self.priority = (0.0 + sum([len(t.outputs[0]) for t in self.tasks])) \
                         / len(self.tasks) / self.max_size
 
     def can_add(self, size):
+        """Returns true if the given size does not clash with the 
+        minimum bucket tolerance restriction or if this bucket is not
+        large enough yet.
+        """
         return len(self.tasks) < PARAM_MIN_TASKS_PER_BUCKET \
                or (self.max_size - size <=  PARAM_MIN_BUCKET_TOLERANCE)
-        #return len(self.tasks) < PARAM_MIN_TASKS_PER_BUCKET \
-        #       or (size <= self.max_size and size >= self.min_size)
 
     def is_finished(self):
+        """Returns true if all tasks in this bucket are finished. """
         return self.n_tasks == self.n_finished
 
     def count_unfinished(self):
+        """Returns the number of unfinished tasks in this bucket. """
         return self.n_tasks - self.n_finished
 
     def add_task(self, task):
+        """Add a new task to the bucket, and update its index and
+        bucket reference. Note that we add the task even if ``can_add``
+        would return False.
+        
+        Args:
+            task (DecodingTask): task to add to the bucket
+        """
         src_len = task.get_source_length()
         self.max_size = max(src_len, self.max_size)
         self.min_size = min(src_len, self.min_size)
@@ -242,6 +361,10 @@ class Bucket(object):
         self.tasks.append(task)
 
     def compile(self):
+        """Do not add any more tasks after this function is called.
+        Compiles the state update and logprobs theano functions for
+        this bucket.
+        """
         self.n_tasks = len(self.tasks)
         self.n_finished = 0
         self.all_attended = shared_floatx_zeros((1, 1, 1))
@@ -252,6 +375,9 @@ class Bucket(object):
         self._compile_logprobs_computer(givens)
 
     def compute_context(self):
+        """Compute all source annotations for this bucket, and store
+        them as shared variable in the GPU memory.
+        """
         all_mask_lst = []
         all_attended_lst = []
         start_pos = 0
@@ -259,8 +385,10 @@ class Bucket(object):
         cur_n_words = cur_len
         for pos in xrange(1, len(self.tasks)):
             this_len = self.tasks[pos].get_source_length()
-            if this_len != cur_len or cur_len + cur_n_words > enc_max_words:
-                batch_mask_lst, batch_attended_lst = self._compute_context_range(start_pos, pos)
+            if this_len != cur_len or cur_len + cur_n_words > PARAM_ENC_MAX_WORDS:
+                batch_mask_lst, batch_attended_lst = self._compute_context_range(
+                                                                    start_pos,
+                                                                    pos)
                 all_mask_lst.extend(batch_mask_lst)
                 all_attended_lst.extend(batch_attended_lst)
                 cur_len = this_len
@@ -278,6 +406,9 @@ class Bucket(object):
         self.all_attended.set_value(all_attended_val)
 
     def _compute_context_range(self, start_pos, end_pos):
+        """Compute source annotations in a specific range. All tasks in
+        this range should have the same source sentence length.
+        """
         batch_tasks = self.tasks[start_pos:end_pos]
         attendeds,init_states = compute_encoder(batch_tasks)
         n_pad = self.max_size-batch_tasks[0].get_source_length()
@@ -295,10 +426,15 @@ class Bucket(object):
         return len(batch_tasks) * [mask], np.transpose(pad_attendeds, (1, 0, 2))
 
     def _construct_givens(self):
+        """Constructs the givens dictionary for the theano functions.
+        """
         return {beam_search.contexts[0]: self.all_attended[:,self.src_indices,:],
                 beam_search.contexts[1]: self.all_masks[:,self.src_indices]}
 
     def _compile_next_state_computer(self, givens):
+        """Modified version of ``BeamSearch._compile_next_state_computer``
+        with ``givens``.
+        """
         next_states = [VariableFilter(bricks=[beam_search.generator],
                                       name=name,
                                       roles=[OUTPUT])(beam_search.inner_cg)[-1]
@@ -312,9 +448,9 @@ class Bucket(object):
             givens=givens)
 
     def _compile_logprobs_computer(self, givens):
-        # This filtering should return identical variables
-        # (in terms of computations) variables, and we do not care
-        # which to use.
+        """Modified version of ``BeamSearch._compile_logprobs_computer``
+        with ``givens``.
+        """
         probs = VariableFilter(
             applications=[beam_search.generator.readout.emitter.probs],
             roles=[OUTPUT])(beam_search.inner_cg)[0]
@@ -324,25 +460,105 @@ class Bucket(object):
             logprobs,
             givens=givens)
 
-
     def compute_logprobs(self, src_indices, states):
+        """Call theano on a logprobs batch.
+        """
         input_states = [states[name] for name in beam_search.input_state_names]
         return self.logprobs_computer(*([src_indices] + input_states))
 
     def compute_next_states(self, src_indices, states, outputs):
+        """Call theano on a state update batch.
+        """
         input_states = [states[name] for name in beam_search.input_state_names]
         next_values = self.next_state_computer(*([src_indices] +
                                                  input_states + [outputs]))
         return OrderedDict(equizip(beam_search.state_names, next_values))
 
+
+def make_states(states_lst, outputs_lst):
+    """Creates the states input variables for a decoding job consisting
+    of multiple tasks. This involves stacking the corresponding 
+    variables from the individual states. Note that theano does not
+    require the full states (with weighted_averages and weights) but
+    only outputs and states.
+    
+    Args:
+        states_lst (list): List of states, one for each hypothesis
+        outputs_lst (list): List of the last outputs, one for each
+                            hypothesis
+    """
+    all_states = OrderedDict()
+    all_states['outputs'] = np.array(outputs_lst)
+    all_states['states'] = np.stack([s['states'] for s in states_lst])
+    return all_states
+
+
+def create_state_update_job(tasks):
+    """Constructs a state update job from the given tasks.
+    
+    Args:
+        tasks (list): List of tasks.
+    
+    Returns:
+        ComputationJob
+    """
+    src_indices = []
+    states = []
+    outputs = []
+    for task in tasks:
+        src_indices.extend([task.index] * len(task.states))
+        states.extend(task.states)
+        outputs.extend([o[-1] for o in task.outputs])
+    return ComputationJob(tasks[0].bucket, 
+                          tasks, 
+                          src_indices, 
+                          make_states(states, outputs), 
+                          outputs)
+
+
+def create_logprobs_job(tasks):
+    """Constructs a logprobs job from the given tasks.
+    
+    Args:
+        tasks (list): List of tasks.
+    
+    Returns:
+        ComputationJob
+    """
+    src_indices = []
+    states = []
+    outputs = []
+    cnt = 0
+    for depth in xrange(PARAM_MAX_DEPTH_PER_JOB):
+        for task in tasks:
+            task_depth = depth + task.cur_depth
+            if task_depth < len(task.states):
+                src_indices.append(task.index)
+                states.append(task.states[task_depth])
+                outputs.append(task.outputs[task_depth][-1])
+                cnt += 1
+                if depth > 0 and cnt > PARAM_MAX_ROWS_PER_JOB:
+                    return ComputationJob(tasks[0].bucket, 
+                                          tasks, 
+                                          src_indices, 
+                                          make_states(states, outputs))
+    return ComputationJob(tasks[0].bucket, 
+                          tasks, 
+                          src_indices, 
+                          make_states(states, outputs))
+
+
 # Workers which consume or produce elements from/to queues in the pipeline
 
+
 def computation_worker_func(pipeline):
-    """This worker fetches jobs from the logprobs_queue and 
-    state_update_queue and sends them to theano for computation.
-    Fills up the result queues.
+    """This worker fetches jobs from the logprobs and state update
+    queus and sends them to theano for computation. This worker
+    must run on the main thread to work. The computation results are
+    stored in the ``result`` attribute of the job, and the job is added
+    to the *_result* queues..
     """
-    print("start computation")
+    logging.debug("Start computation")
     reported = False
     while not pipeline.is_finished:
         # We hope that usually one of those queues is not empty and 
@@ -372,65 +588,15 @@ def computation_worker_func(pipeline):
             reported = True
                 
 
-def make_states(states_lst, outputs_lst):
-    """Creates the states input variables for a decoding job consisting
-    of multiple tasks. This involves stacking the corresponding 
-    variables from the individual states.
-    """
-    #length = max([s['weights'].shape[0] for s in states_lst])
-    #all_weights = np.zeros((len(states_lst), length), dtype=theano.config.floatX)
-    #for idx, state in enumerate(states_lst):
-    #    this_length = state['weights'].shape[0]
-    #    all_weights[idx,:this_length] = state['weights']
-    all_states = OrderedDict()
-    all_states['outputs'] = np.array(outputs_lst)
-    all_states['states'] = np.stack([s['states'] for s in states_lst])
-    #all_states['weights'] = all_weights
-    #all_states['weighted_averages'] =  np.stack([s['weighted_averages'] for s in states_lst])
-    return all_states
-
-
-def create_state_update_job(tasks):
-    src_indices = []
-    states = []
-    outputs = []
-    for task in tasks:
-        src_indices.extend([task.index] * len(task.states))
-        states.extend(task.states)
-        outputs.extend([o[-1] for o in task.outputs])
-    return ComputationJob(tasks[0].bucket, 
-                          tasks, 
-                          src_indices, 
-                          make_states(states, outputs), 
-                          outputs)
-
-
-def create_logprobs_job(tasks):
-    src_indices = []
-    states = []
-    outputs = []
-    cnt = 0
-    for depth in xrange(PARAM_MAX_DEPTH_PER_JOB):
-        for task in tasks:
-            task_depth = depth + task.cur_depth
-            if task_depth < len(task.states):
-                src_indices.append(task.index)
-                states.append(task.states[task_depth])
-                outputs.append(task.outputs[task_depth][-1])
-                cnt += 1
-                if depth > 0 and cnt > PARAM_MAX_ROWS_PER_JOB:
-                    return ComputationJob(tasks[0].bucket, 
-                                          tasks, 
-                                          src_indices, 
-                                          make_states(states, outputs))
-    return ComputationJob(tasks[0].bucket, 
-                          tasks, 
-                          src_indices, 
-                          make_states(states, outputs))
-
-
 def task2job_worker_func(pipeline):
-    """This worker
+    """This worker assigns tasks to jobs. As soon as we have collected
+    enough tasks to fill a batch, we construct a job and send it via
+    the appropriate queue. If all tasks of a bucket are collected, and
+    a full batch cannot be constructed, we build a smaller batch with
+    the remaining tasks, either a logprobs or a state update job
+    (depending on which is more urgent). If the total number of jobs in
+    the computation queues falls below a threshold, we schedule all 
+    tasks we have to avoid having an idle computation thread.
     """
     n_buckets = len(pipeline.buckets)
     logprobs_tasks = [[] for _ in xrange(n_buckets)]
@@ -450,40 +616,51 @@ def task2job_worker_func(pipeline):
                 logprobs_tasks[task.bucket.bucket_id].append(task)
         for bucket_id in xrange(n_buckets):
             n_unfinished = pipeline.buckets[bucket_id].count_unfinished()
-            all_tasks_waiting = len(state_update_tasks[bucket_id]) + len(logprobs_tasks[bucket_id]) == n_unfinished
+            all_tasks_waiting = len(state_update_tasks[bucket_id]) \
+                                + len(logprobs_tasks[bucket_id]) == n_unfinished
             scheduled_full_logprobs = False
             scheduled_full_state_update = False
-            #if bucket_id == 0:
-            #    print("n_tasks=%d n_finished=%d state_update_tasks=%d logprobs_tasks=%d" % (pipeline.buckets[bucket_id].n_tasks, pipeline.buckets[bucket_id].n_finished, len(state_update_tasks[bucket_id]), len(logprobs_tasks[bucket_id])))
             while len(logprobs_tasks[bucket_id]) >= PARAM_MAX_TASKS_PER_JOB:
-                job = create_logprobs_job(logprobs_tasks[bucket_id][:PARAM_MAX_TASKS_PER_JOB])
-                logprobs_tasks[bucket_id] = logprobs_tasks[bucket_id][PARAM_MAX_TASKS_PER_JOB:]
+                job = create_logprobs_job(
+                            logprobs_tasks[bucket_id][:PARAM_MAX_TASKS_PER_JOB])
+                logprobs_tasks[bucket_id] = \
+                            logprobs_tasks[bucket_id][PARAM_MAX_TASKS_PER_JOB:]
                 pipeline.logprobs_jobs_queues[bucket_id].put(job)
                 scheduled_full_logprobs = True
             while len(state_update_tasks[bucket_id]) >= PARAM_MAX_TASKS_PER_STATE_UPDATE_JOB:
-                job = create_state_update_job(state_update_tasks[bucket_id][:PARAM_MAX_TASKS_PER_STATE_UPDATE_JOB])
-                state_update_tasks[bucket_id] = state_update_tasks[bucket_id][PARAM_MAX_TASKS_PER_STATE_UPDATE_JOB:]
+                job = create_state_update_job(
+                    state_update_tasks[bucket_id][:PARAM_MAX_TASKS_PER_STATE_UPDATE_JOB])
+                state_update_tasks[bucket_id] = \
+                    state_update_tasks[bucket_id][PARAM_MAX_TASKS_PER_STATE_UPDATE_JOB:]
                 pipeline.state_update_jobs_queues[bucket_id].put(job)
                 scheduled_full_state_update = True
-            if (not all_tasks_waiting) or scheduled_full_logprobs or scheduled_full_state_update:
+            if (not all_tasks_waiting) \
+                    or scheduled_full_logprobs \
+                    or scheduled_full_state_update:
                 continue
             if len(logprobs_tasks[bucket_id]) > len(state_update_tasks[bucket_id]):
-                pipeline.logprobs_jobs_queues[bucket_id].put(create_logprobs_job(logprobs_tasks[bucket_id]))
+                pipeline.logprobs_jobs_queues[bucket_id].put(
+                                create_logprobs_job(logprobs_tasks[bucket_id]))
                 logprobs_tasks[bucket_id] = []
             elif len(state_update_tasks[bucket_id]) > 0:
-                pipeline.state_update_jobs_queues[bucket_id].put(create_state_update_job(state_update_tasks[bucket_id]))
+                pipeline.state_update_jobs_queues[bucket_id].put(
+                        create_state_update_job(state_update_tasks[bucket_id]))
                 state_update_tasks[bucket_id] = []
         # Schedule all we have if the total number of jobs is below threshold
-        n_jobs = sum([q.qsize() for q in pipeline.state_update_jobs_queues + pipeline.logprobs_jobs_queues])
+        n_jobs = sum([q.qsize() for q in 
+            pipeline.state_update_jobs_queues + pipeline.logprobs_jobs_queues])
         if n_jobs < PARAM_MIN_JOBS:
-            print("number of jobs critical: %d" % n_jobs)
+            logging.debug("Number of jobs critical: %d" % n_jobs)
             for bucket_id in xrange(n_buckets):
                 if len(state_update_tasks[bucket_id]) > 0:
-                    pipeline.state_update_jobs_queues[bucket_id].put(create_state_update_job(state_update_tasks[bucket_id]))
+                    pipeline.state_update_jobs_queues[bucket_id].put(
+                        create_state_update_job(state_update_tasks[bucket_id]))
                     state_update_tasks[bucket_id] = []
                 if len(logprobs_tasks[bucket_id]) > 0:
-                    pipeline.logprobs_jobs_queues[bucket_id].put(create_logprobs_job(logprobs_tasks[bucket_id]))
+                    pipeline.logprobs_jobs_queues[bucket_id].put(
+                                create_logprobs_job(logprobs_tasks[bucket_id]))
                     logprobs_tasks[bucket_id] = []
+
 
 def logprobs_worker_func(pipeline):
     """This worker reads out the logprobs_result_queue. If the time
@@ -500,7 +677,6 @@ def logprobs_worker_func(pipeline):
             prev_cost = task.costs[task.cur_depth]
             prev_state = task.states[task.cur_depth]
             prev_outputs = task.outputs[task.cur_depth]
-            #print("next words for task %d prev_outputs: %s (%f): %s (%s)" % (task.sen_id, prev_outputs, prev_cost, list(words[pos]), list(job.result[pos,words[pos]])))
             task.continuations.extend([Continuation(
                                               prev_state, 
                                               prev_outputs + [word], 
@@ -515,7 +691,8 @@ def logprobs_worker_func(pipeline):
             # If all hypos of last timestep expanded or worse than beam-size
             # best continuation, trigger state update
             if (task.cur_depth >= len(task.states) or 
-                   task.continuations[PARAM_BEAM_SIZE-1].cost < task.costs[task.cur_depth]):
+                   task.continuations[PARAM_BEAM_SIZE-1].cost < task.costs[
+                                                            task.cur_depth]):
                 task.switch_to_continuations()
                 update_bucket_order = True
         pipeline.unscheduled_tasks.put(unique_tasks)
@@ -543,6 +720,9 @@ def state_update_worker_func(pipeline):
 
 
 def finished_worker_func(pipeline):
+    """This worker gathers all the finished tasks. If all tasks are
+    finished, output results and terminate SGNMT.
+    """
     finished_tasks = []
     n_tasks = sum([b.n_tasks for b in pipeline.buckets])
     for _ in xrange(n_tasks):
@@ -550,8 +730,12 @@ def finished_worker_func(pipeline):
         logging.debug("Finished %d translations" % (len(finished_tasks),))
         logging.debug("Bucket order: %s" % pipeline.bucket_order)
         for bucket in pipeline.buckets:
-            logging.debug("Bucket %d: %d/%d (queues: logprobs=%d state_update=%d)" % (bucket.bucket_id, bucket.n_finished, bucket.n_tasks, pipeline.logprobs_jobs_queues[bucket.bucket_id].qsize(), pipeline.state_update_jobs_queues[bucket.bucket_id].qsize()))
-
+            logging.debug("Bucket %d: %d/%d (queues: probs=%d update=%d)" % (
+                    bucket.bucket_id, 
+                    bucket.n_finished, 
+                    bucket.n_tasks, 
+                    pipeline.logprobs_jobs_queues[bucket.bucket_id].qsize(), 
+                    pipeline.state_update_jobs_queues[bucket.bucket_id].qsize()))
     stop_time = time.time()
     pipeline.is_finished = True
 
@@ -595,8 +779,6 @@ logging.info("%d source sentences loaded. Initialize decoding.."
 
 beam_search = BeamSearch(samples=nmt_model.samples)
 beam_search.compile()
-enc_max_words = args.enc_max_words
-dec_batch_size = args.dec_batch_size
 
 logging.info("Sort sentences, longest sentence first...")
 src_sentences.sort(key=lambda x: len(x[1]), reverse=True)
