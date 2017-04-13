@@ -219,7 +219,7 @@ def get_batch_decode_parser():
                          "idxrange parameter: <start-idx>:<end-idx> (both "
                          "inclusive, start with 1). E.g. 2:5 means: skip the "
                          "first sentence, process next 4 sentences")
-    parser.add_argument("--enc_max_words", default=400, type=int,
+    parser.add_argument("--enc_max_words", default=5000, type=int,
                         help="Maximum encoder batch size in terms of source "
                         "words. This batch size is used to compute source "
                         "side annotations. Encoder batches are clustered by "
