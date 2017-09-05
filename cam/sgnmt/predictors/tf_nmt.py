@@ -7,9 +7,8 @@ import logging
 import numpy as np
 
 from cam.sgnmt.misc.trie import SimpleTrie
-from tensorflow.models.rnn.translate.utils import data_utils as tf_data_utils
-from tensorflow.models.rnn.translate.utils import model_utils as tf_model_utils
-
+from models.rnn.translate.utils import data_utils as tf_data_utils
+from models.rnn.translate.utils import model_utils as tf_model_utils
 NEG_INF = float("-inf")
 
 class TensorFlowNMTPredictor(Predictor):
@@ -113,14 +112,13 @@ class TensorFlowNMTPredictor(Predictor):
         logging.debug("Loaded NMT posterior from cache for %s" %
                       self.consumed)
         return posterior
-
+    
     output, self.dec_state = self.single_step_decoding_graph.decode(self.session, self.enc_out,
                                                self.dec_state, self.decoder_input, self.bucket_id,
                                                self.config['use_src_mask'], self.word_count,
                                                self.config['use_bow_mask'])
     if use_cache:
       self.posterior_cache.add(self.consumed, output[0])
-
     return output[0]
 
   def get_unk_probability(self, posterior):
@@ -130,7 +128,6 @@ class TensorFlowNMTPredictor(Predictor):
   def consume(self, word):
     if word >= self.config['trg_vocab_size']:
       word = tf_data_utils.UNK_ID  # history is kept according to nmt vocab
-    logging.debug("Consume word={}".format(word))
     self.consumed.append(word)
 
     use_cache = self.is_history_cachable()

@@ -3,8 +3,8 @@
 from cam.sgnmt.predictors.core import Predictor
 from cam.sgnmt import utils
 
-from tensorflow.models.rnn.ptb.utils import model_utils as rnnlm_model_utils
-from tensorflow.models.rnn.ptb.utils import train_utils as rnnlm_train_utils
+from models.rnn.ptb.utils import model_utils as rnnlm_model_utils
+from models.rnn.ptb.utils import train_utils as rnnlm_train_utils
 import tensorflow as tf
 
 NEG_INF = float("-inf")

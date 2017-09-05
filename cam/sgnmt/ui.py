@@ -48,6 +48,7 @@ def parse_param_string(param):
     """
     if not param:
         return {}
+    logging.debug(param)
     if os.path.isfile(param):
         param = "config_file=%s" % param
     config = {}
@@ -1007,6 +1008,25 @@ def get_parser():
                         help="Only required for fst and nfst predictor. Sets "
                         "the path to the OpenFST translation lattices. You "
                         "can use the placeholder %%d for the sentence index.")
+
+    group.add_argument("--parse_path", default="ntmap",
+                        help="Only required for parse predictor. Sets "
+                        "the path to the grammar non-terminal map determining"
+                        "permitted parses")
+    group.add_argument("--parse_word_out", default=False, type='bool',
+                        help="Whether to output word tokens only from parse" 
+                        "predictor. Should be used with a trg_idxmap."
+                        "Default outputs all rules.")
+    group.add_argument("--parse_nmt_path", default="train",
+                        help="Only required for parse predictor. Sets "
+                        "the path to nmt model for parse predictor")
+    group.add_argument("--parse_nmt_config", default="cfg",
+                        help="Only required for parse predictor. Sets "
+                        "the path to nmt model for parse predictor")
+    group.add_argument("--parse_nmt_engine", default="tensorflow",
+                        help="Only required for parse predictor. Sets "
+                        "the nmt engine for the parse predictor")
+
     group.add_argument("--rtn_path", default="rtn/",
                         help="Only required for rtn predictor. Sets "
                         "the path to the RTN directory as created by HiFST")

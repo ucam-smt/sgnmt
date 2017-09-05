@@ -55,7 +55,7 @@ def tf_get_default_nmt_config():
         flags.__dict__['__parsed'] = True
         flags = vars(flags)
 
-    from tensorflow.models.rnn.translate.train import FLAGS as train_flags
+    from models.rnn.translate.train import FLAGS as train_flags
     _parse_flags(train_flags)
     for key,value in train_flags.__dict__['__flags'].iteritems():
       config[key] = value

@@ -48,7 +48,8 @@ from cam.sgnmt.output import TextOutputHandler, \
                              NBestOutputHandler, \
                              FSTOutputHandler, \
                              StandardFSTOutputHandler
-from cam.sgnmt.predictors.automata import FstPredictor, \
+from cam.sgnmt.predictors.automata import ParsePredictor, \
+                                          FstPredictor, \
                                          RtnPredictor, \
                                          NondeterministicFstPredictor
 from cam.sgnmt.predictors.bow import BagOfWordsPredictor, \
@@ -144,6 +145,7 @@ def _get_override_args(field):
         overriden = getattr(args, "%s%d" % (field, _override_args_cnts[field]))
         return overriden if overriden else default
     _override_args_cnts[field] = 1
+    logging.debug(_override_args_cnts)
     return default
 
 
@@ -161,6 +163,19 @@ def _parse_config_param(field, default):
                 default[k] = type(v)(add_config[k])
     return default
 
+def create_nmt_predictor(nmt_engine, nmt_path, nmt_config_str):
+    if nmt_engine == 'blocks':
+        get_nmt_predictor = blocks_get_nmt_predictor
+        get_default_nmt_config = blocks_get_default_nmt_config
+    elif nmt_engine == 'tensorflow':
+        get_nmt_predictor = tf_get_nmt_predictor
+        get_default_nmt_config = tf_get_default_nmt_config
+    elif nmt_engine != 'none':
+        logging.fatal("NMT engine %s is not supported (yet)!" % nmt_engine)
+    nmt_config =  _parse_config_param(nmt_config_str,
+                                      get_default_nmt_config())
+    p = get_nmt_predictor(args, nmt_path, nmt_config)
+    return p
 
 def add_predictors(decoder):
     """Adds all enabled predictors to the ``decoder``. This function 
@@ -207,19 +222,9 @@ def add_predictors(decoder):
 
             # Create predictor instances for the string argument ``pred``
             if pred == "nmt":
-                nmt_engine = _get_override_args("nmt_engine")
-                if nmt_engine == 'blocks':
-                    get_nmt_predictor = blocks_get_nmt_predictor
-                    get_default_nmt_config = blocks_get_default_nmt_config
-                elif nmt_engine == 'tensorflow':
-                    get_nmt_predictor = tf_get_nmt_predictor
-                    get_default_nmt_config = tf_get_default_nmt_config
-                elif nmt_engine != 'none':
-                    logging.fatal("NMT engine %s is not supported (yet)!" % nmt_engine)
-                p = get_nmt_predictor(args, 
-                                      _get_override_args("nmt_path"),
-                                      _parse_config_param("nmt_config",
-                                                          get_default_nmt_config()))
+                p = create_nmt_predictor(_get_override_args("nmt_engine"),
+                                         _get_override_args("nmt_path"),
+                                         "nmt_config")
             elif pred == "fst":
                 p = FstPredictor(_get_override_args("fst_path"),
                                  args.use_fst_weights,
@@ -232,6 +237,15 @@ def add_predictors(decoder):
                                                  args.normalize_fst_weights,
                                                  args.fst_skip_bos_weight,
                                                  to_log=args.fst_to_log)
+            elif pred == "parse":
+                nmt_p = create_nmt_predictor(_get_override_args("parse_nmt_engine"),
+                                             _get_override_args("parse_nmt_path"),
+                                             "parse_nmt_config")
+                p = ParsePredictor(args.parse_path,
+                                   nmt_p,
+                                   args.parse_word_out,
+                                   args.normalize_fst_weights,
+                                   to_log=args.fst_to_log)
             elif pred == "forced":
                 p = ForcedPredictor(args.trg_test)
             elif pred == "bow":
