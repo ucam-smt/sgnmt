@@ -31,7 +31,8 @@ Please see the [full SGNMT documentation](http://ucam-smt.github.io/sgnmt/html/)
 
 If you use SGNMT in your work, please cite the following paper:
 
-Felix Stahlberg, Eva Hasler, Aurelien Waite, and Bill Byrne. Syntactically guided neural machine translation. 
-In *Proceedings of the 54th annual meeting of the Association for Computational Linguistics (ACL 16)*, 
-August 2016. Berlin, Germany. [arXiv](http://arxiv.org/abs/1605.04569)
+Felix Stahlberg, Eva Hasler, Danielle Saunders, and Bill Byrne.
+SGNMT - A Flexible NMT Decoding Platform for Quick Prototyping of New Models and Search Strategies.
+In *Proceedings of the 2017 Conference on Empirical Methods in Natural Language Processing (EMNLP 17 Demo Session)*, September 2017. Copenhagen, Denmark.
+[arXiv](https://arxiv.org/abs/1707.06885>)
  
