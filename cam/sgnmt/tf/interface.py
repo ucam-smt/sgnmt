@@ -5,7 +5,6 @@ import os
 
 TENSORFLOW_AVAILABLE = True
 try:
-    from cam.sgnmt.tf.vanilla_decoder import TensorFlowNMTVanillaDecoder
     from cam.sgnmt.predictors.tf_nmt import TensorFlowNMTPredictor
     from cam.sgnmt.predictors.tf_rnnlm import TensorFlowRNNLMPredictor
     import tensorflow as tf

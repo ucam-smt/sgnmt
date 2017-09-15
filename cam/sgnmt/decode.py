@@ -93,14 +93,6 @@ elif args.verbosity == 'error':
 
 validate_args(args)
 
-# Set up vanilla decoder
-if args.nmt_engine == 'blocks':
-    get_default_nmt_config = blocks_get_default_nmt_config
-    get_nmt_vanilla_decoder = blocks_get_nmt_vanilla_decoder
-elif args.nmt_engine == 'tensorflow':
-    get_default_nmt_config = tf_get_default_nmt_config
-    get_nmt_vanilla_decoder = tf_get_nmt_vanilla_decoder
-
 # Support old scheme for reserved word indices
 if args.legacy_indexing:
     utils.switch_to_old_indexing()
@@ -210,17 +202,17 @@ def add_predictors(decoder):
             if pred == "nmt":
                 nmt_engine = _get_override_args("nmt_engine")
                 if nmt_engine == 'blocks':
-                    get_nmt_predictor = blocks_get_nmt_predictor
-                    get_default_nmt_config = blocks_get_default_nmt_config
+                    nmt_config = _parse_config_param(
+                        "nmt_config", blocks_get_default_nmt_config())
+                    p = blocks_get_nmt_predictor(
+                        args, _get_override_args("nmt_path"), nmt_config)
                 elif nmt_engine == 'tensorflow':
-                    get_nmt_predictor = tf_get_nmt_predictor
-                    get_default_nmt_config = tf_get_default_nmt_config
+                    nmt_config = _parse_config_param(
+                        "nmt_config", tf_get_default_nmt_config())
+                    p = tf_get_nmt_predictor(
+                        args, _get_override_args("nmt_path"), nmt_config)
                 elif nmt_engine != 'none':
                     logging.fatal("NMT engine %s is not supported (yet)!" % nmt_engine)
-                p = get_nmt_predictor(args, 
-                                      _get_override_args("nmt_path"),
-                                      _parse_config_param("nmt_config",
-                                                          get_default_nmt_config()))
             elif pred == "t2t":
                 p = T2TPredictor(args.t2t_usr_dir,
                                  _get_override_args("t2t_model"),
@@ -510,6 +502,12 @@ def construct_nmt_vanilla_decoder():
         logging.fatal("Vanilla decoder can only be used with nmt predictors")
         return None
     nmt_specs = []
+    if args.nmt_engine == 'blocks':
+        get_default_nmt_config = blocks_get_default_nmt_config
+        get_nmt_vanilla_decoder = blocks_get_nmt_vanilla_decoder
+    elif args.nmt_engine == 'tensorflow':
+        get_default_nmt_config = tf_get_default_nmt_config
+        get_nmt_vanilla_decoder = tf_get_nmt_vanilla_decoder
     for _ in xrange(n): 
         nmt_specs.append((_get_override_args("nmt_path"),
                           _parse_config_param("nmt_config",

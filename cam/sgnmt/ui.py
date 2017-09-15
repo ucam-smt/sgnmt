@@ -1153,7 +1153,7 @@ def get_args():
 
 
 def validate_args(args):
-    """Some very rudimental sanity checks for configuration options.
+    """Some rudimentary sanity checks for configuration options.
     This method directly prints help messages to the user. In case of fatal
     errors, it terminates using ``logging.fatal()``
     
