@@ -306,7 +306,7 @@ def _compensate_for_pruning_interpol(to_delete, layer, params_dict):
         params_dict[conn.mat_name].set_value(mat)
 
 
-compensate_for_pruning = _compensate_for_pruning_sum
+compensate_for_pruning = _compensate_for_pruning_interpol
 """This the the strategy used to compensate for the removal of a 
 neuron. It can be set to ``_compensate_for_pruning_interpol`` or
 ``_compensate_for_pruning_sum``. The first one is based on linear
