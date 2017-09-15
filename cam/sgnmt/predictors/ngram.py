@@ -45,8 +45,8 @@ class SRILMPredictor(UnboundedVocabularyPredictor):
         self.vocab_size = howManyNgrams(self.lm, 1)
         self.convert_to_ln = convert_to_ln
         if convert_to_ln:
-          import logging
-          logging.info("SRILM: Convert log scores to ln scores")
+            import logging
+            logging.info("SRILM: Convert log scores to ln scores")
     
     def initialize(self, src_sentence):
         """Initializes the history with the start-of-sentence symbol.

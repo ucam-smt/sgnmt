@@ -648,6 +648,9 @@ def get_parser():
                         "* 'nmt': neural machine translation predictor.\n"
                         "         Options: nmt_config, nmt_path, gnmt_beta, "
                         "nmt_model_selector, cache_nmt_posteriors.\n"
+                        "* 't2t': Tensor2Tensor predictor.\n"
+                        "         Options: t2t_usr_dir, t2t_model, "
+                        "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir\n"
                         "* 'srilm': n-gram language model.\n"
                         "          Options: srilm_path, srilm_order\n"
                         "* 'nplm': neural n-gram language model (NPLM).\n"
@@ -818,6 +821,23 @@ def get_parser():
                        help="If this is greater than zero, add a coverage "
                        "penalization term following Googles NMT (Wu et al., "
                        "2016) to the NMT score.")
+    group.add_argument("--t2t_usr_dir", default="",
+                       help="Available for the t2t predictor. See the "
+                       "--t2t_usr_dir argument in tensor2tensor.")
+    group.add_argument("--t2t_model", default="transformer",
+                       help="Available for the t2t predictor. Name of the "
+                       "tensor2tensor model.")
+    group.add_argument("--t2t_problem", default="translate_ende_wmt32k",
+                       help="Available for the t2t predictor. Name of the "
+                       "tensor2tensor problem.")
+    group.add_argument("--t2t_hparams_set",
+                       default="transformer_base_single_gpu",
+                       help="Available for the t2t predictor. Name of the "
+                       "tensor2tensor hparams set.")
+    group.add_argument("--t2t_checkpoint_dir", default="",
+                       help="Available for the t2t predictor. Path to the "
+                       "tensor2tensor checkpoint directory. Same as "
+                       "--output_dir in t2t_trainer.")
 
     # Length predictors
     group = parser.add_argument_group('Length predictor options')
@@ -1056,7 +1076,19 @@ def get_parser():
         group.add_argument("--nmt_path%s" % n, default="",
                         help="Overrides --nmt_path for the %s nmt" % w)
         group.add_argument("--nmt_engine%s" % n, default="",
-                        help="Overrides --nmt_engine for the %s nmt" % w)                        
+                        help="Overrides --nmt_engine for the %s nmt" % w)
+        group.add_argument("--t2t_model%s" % n, default="",
+                        help="Overrides --t2t_model for the %s t2t predictor"
+                        % w)
+        group.add_argument("--t2t_problem%s" % n, default="",
+                        help="Overrides --t2t_problem for the %s t2t predictor"
+                        % w)
+        group.add_argument("--t2t_hparams_set%s" % n, default="",
+                        help="Overrides --t2t_hparams_set for the %s t2t "
+                        "predictor" % w)
+        group.add_argument("--t2t_checkpoint_dir%s" % n, default="",
+                        help="Overrides --t2t_checkpoint_dir for the %s t2t "
+                        "predictor" % w)
         group.add_argument("--rnnlm_config%s" % n,  default="",
                         help="If the --predictors string contains more than "
                         "one rnnlm predictor, you can specify the configuration "
@@ -1121,7 +1153,7 @@ def get_args():
 
 
 def validate_args(args):
-    """Some very rudimental sanity checks for configuration options.
+    """Some rudimentary sanity checks for configuration options.
     This method directly prints help messages to the user. In case of fatal
     errors, it terminates using ``logging.fatal()``
     
