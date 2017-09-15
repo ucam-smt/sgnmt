@@ -62,6 +62,7 @@ from cam.sgnmt.predictors.misc import IdxmapPredictor, UnboundedIdxmapPredictor,
     UnboundedAltsrcPredictor, AltsrcPredictor, UnkvocabPredictor
 from cam.sgnmt.predictors.misc import UnkCountPredictor
 from cam.sgnmt.predictors.ngram import SRILMPredictor
+from cam.sgnmt.predictors.tf_t2t import T2TPredictor
 from cam.sgnmt.predictors.tokenization import Word2charPredictor, FSTTokPredictor
 from cam.sgnmt.tf.interface import tf_get_nmt_predictor, tf_get_nmt_vanilla_decoder, \
     tf_get_rnnlm_predictor, tf_get_default_nmt_config, tf_get_rnnlm_prefix
@@ -220,6 +221,12 @@ def add_predictors(decoder):
                                       _get_override_args("nmt_path"),
                                       _parse_config_param("nmt_config",
                                                           get_default_nmt_config()))
+            elif pred == "t2t":
+                p = T2TPredictor(args.t2t_usr_dir,
+                                 _get_override_args("t2t_model"),
+                                 _get_override_args("t2t_problem"),
+                                 _get_override_args("t2t_hparams_set"),
+                                 _get_override_args("t2t_checkpoint_dir"))
             elif pred == "fst":
                 p = FstPredictor(_get_override_args("fst_path"),
                                  args.use_fst_weights,
