@@ -6,9 +6,9 @@ tasks. The tool provides a flexible platform which allows pairing NMT with vario
 as language models, length models, or bag2seq models. It supports rescoring both n-best lists and lattices.
 A wide variety of search strategies is available for complex decoding problems. 
 
-SGNMT is compatible with multiple NMT implementations based on [Theano](<http://deeplearning.net/software/theano/)
+SGNMT is compatible with multiple NMT implementations based on [Theano](http://deeplearning.net/software/theano/)
 ([Blocks](http://blocks.readthedocs.io/en/latest/)) and [TensorFlow](https://www.tensorflow.org/) (the
-[extended seq2seq tutorial](https://github.com/ehasler/tensorflow) and [tensor2tensor](https://github.com/tensorflow/tensor2tensor>)).
+[extended seq2seq tutorial](https://github.com/ehasler/tensorflow) and [tensor2tensor](https://github.com/tensorflow/tensor2tensor)).
 
 - Syntactically guided neural machine translation (NMT lattice rescoring)
 - NMT support in Theano (Blocks) and TensorFlow (Tensor2Tensor)

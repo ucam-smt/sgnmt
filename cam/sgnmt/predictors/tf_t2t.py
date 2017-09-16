@@ -51,7 +51,6 @@ class T2TPredictor(Predictor):
                                      checkpoint in the `checkpoints` file.
         """
         super(T2TPredictor, self).__init__()
-        print("hoho I'm here")
         self.consumed = []
         self.src_sentence = []
         tf.logging.set_verbosity(tf.logging.INFO)
@@ -59,11 +58,11 @@ class T2TPredictor(Predictor):
         trainer_utils.log_registry()
         hparams = trainer_utils.create_hparams(hparams_set_name,
                                                problem_name,
-                                               "dummy")
+                                               "dummy_data_dir")
         self.estimator, _ = trainer_utils.create_experiment_components(
             hparams=hparams,
             output_dir=checkpoint_dir,
-            data_dir="dummy",
+            data_dir="dummy_data_dir",
             model_name=model_name)
                 
     def get_unk_probability(self, posterior):
