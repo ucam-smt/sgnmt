@@ -14,8 +14,6 @@ try:
 except ImportError:
     pass # Deal with it in decode.py
 
-NEG_INF = float("-inf")
-
 
 class NPLMPredictor(UnboundedVocabularyPredictor):
     """NPLM language model predictor. Even though NPLM normally has a
@@ -81,7 +79,7 @@ class NPLMPredictor(UnboundedVocabularyPredictor):
         
     def get_unk_probability(self, posterior):
         """Use NPLM UNK score if exists """
-        return utils.common_get(posterior, utils.UNK_ID, NEG_INF)
+        return utils.common_get(posterior, utils.UNK_ID, utils.NEG_INF)
     
     def consume(self, word):
         """Extend current history by ``word`` """

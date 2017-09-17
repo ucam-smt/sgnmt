@@ -27,7 +27,7 @@ from blocks.filter import VariableFilter
 from cam.sgnmt.blocks.model import NMTModel, LoadNMTUtils
 from cam.sgnmt.blocks.nmt import blocks_get_default_nmt_config, \
                                  get_nmt_model_path_best_bleu
-from cam.sgnmt.ui import get_batch_decode_parser
+from cam.sgnmt.ui import get_blocks_batch_decode_parser
 from cam.sgnmt import utils
 from blocks.search import BeamSearch
 import Queue
@@ -42,7 +42,7 @@ logging.getLogger().setLevel(logging.DEBUG)
 
 state_names = ['outputs', 'states', 'weights', 'weighted_averages']
 
-parser = get_batch_decode_parser()
+parser = get_blocks_batch_decode_parser()
 args = parser.parse_args()
 
 PARAM_ENC_MAX_WORDS = args.enc_max_words

@@ -1,6 +1,8 @@
 """This module handles configuration and user interface when using 
 blocks. ``yaml`` and ``ArgumentParser`` are used for parsing config
 files and command line arguments.
+
+TODO: Remove Blocks dependency
 """
 
 import argparse
@@ -66,7 +68,7 @@ def parse_param_string(param):
     return config
 
 
-def get_train_parser():
+def get_blocks_train_parser():
     """Get the parser object for NMT training configuration. """
     parser = argparse.ArgumentParser()
     parser.register('type','bool',str2bool)
@@ -163,7 +165,7 @@ def get_train_parser():
     return parser
 
 
-def get_align_parser():
+def get_blocks_align_parser():
     """Get the parser object for NMT alignment configuration. """
     parser = argparse.ArgumentParser()
     parser.register('type','bool',str2bool)
@@ -203,7 +205,7 @@ def get_align_parser():
     return parser
 
 
-def get_batch_decode_parser():
+def get_blocks_batch_decode_parser():
     """Get the parser object for NMT batch decoding. """
     parser = argparse.ArgumentParser()
     parser.register('type','bool',str2bool)

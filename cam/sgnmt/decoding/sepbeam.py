@@ -10,7 +10,6 @@ import logging
 from cam.sgnmt import utils
 from cam.sgnmt.decoding.beam import BeamDecoder
 from cam.sgnmt.decoding.core import PartialHypothesis
-from tables.utils import idx2long
 
 
 class SepBeamDecoder(BeamDecoder):

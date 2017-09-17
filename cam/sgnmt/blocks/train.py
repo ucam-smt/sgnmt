@@ -56,7 +56,7 @@ from cam.sgnmt.blocks.stream import ParallelSourceSwitchDataset, \
                                     MergedParallelSource, \
                                     OldBacktranslatedParallelSource
 from cam.sgnmt.misc.sparse import FileBasedFeatMap
-from cam.sgnmt.ui import get_train_parser
+from cam.sgnmt.ui import get_blocks_train_parser
 
 
 try:
@@ -431,7 +431,7 @@ def main(config,
 
 # MAIN CODE STARTS HERE
 
-parser = get_train_parser()
+parser = get_blocks_train_parser()
 args = parser.parse_args()
 
 # Get configuration

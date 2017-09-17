@@ -35,14 +35,10 @@ class SparseBeamSearch(BeamSearch):
         # which to use.
         
         # fs439: use variable from emit
-        # probs = VariableFilter(
-        #    applications=[self.generator.readout.emitter.probs],
-        #    roles=[OUTPUT])(self.inner_cg)[0]
         logprobs = VariableFilter(
             applications=[self.generator.readout.emitter.emit],
             roles=[OUTPUT])(self.inner_cg)[0]
         # fs439: do not convert to negative log because we use squared error
-        #logprobs = -tensor.log(probs)
         self.logprobs_computer = function(
             self.contexts + self.input_states, logprobs,
             on_unused_input='ignore')

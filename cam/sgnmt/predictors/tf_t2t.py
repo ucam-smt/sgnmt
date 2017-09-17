@@ -19,8 +19,6 @@ from cam.sgnmt.predictors.core import Predictor
 
 try:
     # Requires tensor2tensor
-    from tensor2tensor.utils import decoding
-    from tensor2tensor.utils import model_builder
     from tensor2tensor.utils import trainer_utils
     from tensor2tensor.utils import usr_dir
     from tensor2tensor.utils import registry
@@ -32,7 +30,14 @@ try:
     from tensorflow.python.training import training
 
     class DummyTextEncoder(TextEncoder):
-        """Dummy TextEncoder implementation."""
+        """Dummy TextEncoder implementation. The TextEncoder 
+        implementation in tensor2tensor reads the vocabulary file in
+        the constructor, which is not available inside SGNMT. This
+        class can be used to replace the standard TextEncoder 
+        implementation with a fixed vocabulary size. Note that this
+        encoder cannot be used to translate between raw text and
+        integer sequences.
+        """
 
         def __init__(self, vocab_size):
             super(DummyTextEncoder, self).__init__(num_reserved_ids=None)
@@ -52,6 +57,7 @@ except ImportError:
 
 
 def log_prob_from_logits(logits):
+    """Softmax function."""
     return logits - tf.reduce_logsumexp(logits, keep_dims=True)
 
 
@@ -72,7 +78,14 @@ class T2TPredictor(Predictor):
                  hparams_set_name,
                  checkpoint_dir,
                  t2t_unk_id=None):
-        """Creates a new T2T predictor.
+        """Creates a new T2T predictor. The constructor prepares the
+        TensorFlow session for predict_next() calls. This includes:
+        - Load hyper parameters from the given set (hparams)
+        - Update registry, load T2T model
+        - Create TF placeholders for source sequence and target pefix
+        - Create computation graph for computing log probs.
+        - Create a MonitoredSession object, which also handles 
+          restoring checkpoints.
         
         Args:
             t2t_usr_dir (string): See --t2t_usr_dir in tensor2tensor.
@@ -179,11 +192,13 @@ class T2TPredictor(Predictor):
         return hparams
                 
     def get_unk_probability(self, posterior):
+        """Fetch posterior[t2t_unk_id] or return NEG_INF if None."""
         if self._t2t_unk_id is None:
             return utils.NEG_INF
         return posterior[self._t2t_unk_id]
     
     def predict_next(self):
+        """Call the T2T model in self.mon_sess."""
         log_probs = self.mon_sess.run(self._log_probs,
             {self._inputs_var: self.src_sentence,
              self._targets_var: self.consumed + [text_encoder.PAD_ID]})
@@ -192,17 +207,20 @@ class T2TPredictor(Predictor):
         return log_probs_squeezed
     
     def initialize(self, src_sentence):
+        """Set src_sentence, reset consumed."""
         self.consumed = []
         self.src_sentence = src_sentence + [text_encoder.EOS_ID]
     
     def consume(self, word):
+        """Append ``word`` to the current history."""
         self.consumed.append(word)
     
     def get_state(self):
+        """The predictor state is the complete history."""
         return self.consumed
     
     def set_state(self, state):
-        """Set the predictor state. """
+        """The predictor state is the complete history."""
         self.consumed = state
 
     def reset(self):
@@ -210,5 +228,5 @@ class T2TPredictor(Predictor):
         pass
 
     def is_equal(self, state1, state2):
-        """Returns true if the state is the same """
+        """Returns true if the history is the same """
         return state1 == state2
