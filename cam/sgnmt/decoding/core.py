@@ -497,20 +497,32 @@ class Decoder(Observable):
         have non-zero probability. This set of words is then passed
         through to the open vocabulary predictors.
         """
-        words = None
+        arr_lengths = []
+        dict_words = None
         for idx, posterior in enumerate(posteriors):
             (p, _) = bounded_predictors[idx]
             if p.get_unk_probability(posterior) == NEG_INF: # Restrict to this
-                if not words:
-                    words = set(utils.common_viewkeys(posterior))
-                else:
-                    words = words & set(utils.common_viewkeys(posterior))
-                if not words: # Special case empty set: no word is possible
-                    return set([utils.EOS_ID])
-        if not words: # If no restricting predictor, use union
-            words = set(utils.common_viewkeys(posteriors[0]))
-            for posterior in posteriors[1:]:
-                words = words | set(utils.common_viewkeys(posterior))
+                if isinstance(posterior, dict):
+                    posterior_words = set(utils.common_viewkeys(posterior))
+                    if not dict_words:
+                        dict_words = posterior_words
+                    else:
+                        dict_words = dict_words & posterior_words
+                    if not dict_words: 
+                        return None
+                else: # We record min and max lengths for array posteriors.
+                    arr_lengths.append(len(posterior))
+        if dict_words: # Dictionary restrictions
+            if not arr_lengths:
+                return dict_words
+            min_arr_length = min(arr_lengths)
+            return [w for w in dict_words if w < min_arr_length]
+        if arr_lengths: # Array restrictions
+            return xrange(min(arr_lengths))
+        # No restrictions, use union
+        words = set(utils.common_viewkeys(posteriors[0]))
+        for posterior in posteriors[1:]:
+            words = words | set(utils.common_viewkeys(posterior))
         return words
     
     def apply_predictors(self):
@@ -530,6 +542,8 @@ class Decoder(Observable):
         bounded_posteriors = [p.predict_next() for (p, _) in bounded_predictors]
         non_zero_words = self._get_non_zero_words(bounded_predictors,
                                                   bounded_posteriors)
+        if not non_zero_words: # Special case: no word is possible
+            non_zero_words = set([utils.EOS_ID])
         # Add unbounded predictors and unk probabilities
         posteriors = []
         unk_probs = []
