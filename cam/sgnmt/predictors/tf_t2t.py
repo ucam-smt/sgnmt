@@ -3,7 +3,7 @@
 https://github.com/tensorflow/tensor2tensor
 
 Alternatively, you may use the following fork which has been tested in
-combination with SGNMT.
+combination with SGNMT:
 
 https://github.com/fstahlberg/tensor2tensor
 
@@ -12,17 +12,47 @@ includes the transformer model, convolutional models, and RNN-based
 sequence models.
 """
 
-from cam.sgnmt.predictors.core import Predictor
+
 from cam.sgnmt import utils
+from cam.sgnmt.predictors.core import Predictor
+
 
 try:
     # Requires tensor2tensor
     from tensor2tensor.utils import decoding
+    from tensor2tensor.utils import model_builder
     from tensor2tensor.utils import trainer_utils
-    from tensor2tensor.utils import usr_dir    
+    from tensor2tensor.utils import usr_dir
+    from tensor2tensor.utils import registry
+    from tensor2tensor.utils import devices
+    from tensor2tensor.data_generators.text_encoder import TextEncoder
+    from tensor2tensor.data_generators import text_encoder
     import tensorflow as tf
+    from tensorflow.python.training import saver
+    from tensorflow.python.training import training
+
+    class DummyTextEncoder(TextEncoder):
+        """Dummy TextEncoder implementation."""
+
+        def __init__(self, vocab_size):
+            super(DummyTextEncoder, self).__init__(num_reserved_ids=None)
+            self._vocab_size = vocab_size
+
+        def encode(self, s):
+            raise NotImplementedError("Dummy encoder cannot be used to encode.")
+
+        def decode(self, ids):
+            raise NotImplementedError("Dummy encoder cannot be used to decode.")
+
+        @property
+        def vocab_size(self):
+            return self._vocab_size
 except ImportError:
     pass # Deal with it in decode.py
+
+
+def log_prob_from_logits(logits):
+    return logits - tf.reduce_logsumexp(logits, keep_dims=True)
 
 
 class T2TPredictor(Predictor):
@@ -35,45 +65,135 @@ class T2TPredictor(Predictor):
     
     def __init__(self,
                  t2t_usr_dir,
+                 src_vocab_size,
+                 trg_vocab_size,
                  model_name,
                  problem_name,
                  hparams_set_name,
-                 checkpoint_dir):
+                 checkpoint_dir,
+                 t2t_unk_id=None):
         """Creates a new T2T predictor.
         
         Args:
             t2t_usr_dir (string): See --t2t_usr_dir in tensor2tensor.
+            src_vocab_size (int): Source vocabulary size.
+            trg_vocab_size (int): Target vocabulary size.
             model_name (string): T2T model name.
             problem_name (string): T2T problem name.
             hparams_set_name (string): T2T hparams set name.
-            checkpoint_dir (string): Path to the T2T checkpoint directory. The
-                                     predictor will load the top most 
-                                     checkpoint in the `checkpoints` file.
+            checkpoint_dir (string): Path to the T2T checkpoint 
+                                     directory. The predictor will load
+                                     the top most checkpoint in the 
+                                     `checkpoints` file.
+            t2t_unk_id (int): If set, use this ID to get UNK scores. If
+                              None, UNK is always scored with -inf.
         """
         super(T2TPredictor, self).__init__()
+        self._t2t_unk_id = t2t_unk_id
         self.consumed = []
         self.src_sentence = []
         tf.logging.set_verbosity(tf.logging.INFO)
         usr_dir.import_usr_dir(t2t_usr_dir)
         trainer_utils.log_registry()
-        hparams = trainer_utils.create_hparams(hparams_set_name,
-                                               problem_name,
-                                               "dummy_data_dir")
-        self.estimator, _ = trainer_utils.create_experiment_components(
-            hparams=hparams,
-            output_dir=checkpoint_dir,
-            data_dir="dummy_data_dir",
-            model_name=model_name)
+        hparams = self._create_hparams(
+            src_vocab_size, trg_vocab_size, hparams_set_name, problem_name)
+        self._inputs_var = tf.placeholder(dtype=tf.int32, 
+                                          shape=[None], 
+                                          name="sgnmt_inputs")
+        self._targets_var = tf.placeholder(dtype=tf.int32, 
+                                           shape=[None], 
+                                           name="sgnmt_targets")
+        def expand_input_dims_for_t2t(t):
+            t = tf.expand_dims(t, 0) # Because of batch_size
+            t = tf.expand_dims(t, -1) # Because of modality
+            t = tf.expand_dims(t, -1) # Because of random reason
+            return t
+        features = {"problem_choice": tf.constant(0),
+                    "input_space_id": tf.constant(0),
+                    "target_space_id": tf.constant(0),
+                    "inputs": expand_input_dims_for_t2t(self._inputs_var),
+                    "targets": expand_input_dims_for_t2t(self._targets_var)}
+        
+        model = registry.model(model_name)(
+          hparams,
+          tf.estimator.ModeKeys.PREDICT,
+          hparams.problems[0],
+          0,
+          devices.data_parallelism(),
+          devices.ps_devices(all_workers=True))
+        sharded_logits, _ = model.model_fn(features, last_position_only=True)
+        self._log_probs = log_prob_from_logits(sharded_logits[0])  # One shard.
+        checkpoint_path = saver.latest_checkpoint(checkpoint_dir)
+        self.mon_sess = training.MonitoredSession(
+            session_creator=training.ChiefSessionCreator(
+                checkpoint_filename_with_path=checkpoint_path,
+                config=self._session_config()))
+
+    def _session_config(self):
+        """Creates the session config with t2t default parameters."""
+        graph_options = tf.GraphOptions(optimizer_options=tf.OptimizerOptions(
+            opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
+        gpu_options = tf.GPUOptions(
+            per_process_gpu_memory_fraction=0.95)
+
+        config = tf.ConfigProto(
+            allow_soft_placement=True,
+            graph_options=graph_options,
+            gpu_options=gpu_options,
+            log_device_placement=False)
+        return config
+    
+    def _create_hparams(
+          self, src_vocab_size, trg_vocab_size, hparams_set_name, problem_name):
+        """Creates hparams object.
+        
+        This method corresponds to create_hparams() in tensor2tensor's
+        trainer_utils module, but replaces the feature encoders with
+        DummyFeatureEncoder's.
+        
+        Args:
+            src_vocab_size (int): Source vocabulary size.
+            trg_vocab_size (int): Target vocabulary size.
+            hparams_set_name (string): T2T hparams set name.
+            problem_name (string): T2T problem name.
+        
+        Returns:
+            hparams object.
+        
+        Raises:
+            LookupError if the problem name is not in the registry or
+            uses the old style problem_hparams.
+        """
+        hparams = registry.hparams(hparams_set_name)()
+        problem = registry.problem(problem_name)
+        # The following hack is necessary to prevent the problem from creating
+        # the default TextEncoders, which would fail due to the lack of a
+        # vocabulary file.
+        problem._encoders = {
+            "inputs": DummyTextEncoder(vocab_size=src_vocab_size),
+            "targets": DummyTextEncoder(vocab_size=trg_vocab_size)
+        }
+        p_hparams = problem.get_hparams(hparams)
+        hparams.problem_instances = [problem]
+        hparams.problems = [p_hparams]
+        return hparams
                 
     def get_unk_probability(self, posterior):
-        pass
+        if self._t2t_unk_id is None:
+            return utils.NEG_INF
+        return posterior[self._t2t_unk_id]
     
     def predict_next(self):
-        pass
+        log_probs = self.mon_sess.run(self._log_probs,
+            {self._inputs_var: self.src_sentence,
+             self._targets_var: self.consumed + [text_encoder.PAD_ID]})
+        log_probs_squeezed = log_probs[0, 0, 0, 0, :]
+        log_probs_squeezed[text_encoder.PAD_ID] = utils.NEG_INF
+        return log_probs_squeezed
     
     def initialize(self, src_sentence):
         self.consumed = []
-        self.src_sentence = src_sentence
+        self.src_sentence = src_sentence + [text_encoder.EOS_ID]
     
     def consume(self, word):
         self.consumed.append(word)

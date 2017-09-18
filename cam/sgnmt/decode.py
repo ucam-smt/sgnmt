@@ -93,9 +93,13 @@ elif args.verbosity == 'error':
 
 validate_args(args)
 
-# Support old scheme for reserved word indices
-if args.legacy_indexing:
-    utils.switch_to_old_indexing()
+# Set reserved word IDs
+if args.indexing_scheme == 'blocks':
+    utils.switch_to_blocks_indexing()
+elif args.indexing_scheme == 'tf':
+    utils.switch_to_tf_indexing()
+elif args.indexing_scheme == 't2t':
+    utils.switch_to_t2t_indexing()
     
 # Log summation (how to compute log(exp(l1)+exp(l2)) for log values l1,l2)
 if args.log_sum == 'tropical':
@@ -215,6 +219,8 @@ def add_predictors(decoder):
                     logging.fatal("NMT engine %s is not supported (yet)!" % nmt_engine)
             elif pred == "t2t":
                 p = T2TPredictor(args.t2t_usr_dir,
+                                 _get_override_args("t2t_src_vocab_size"),
+                                 _get_override_args("t2t_trg_vocab_size"),
                                  _get_override_args("t2t_model"),
                                  _get_override_args("t2t_problem"),
                                  _get_override_args("t2t_hparams_set"),

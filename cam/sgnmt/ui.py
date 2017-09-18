@@ -299,13 +299,14 @@ def get_parser():
                         "instead of their string representations.")
     group.add_argument("--en_test", default="",
                         help="DEPRECATED: Old name for --src_test")
+    group.add_argument("--indexing_scheme", default="blocks",
+                        choices=['blocks', 'tf', 't2t'],
+                        help="This parameter defines the reserved IDs.\n\n"
+                        "* 'blocks': eps,unk: 0, <s>: 1, </s>: 2.\n"
+                        "* 'tf': unk: 3, <s>: 1, </s>: 2.\n"
+                        "* 't2t': unk: 3, <s>: 2, </s>: 1.")
     group.add_argument("--legacy_indexing", default=False, type='bool',
-                        help="Defines the set of reserved word indices. The "
-                        "standard convention is:\n"
-                        "0: unk/eps, 1: <s>, 2: </s>.\n"
-                        "Older systems use the TensorFlow scheme:"
-                        "0: pad, 1: <s>, 2: </s>, 3: unk.\n"
-                        "Set this parameter to true to use the old scheme.")
+                        help="DEPRECATED: Use --indexing_scheme=tf instead")
     group.add_argument("--input_method", default="file",
                         choices=['dummy', 'file', 'shell', 'stdin'],
                         help="This parameter controls how the input to GNMT "
@@ -838,6 +839,10 @@ def get_parser():
                        help="Available for the t2t predictor. Path to the "
                        "tensor2tensor checkpoint directory. Same as "
                        "--output_dir in t2t_trainer.")
+    group.add_argument("--t2t_src_vocab_size", default=30000, type=int,
+                        help="T2T source vocabulary size")
+    group.add_argument("--t2t_trg_vocab_size", default=30000, type=int,
+                        help="T2T target vocabulary size")
 
     # Length predictors
     group = parser.add_argument_group('Length predictor options')
@@ -1089,6 +1094,12 @@ def get_parser():
         group.add_argument("--t2t_checkpoint_dir%s" % n, default="",
                         help="Overrides --t2t_checkpoint_dir for the %s t2t "
                         "predictor" % w)
+        group.add_argument("--t2t_src_vocab_size%s" % n, default=0, type=int,
+                        help="Overrides --t2t_src_vocab_size for the %s t2t "
+                        "predictor" % w)
+        group.add_argument("--t2t_trg_vocab_size%s" % n, default=0, type=int,
+                        help="Overrides --t2t_trg_vocab_size for the %s t2t "
+                        "predictor" % w)
         group.add_argument("--rnnlm_config%s" % n,  default="",
                         help="If the --predictors string contains more than "
                         "one rnnlm predictor, you can specify the configuration "
@@ -1147,6 +1158,8 @@ def get_args():
         args.trg_idxmap = args.fr_idxmap
     if args.length_normalization:
         args.combination_scheme = "length_norm"
+    if args.legacy_indexing:
+        args.indexing_scheme = "tf"
     if args.output_fst_unk_id:
         args.fst_unk_id = args.output_fst_unk_id 
     return args
@@ -1161,10 +1174,11 @@ def validate_args(args):
         args (object):  Configuration as returned by ``get_args``
     """
     for depr in ['en_test', 'fr_test',
-                 'length_normalization',
+                 'length_normalization', 'legacy_indexing',
                  'en_idxmap', 'fr_idxmap']:
         if getattr(args, depr):
-            logging.warn("Using deprecated argument %s." % depr)
+            logging.warn("Using deprecated argument %s. Please check the "
+                         "documentation for the replacement." % depr)
     # Validate --range
     if args.range:
         if args.input_method == 'shell':
