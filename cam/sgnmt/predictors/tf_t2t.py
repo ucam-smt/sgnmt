@@ -12,6 +12,7 @@ includes the transformer model, convolutional models, and RNN-based
 sequence models.
 """
 
+import logging
 
 from cam.sgnmt import utils
 from cam.sgnmt.predictors.core import Predictor
@@ -68,6 +69,9 @@ class T2TPredictor(Predictor):
     the current history. Therefore, the decoder state is simply the
     the full history of consumed words.
     """
+
+    t2t_initialized = False
+    """Set to true after first constructor call."""
     
     def __init__(self,
                  t2t_usr_dir,
@@ -102,45 +106,53 @@ class T2TPredictor(Predictor):
                               None, UNK is always scored with -inf.
         """
         super(T2TPredictor, self).__init__()
+        if not T2TPredictor.t2t_initialized:
+            logging.info("Setting up tensor2tensor library...")
+            tf.logging.set_verbosity(tf.logging.INFO)
+            usr_dir.import_usr_dir(t2t_usr_dir)
+            trainer_utils.log_registry()
+            T2TPredictor.t2t_initialized = True
         self._t2t_unk_id = t2t_unk_id
         self.consumed = []
         self.src_sentence = []
-        tf.logging.set_verbosity(tf.logging.INFO)
-        usr_dir.import_usr_dir(t2t_usr_dir)
-        trainer_utils.log_registry()
-        hparams = self._create_hparams(
-            src_vocab_size, trg_vocab_size, hparams_set_name, problem_name)
-        self._inputs_var = tf.placeholder(dtype=tf.int32, 
-                                          shape=[None], 
-                                          name="sgnmt_inputs")
-        self._targets_var = tf.placeholder(dtype=tf.int32, 
-                                           shape=[None], 
-                                           name="sgnmt_targets")
-        def expand_input_dims_for_t2t(t):
-            t = tf.expand_dims(t, 0) # Because of batch_size
-            t = tf.expand_dims(t, -1) # Because of modality
-            t = tf.expand_dims(t, -1) # Because of random reason
-            return t
-        features = {"problem_choice": tf.constant(0),
-                    "input_space_id": tf.constant(0),
-                    "target_space_id": tf.constant(0),
-                    "inputs": expand_input_dims_for_t2t(self._inputs_var),
-                    "targets": expand_input_dims_for_t2t(self._targets_var)}
+        predictor_graph = tf.Graph()
+        with predictor_graph.as_default() as g:
+            hparams = self._create_hparams(
+                src_vocab_size, trg_vocab_size, hparams_set_name, problem_name)
+            p_hparams = hparams.problems[0]
+            self._inputs_var = tf.placeholder(dtype=tf.int32, 
+                                              shape=[None], 
+                                              name="sgnmt_inputs")
+            self._targets_var = tf.placeholder(dtype=tf.int32, 
+                                               shape=[None], 
+                                               name="sgnmt_targets")
+            def expand_input_dims_for_t2t(t):
+                t = tf.expand_dims(t, 0) # Because of batch_size
+                t = tf.expand_dims(t, -1) # Because of modality
+                t = tf.expand_dims(t, -1) # Because of random reason X
+                return t
+            features = {"problem_choice": tf.constant(0),
+                        "input_space_id": tf.constant(p_hparams.input_space_id),
+                        "target_space_id": tf.constant(
+                            p_hparams.target_space_id),
+                        "inputs": expand_input_dims_for_t2t(self._inputs_var),
+                        "targets": expand_input_dims_for_t2t(self._targets_var)}
         
-        model = registry.model(model_name)(
-          hparams,
-          tf.estimator.ModeKeys.PREDICT,
-          hparams.problems[0],
-          0,
-          devices.data_parallelism(),
-          devices.ps_devices(all_workers=True))
-        sharded_logits, _ = model.model_fn(features, last_position_only=True)
-        self._log_probs = log_prob_from_logits(sharded_logits[0])  # One shard.
-        checkpoint_path = saver.latest_checkpoint(checkpoint_dir)
-        self.mon_sess = training.MonitoredSession(
-            session_creator=training.ChiefSessionCreator(
-                checkpoint_filename_with_path=checkpoint_path,
-                config=self._session_config()))
+            model = registry.model(model_name)(
+                hparams,
+                tf.estimator.ModeKeys.PREDICT,
+                hparams.problems[0],
+                0,
+                devices.data_parallelism(),
+                devices.ps_devices(all_workers=True))
+            sharded_logits, _ = model.model_fn(features, 
+                                               last_position_only=True)
+            self._log_probs = log_prob_from_logits(sharded_logits[0])
+            checkpoint_path = saver.latest_checkpoint(checkpoint_dir)
+            self.mon_sess = training.MonitoredSession(
+                session_creator=training.ChiefSessionCreator(
+                    checkpoint_filename_with_path=checkpoint_path,
+                    config=self._session_config()))
 
     def _session_config(self):
         """Creates the session config with t2t default parameters."""
