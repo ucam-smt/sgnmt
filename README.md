@@ -24,7 +24,7 @@ SGNMT is compatible with multiple NMT implementations based on [Theano](http://d
 - Hypothesis recombination
 - Heuristic search
 - Extensions to NMT training in Blocks (reshuffling, fixing and customizing word embeddings, ...)
-- Neural word alignment (Blocks/Theano)
+- Neural word alignment (Blocks/Theano only)
 - ...
 
 ### Documentation

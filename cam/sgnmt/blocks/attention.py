@@ -285,12 +285,12 @@ class PushDownSequenceContentAttention(SequenceContentAttention, Initializable):
         stack_op_input = states
         stack_op_input['weighted_averages'] = weighted_averages
         
-        stack_pop = sum(self.stack_pop_transformers.apply(as_dict=True,
-                                                          **stack_op_input).values())
-        stack_push = sum(self.stack_push_transformers.apply(as_dict=True,
-                                                            **stack_op_input).values())
-        stack_input = sum(self.stack_input_transformers.apply(as_dict=True,
-                                                           **stack_op_input).values())
+        stack_pop = sum(self.stack_pop_transformers.apply(
+            as_dict=True, **stack_op_input).values())
+        stack_push = sum(self.stack_push_transformers.apply(
+            as_dict=True, **stack_op_input).values())
+        stack_input = sum(self.stack_input_transformers.apply(
+            as_dict=True, **stack_op_input).values())
         
         # the stack has shape (batch_size, stack_depth, stack_dim)
         batch_size = stack.shape[0]
@@ -544,8 +544,6 @@ class CoverageContentAttention(GenericSequenceAttention, Initializable):
         self.energy_computer.output_dim = 1
         if self.use_fertility:
             self.fertility_transformer.dims = [self.attended_dim, 1]
-            #self.fertility_transformer.input_dim = self.attended_dim
-            #self.fertility_transformer.output_dim = 1
 
     @application
     def compute_energies(self, 

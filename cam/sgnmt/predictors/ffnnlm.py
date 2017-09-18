@@ -1,5 +1,5 @@
 """This module integrates neural language models, for example feed-
-forward language models like NPLM. It depends on the python interface
+forward language models like NPLM. It depends on the Python interface
 to NPLM.
 
 http://nlg.isi.edu/software/nplm/
@@ -48,7 +48,7 @@ class NPLMPredictor(UnboundedVocabularyPredictor):
         if (self.unk_id != utils.UNK_ID 
                 or self.bos_id != utils.GO_ID 
                 or self.eos_id != utils.EOS_ID):
-            logging.error("NPLM token for UNK, BOS, EOS inconsistent with GNMT")
+            logging.error("NPLM reserved word IDs inconsistent with SGNMT")
     
     def initialize(self, src_sentence):
         """Set the n-gram history to initial value.
