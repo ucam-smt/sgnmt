@@ -4,6 +4,7 @@ predictor, which can be used if a predictor uses a different word map.
 """
 
 import logging
+import copy
 
 from cam.sgnmt import utils
 from cam.sgnmt.predictors.core import Predictor, UnboundedVocabularyPredictor
@@ -414,4 +415,126 @@ class UnkCountPredictor(Predictor):
     def is_equal(self, state1, state2):
         """Returns true if the state is the same"""
         return state1 == state2
+
+class SkipvocabInternalHypothesis(object):
+    """Helper class for internal beam search in skipvocab."""
+
+    def __init__(self, score, predictor_state, word_to_consume):
+        self.score = score
+        self.predictor_state = predictor_state
+        self.word_to_consume = word_to_consume
     
+class SkipvocabPredictor(Predictor):
+    """This predictor wrapper masks predictors with a larger vocabulary
+    than the SGNMT vocabulary. The SGNMT OOV words are not scored with 
+    UNK scores from the other predictors like usual, but are hidden by 
+    this wrapper. Therefore, this wrapper does not produce any word
+    from the larger vocabulary, but searches internally until enough
+    in-vocabulary word scores are collected from the wrapped predictor.
+    """
+    
+    def __init__(self, max_id, stop_size, beam, slave_predictor):
+        """Creates a new skipvocab wrapper predictor.
+        
+        Args:
+            max_id (int): All words greater than this are skipped
+            stop_size (int): Stop internal beam search when the best
+                             stop_size words are in-vocabulary
+            beam (int): Beam size of internal beam search
+            slave_predictor (Predictor): Wrapped predictor.
+        """
+        super(SkipvocabPredictor, self).__init__()
+        self.slave_predictor = slave_predictor
+        self.max_id = max_id
+        self.stop_size = stop_size
+        self.beam = beam
+    
+    def initialize(self, src_sentence):
+        """Pass through to slave predictor """
+        self.slave_predictor.initialize(src_sentence)
+    
+    def initialize_heuristic(self, src_sentence):
+        """Pass through to slave predictor """
+        self.slave_predictor.initialize_heuristic(src_sentence)
+
+    def get_unk_probability(self, posterior):
+        """Pass through to slave predictor """
+        return self.slave_predictor.get_unk_probability(posterior)
+
+    def _is_stopping_posterior(self, posterior):
+        for word, _ in sorted(utils.common_iterable(posterior),
+                              key=lambda h: -h[1])[:self.stop_size]:
+            if word > self.max_id:
+                return False
+        return True
+ 
+    def predict_next(self):
+        """This method first performs beam search internally to update
+        the slave predictor state to a point where the best stop_size 
+        entries in the predict_next() return value are in-vocabulary
+        (bounded by max_id). Then, it returns the slave posterior in 
+        that state.
+        """
+        hypos = [SkipvocabInternalHypothesis(0.0, 
+                                             self.slave_predictor.get_state(),
+                                             None)]
+        best_score = utils.NEG_INF
+        best_predictor_state = None
+        best_posterior = None
+        while hypos and hypos[0].score > best_score:
+            next_hypos = []
+            for hypo in hypos:
+                self.slave_predictor.set_state(copy.deepcopy(
+                    hypo.predictor_state))
+                if hypo.word_to_consume is not None:
+                    self.slave_predictor.consume(hypo.word_to_consume)
+                posterior = self.slave_predictor.predict_next()
+                pred_state = copy.deepcopy(self.slave_predictor.get_state())
+                if (self._is_stopping_posterior(posterior) 
+                        and hypo.score > best_score):
+                    # This is the new best result of the internal beam search
+                    best_score = hypo.score
+                    best_predictor_state = pred_state
+                    best_posterior = posterior
+                else:
+                    # Look for ways to expand this hypo with OOV words.
+                    for word, score in utils.common_iterable(posterior):
+                        if word > self.max_id:
+                            next_hypos.append(SkipvocabInternalHypothesis(
+                                hypo.score + score, pred_state, word))
+            next_hypos.sort(key=lambda h: -h.score)
+            hypos = next_hypos[:self.beam]
+        self.slave_predictor.set_state(copy.deepcopy(best_predictor_state))
+        return best_posterior
+        
+    def consume(self, word):
+        """Pass through to slave predictor """
+        self.slave_predictor.consume(word)
+    
+    def get_state(self):
+        """Pass through to slave predictor """
+        return self.slave_predictor.get_state()
+    
+    def set_state(self, state):
+        """Pass through to slave predictor """
+        self.slave_predictor.set_state(state)
+
+    def reset(self):
+        """Pass through to slave predictor """
+        self.slave_predictor.reset()
+
+    def estimate_future_cost(self, hypo):
+        """Pass through to slave predictor """
+        return self.slave_predictor.estimate_future_cost(hypo)
+
+    def set_current_sen_id(self, cur_sen_id):
+        """We need to override this method to propagate current\_
+        sentence_id to the slave predictor
+        """
+        super(SkipvocabPredictor, self).set_current_sen_id(cur_sen_id)
+        self.slave_predictor.set_current_sen_id(cur_sen_id)
+    
+    def is_equal(self, state1, state2):
+        """Pass through to slave predictor """
+        return self.slave_predictor.is_equal(state1, state2)
+

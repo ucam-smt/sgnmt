@@ -59,7 +59,7 @@ from cam.sgnmt.predictors.grammar import RuleXtractPredictor
 from cam.sgnmt.predictors.length import WordCountPredictor, NBLengthPredictor, \
     ExternalLengthPredictor, NgramCountPredictor
 from cam.sgnmt.predictors.misc import IdxmapPredictor, UnboundedIdxmapPredictor, \
-    UnboundedAltsrcPredictor, AltsrcPredictor, UnkvocabPredictor
+    UnboundedAltsrcPredictor, AltsrcPredictor, UnkvocabPredictor, SkipvocabPredictor
 from cam.sgnmt.predictors.misc import UnkCountPredictor
 from cam.sgnmt.predictors.ngram import SRILMPredictor
 from cam.sgnmt.predictors.tf_t2t import T2TPredictor
@@ -339,9 +339,15 @@ def add_predictors(decoder):
                     map_path = _get_override_args("word2char_map")
                     # word2char always wraps unbounded predictors
                     p = Word2charPredictor(map_path, p)
+                elif wrapper == "skipvocab":
+                    # skipvocab always wraps unbounded predictors
+                    p = SkipvocabPredictor(args.skipvocab_max_id, 
+                                           args.skipvocab_stop_size, 
+                                           args.beam, 
+                                           p)
                 elif wrapper == "fsttok":
                     fsttok_path = _get_override_args("fsttok_path")
-                    # word2char always wraps unbounded predictors
+                    # fsttok always wraps unbounded predictors
                     p = FSTTokPredictor(fsttok_path,
                                         args.fst_unk_id,
                                         args.fsttok_max_pending_score,

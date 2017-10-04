@@ -724,6 +724,10 @@ def get_parser():
                         "* 'word2char': Wraps word-level predictors when SGNMT"
                         " is running on character level.\n"
                         "            Options: word2char_map\n"
+                        "* 'skipvocab': Skip a subset of the predictor "
+                        "vocabulary.\n"
+                        "               Options: skipvocab_max_id, "
+                        "skipvocab_stop_size\n"
                         "\n"
                         "Note that you can use multiple instances of the same "
                         "predictor. For example, 'nmt,nmt,nmt' can be used "
@@ -900,6 +904,14 @@ def get_parser():
                        "by this factor each time the ngram is consumed")
     group.add_argument("--unkc_src_vocab_size", default=30003, type=int,
                         help="Vocabulary size for the unkc predictor.")
+    group.add_argument("--skipvocab_max_id", default=30003, type=int,
+                        help="All tokens above this threshold are skipped "
+                        "by the skipvocab predictor wrapper.")
+    group.add_argument("--skipvocab_stop_size", default=1, type=int,
+                        help="The internal beam search of the skipvocab "
+                        "predictor wrapper stops if the best stop_size "
+                         "scores are for in-vocabulary words (ie. with index "
+                         "lower or equal skipvocab_max_id")
 
     # Forced predictors
     group = parser.add_argument_group('Forced decoding predictor options')
