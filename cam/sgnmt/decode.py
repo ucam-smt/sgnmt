@@ -48,10 +48,10 @@ from cam.sgnmt.output import TextOutputHandler, \
                              NBestOutputHandler, \
                              FSTOutputHandler, \
                              StandardFSTOutputHandler
-from cam.sgnmt.predictors.automata import ParsePredictor, \
-                                          FstPredictor, \
+from cam.sgnmt.predictors.automata import FstPredictor, \
                                          RtnPredictor, \
                                          NondeterministicFstPredictor
+from cam.sgnmt.predictors.parse import ParsePredictor, TokParsePredictor
 from cam.sgnmt.predictors.bow import BagOfWordsPredictor, \
     BagOfWordsSearchPredictor
 from cam.sgnmt.predictors.ffnnlm import NPLMPredictor
@@ -256,11 +256,18 @@ def add_predictors(decoder):
                 nmt_p = create_nmt_predictor(_get_override_args("parse_nmt_engine"),
                                              _get_override_args("parse_nmt_path"),
                                              "parse_nmt_config")
-                p = ParsePredictor(args.parse_path,
-                                   nmt_p,
-                                   args.parse_word_out,
-                                   args.normalize_fst_weights,
-                                   to_log=args.fst_to_log)
+                if args.parse_tok_grammar:
+                    p = TokParsePredictor(args.parse_path,
+                                       nmt_p,
+                                       args.parse_word_out,
+                                       args.normalize_fst_weights,
+                                       to_log=args.fst_to_log)
+                else:
+                    p = ParsePredictor(args.parse_path,
+                                          nmt_p,
+                                          args.parse_word_out,
+                                          args.normalize_fst_weights,
+                                          to_log=args.fst_to_log)
             elif pred == "forced":
                 p = ForcedPredictor(args.trg_test)
             elif pred == "bow":

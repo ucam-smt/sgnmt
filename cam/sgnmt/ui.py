@@ -1056,6 +1056,10 @@ def get_parser():
                         help="Whether to output word tokens only from parse" 
                         "predictor. Should be used with a trg_idxmap."
                         "Default outputs all rules.")
+    group.add_argument("--parse_tok_grammar", default=False, type='bool',
+                        help="Whether to use a token-based grammar."
+                        "Default uses rule-based.")
+
     group.add_argument("--parse_nmt_path", default="train",
                         help="Only required for parse predictor. Sets "
                         "the path to nmt model for parse predictor")
