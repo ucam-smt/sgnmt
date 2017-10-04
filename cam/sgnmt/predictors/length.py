@@ -476,4 +476,98 @@ class NgramCountPredictor(Predictor):
             if self.ngrams.get(hist_long[-n:]):
                 return False
         return True
+
+
+class UnkCountPredictor(Predictor):
+    """This predictor regulates the number of UNKs in the output. We 
+    assume that the number of UNKs in the target sentence is Poisson 
+    distributed. This predictor is configured with n lambdas for
+    0,1,...,>=n-1 UNKs in the source sentence. """
     
+    def __init__(self, src_vocab_size, lambdas):
+        """Initializes the UNK count predictor.
+
+        Args:
+            src_vocab_size (int): Size of source language vocabulary.
+                                  Indices greater than this are 
+                                  considered as UNK.
+            lambdas (list): List of floats. The first entry is the 
+                            lambda parameter given that the number of
+                            unks in the source sentence is 0 etc. The
+                            last float is lambda given that the source
+                            sentence has more than n-1 unks.
+        """
+        self.lambdas = lambdas
+        self.l = lambdas[0]
+        self.src_vocab_size = src_vocab_size
+        super(UnkCountPredictor, self).__init__()
+        
+    def get_unk_probability(self, posterior):
+        """Always returns 0 (= log 1) except for the first time """
+        if self.n_consumed == 0:
+            return self.max_prob
+        return 0.0
+    
+    def predict_next(self):
+        """Set score for EOS to the number of consumed words """
+        if self.n_consumed == 0:
+            return {utils.EOS_ID : self.unk_prob}
+        if self.n_unk < self.max_prob_idx:
+            return {utils.EOS_ID : self.unk_prob - self.max_prob}
+        return {utils.UNK_ID : self.unk_prob - self.consumed_prob}
+    
+    def initialize(self, src_sentence):
+        """Count UNKs in ``src_sentence`` and reset counters.
+        
+        Args:
+            src_sentence (list): Count UNKs in this list
+        """
+        src_n_unk = len([w for w in src_sentence if w == utils.UNK_ID 
+                                                    or w > self.src_vocab_size])
+        self.l = self.lambdas[min(len(self.lambdas)-1, src_n_unk)]
+        self.n_consumed = 0
+        self.n_unk = 0
+        self.unk_prob = self._get_poisson_prob(1)
+        # Mode at lambda is the maximum of the poisson function
+        self.max_prob_idx = int(self.l)
+        self.max_prob = self._get_poisson_prob(self.max_prob_idx)
+        ceil_prob = self._get_poisson_prob(self.max_prob_idx + 1)
+        if ceil_prob > self.max_prob:
+            self.max_prob = ceil_prob
+            self.max_prob_idx = self.max_prob_idx + 1
+        self.consumed_prob = self.max_prob
+
+    def _get_poisson_prob(self, n):
+        """Get the log of the poisson probability for n events. """
+        return n * np.log(self.l) - self.l - sum([np.log(i+1) for i in xrange(n)])
+    
+    def consume(self, word):
+        """Increases unk counter by one if ``word`` is unk.
+        
+        Args:
+            word (int): Increase counter if ``word`` is UNK
+        """
+        self.n_consumed += 1
+        if word == utils.UNK_ID:
+            if self.n_unk >= self.max_prob_idx:
+                self.consumed_prob = self.unk_prob
+            self.n_unk += 1
+            self.unk_prob = self._get_poisson_prob(self.n_unk+1)
+    
+    def get_state(self):
+        """Returns the number of consumed words """
+        return self.n_unk,self.n_consumed,self.unk_prob,self.consumed_prob
+    
+    def set_state(self, state):
+        """Set the number of consumed words """
+        self.n_unk,self.n_consumed,self.unk_prob,self.consumed_prob = state
+
+    def reset(self):
+        """Empty method. """
+        pass
+
+    def is_equal(self, state1, state2):
+        """Returns true if the state is the same"""
+        return state1 == state2
+
+

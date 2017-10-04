@@ -19,17 +19,11 @@ class AstarDecoder(Decoder):
     decode on cyclic lattices with the fst predictor.
     """
     
-    def __init__(self, 
-                 decoder_args, 
-                 capacity = 0, 
-                 pure_heuristic_scores = False, 
-                 early_stopping = False,
-                 nbest=1):
-        """Creates a new A* decoder instance
+    def __init__(self, decoder_args):
+        """Creates a new A* decoder instance. The following values are
+        fetched from `decoder_args`:
         
-        Args:
-            decoder_args (object): Decoder configuration passed through
-                                   from the configuration API..
+            beam (int): Maximum number of active hypotheses.
             pure_heuristic_scores (bool): For standard A* set this to
                                           false. If set to true, partial
                                           hypo scores are ignored when
@@ -46,12 +40,17 @@ class AstarDecoder(Decoder):
                          complete hypothesis. With an admissible
                          heuristic, this will yield an exact n-best
                          list.
+        
+        Args:
+            decoder_args (object): Decoder configuration passed through
+                                   from the configuration API.
+
         """
         super(AstarDecoder, self).__init__(decoder_args)
-        self.nbest = nbest
-        self.capacity = capacity
-        self.early_stopping = early_stopping
-        self.pure_heuristic_scores = pure_heuristic_scores
+        self.nbest = max(1, decoder_args.nbest)
+        self.capacity = decoder_args.beam
+        self.early_stopping = decoder_args.early_stopping
+        self.pure_heuristic_scores = decoder_args.pure_heuristic_scores
     
     def _get_combined_score(self, hypo):
         est_score = -self.estimate_future_cost(hypo)
