@@ -13,7 +13,7 @@ from six.moves import cPickle
 
 from blocks.extensions.saveload import SAVED_TO, LOADED_FROM
 from blocks.extensions import TrainingExtension, SimpleExtension
-from blocks.serialization import secure_dump, load, BRICK_DELIMITER
+from blocks.serialization import secure_dump, load
 from blocks.utils import reraise_as
 
 logger = logging.getLogger(__name__)

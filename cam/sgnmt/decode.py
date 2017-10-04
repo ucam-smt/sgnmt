@@ -727,7 +727,7 @@ def do_decode(decoder,
             start_hypo_time = time.time()
             decoder.apply_predictors_count = 0
             if isinstance(src[0], list):
-                # don't apply wordmap for multiple inputs
+                # Don't apply wordmap for multiple inputs
                 hypos = [hypo for hypo in decoder.decode(src)
                             if hypo.total_score > args.min_score]
             else:
