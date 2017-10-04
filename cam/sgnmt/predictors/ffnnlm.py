@@ -1,5 +1,5 @@
 """This module integrates neural language models, for example feed-
-forward language models like NPLM. It depends on the python interface
+forward language models like NPLM. It depends on the Python interface
 to NPLM.
 
 http://nlg.isi.edu/software/nplm/
@@ -13,8 +13,6 @@ try:
     import nplm
 except ImportError:
     pass # Deal with it in decode.py
-
-NEG_INF = float("-inf")
 
 
 class NPLMPredictor(UnboundedVocabularyPredictor):
@@ -50,7 +48,7 @@ class NPLMPredictor(UnboundedVocabularyPredictor):
         if (self.unk_id != utils.UNK_ID 
                 or self.bos_id != utils.GO_ID 
                 or self.eos_id != utils.EOS_ID):
-            logging.error("NPLM token for UNK, BOS, EOS inconsistent with GNMT")
+            logging.error("NPLM reserved word IDs inconsistent with SGNMT")
     
     def initialize(self, src_sentence):
         """Set the n-gram history to initial value.
@@ -81,7 +79,7 @@ class NPLMPredictor(UnboundedVocabularyPredictor):
         
     def get_unk_probability(self, posterior):
         """Use NPLM UNK score if exists """
-        return utils.common_get(posterior, utils.UNK_ID, NEG_INF)
+        return utils.common_get(posterior, utils.UNK_ID, utils.NEG_INF)
     
     def consume(self, word):
         """Extend current history by ``word`` """

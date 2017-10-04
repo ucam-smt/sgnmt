@@ -496,22 +496,67 @@ class Decoder(Observable):
         """Get the set of words from the predictor posteriors which 
         have non-zero probability. This set of words is then passed
         through to the open vocabulary predictors.
+
+        This method assumes that both arguments are not empty.
+
+        Args:
+            bounded_predictors (list): Tuples of (Predictor, weight)
+            bounded_posteriors (list): Corresponding posteriors.
+
+        Returns:
+            Iterable with all words with non-zero probability.
         """
-        words = None
-        for idx, posterior in enumerate(posteriors):
-            (p, _) = bounded_predictors[idx]
-            if p.get_unk_probability(posterior) == NEG_INF: # Restrict to this
-                if not words:
-                    words = set(utils.common_viewkeys(posterior))
+        restricted, unrestricted = self._split_restricted_posteriors(
+            bounded_predictors, posteriors)
+        if not restricted: # No restrictions: use union of keys
+            key_sets = []
+            max_arr_length = 0
+            for posterior in unrestricted:
+                if isinstance(posterior, dict):
+                    key_sets.append(posterior.viewkeys())
                 else:
-                    words = words & set(utils.common_viewkeys(posterior))
-                if not words: # Special case empty set: no word is possible
-                    return set([utils.EOS_ID])
-        if not words: # If no restricting predictor, use union
-            words = set(utils.common_viewkeys(posteriors[0]))
-            for posterior in posteriors[1:]:
-                words = words | set(utils.common_viewkeys(posterior))
-        return words
+                    max_arr_length = max(max_arr_length, len(posterior))
+            if max_arr_length:
+                key_sets.append(xrange(max_arr_length))
+            if len(key_sets) == 1:
+                return key_sets[0]
+            return set().union(*key_sets)
+        # Calculate the common subset of restricting posteriors
+        arr_lengths = []
+        dict_words = None
+        for posterior in restricted:
+            if isinstance(posterior, dict):
+                posterior_words = set(utils.common_viewkeys(posterior))
+                if not dict_words:
+                    dict_words = posterior_words
+                else:
+                    dict_words = dict_words & posterior_words
+                if not dict_words: 
+                    return None
+            else: # We record min and max lengths for array posteriors.
+                arr_lengths.append(len(posterior))
+        if dict_words: # Dictionary restrictions
+            if not arr_lengths:
+                return dict_words
+            min_arr_length = min(arr_lengths)
+            return [w for w in dict_words if w < min_arr_length]
+        # Array restrictions
+        return xrange(min(arr_lengths))
+
+    def _split_restricted_posteriors(self, predictors, posteriors):
+        """Helper method for _get_non_zero_words(). Splits the
+        given list of posteriors into unrestricting and restricting
+        ones. Restricting posteriors have UNK scores of -inf.
+        """
+        restricted = []
+        unrestricted = []
+        for idx, posterior in enumerate(posteriors):
+            (p, _) = predictors[idx]
+            if p.get_unk_probability(posterior) == NEG_INF:
+                restricted.append(posterior)
+            else:
+                unrestricted.append(posterior)
+        return restricted, unrestricted
     
     def apply_predictors(self):
         """Get the distribution over the next word by combining the
@@ -530,6 +575,8 @@ class Decoder(Observable):
         bounded_posteriors = [p.predict_next() for (p, _) in bounded_predictors]
         non_zero_words = self._get_non_zero_words(bounded_predictors,
                                                   bounded_posteriors)
+        if not non_zero_words: # Special case: no word is possible
+            non_zero_words = set([utils.EOS_ID])
         # Add unbounded predictors and unk probabilities
         posteriors = []
         unk_probs = []

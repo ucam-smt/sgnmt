@@ -2,7 +2,7 @@
 is the standard bow predictor and the bowsearch predictor which first
 does an unrestricted search to construct a skeleton and then restricts
 the order of words by that skeleton (in addition to the bag 
-restriction) 
+restriction).
 """
 
 import logging

@@ -67,8 +67,7 @@ class BlocksNMTPredictor(Predictor):
             gnmt_beta (float): If greater than 0.0, add a Google NMT
                                style coverage penalization term (Wu et
                                al., 2016) to the predictive scores
-            enable_cache (bool):  The NMT predictor usually has a very:q
-            
+            enable_cache (bool):  The NMT predictor usually has a very
                                   limited vocabulary size, and a large
                                   number of UNKs in hypotheses. This
                                   enables reusing already computed

@@ -1,7 +1,7 @@
 """This file contains common basic functionality which can be used from
 anywhere. This includes the definition of reserved word indices, some
 mathematical functions, and helper functions to deal with the small
-quirks python sometimes has.
+quirks Python sometimes has.
 """
 
 from abc import abstractmethod
@@ -17,25 +17,20 @@ import pywrapfst as fst
 import sys
 
 # Reserved IDs
-PAD_ID = None
-""" Reserved word ID for padding. Relict from the TensorFlow 
-implementation. """
-
-
 GO_ID = 1
-""" Reserved word ID for the start-of-sentence symbol. """
+"""Reserved word ID for the start-of-sentence symbol. """
 
 
 EOS_ID = 2
-""" Reserved word ID for the end-of-sentence symbol. """
+"""Reserved word ID for the end-of-sentence symbol. """
 
 
 UNK_ID = 0
-""" Reserved word ID for the unknown word (UNK). """
+"""Reserved word ID for the unknown word (UNK). """
 
 
 NOTAPPLICABLE_ID = 3
-""" Reserved word ID which is currently not used. """
+"""Reserved word ID which is currently not used. """
 
 
 NEG_INF = float("-inf")
@@ -44,19 +39,43 @@ NEG_INF = float("-inf")
 INF = float("inf")
 
 
-def switch_to_old_indexing():
+def switch_to_tf_indexing():
     """Calling this method overrides the global definitions of the 
-    reserved  word ids ``PAD_ID``, ``GO_ID``, ``EOS_ID``, and ``UNK_ID``
-    with the old scheme. The old scheme is used in older NMT models, 
-    and is legacy from TensorFlow. """
-    global PAD_ID
+    reserved  word ids ``GO_ID``, ``EOS_ID``, and ``UNK_ID``
+    with the TensorFlow indexing scheme. This scheme is used the 
+    TensorFlow NMT and RNNLM models. """
     global GO_ID
     global EOS_ID
     global UNK_ID
-    PAD_ID = 0
     GO_ID = 1
     EOS_ID = 2
     UNK_ID = 3
+
+
+def switch_to_blocks_indexing():
+    """Calling this method overrides the global definitions of the 
+    reserved  word ids ``GO_ID``, ``EOS_ID``, and ``UNK_ID``
+    with the Blocks indexing scheme. This scheme is used in the
+    Blocks NMT implementation and it's SGNMT extensions. """
+    global GO_ID
+    global EOS_ID
+    global UNK_ID
+    GO_ID = 1
+    EOS_ID = 2
+    UNK_ID = 0
+
+
+def switch_to_t2t_indexing():
+    """Calling this method overrides the global definitions of the 
+    reserved  word ids ``GO_ID``, ``EOS_ID``, and ``UNK_ID``
+    with the tensor2tensor indexing scheme. This scheme is used in all
+    t2t models. """
+    global GO_ID
+    global EOS_ID
+    global UNK_ID
+    GO_ID = 3 # Usually not used
+    EOS_ID = 1
+    UNK_ID = 2 # Don't rely on this: UNK not standardized in T2T
 
 
 # Log summation
@@ -191,15 +210,15 @@ def common_contains(obj, key):
 
 
 src_wmap = {}
-""" Source language word map (word -> id)"""
+"""Source language word map (word -> id)"""
 
 
 trg_wmap = {}
-""" Target language word map (id -> word)"""
+"""Target language word map (id -> word)"""
 
 
 trg_cmap = None
-""" Target language character map (char -> id)"""
+"""Target language character map (char -> id)"""
 
 
 def load_src_wmap(path):
@@ -310,7 +329,7 @@ def apply_trg_wmap(seq, inv_wmap = None):
 
 
 TMP_FILENAME = '/tmp/sgnmt.%s.fst' % os.getpid()
-"""Temporary file name to use if a FST file is zipped. """
+"""Temporary file name to use if an FST file is zipped. """
 
 
 def w2f(fstweight):

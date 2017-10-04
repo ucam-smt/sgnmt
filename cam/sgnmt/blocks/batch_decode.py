@@ -27,7 +27,7 @@ from blocks.filter import VariableFilter
 from cam.sgnmt.blocks.model import NMTModel, LoadNMTUtils
 from cam.sgnmt.blocks.nmt import blocks_get_default_nmt_config, \
                                  get_nmt_model_path_best_bleu
-from cam.sgnmt.ui import get_batch_decode_parser
+from cam.sgnmt.ui import get_blocks_batch_decode_parser
 from cam.sgnmt import utils
 from blocks.search import BeamSearch
 import Queue
@@ -42,7 +42,7 @@ logging.getLogger().setLevel(logging.DEBUG)
 
 state_names = ['outputs', 'states', 'weights', 'weighted_averages']
 
-parser = get_batch_decode_parser()
+parser = get_blocks_batch_decode_parser()
 args = parser.parse_args()
 
 PARAM_ENC_MAX_WORDS = args.enc_max_words
@@ -605,14 +605,11 @@ def task2job_worker_func(pipeline):
         new_tasks = pipeline.unscheduled_tasks.get()
         for task in new_tasks:
             if task.is_finished():
-                #print("add task %d to finished" % task.sen_id)
                 task.bucket.n_finished += 1
                 pipeline.finished_tasks_queue.put(task)
             elif task.needs_state_update:
-                #print("add task %d to state update" % task.sen_id)
                 state_update_tasks[task.bucket.bucket_id].append(task)
             else:
-                #print("add task %d to logprobs" % task.sen_id)
                 logprobs_tasks[task.bucket.bucket_id].append(task)
         for bucket_id in xrange(n_buckets):
             n_unfinished = pipeline.buckets[bucket_id].count_unfinished()
@@ -758,7 +755,6 @@ for k in dir(args):
     if k in config:
         config[k] = getattr(args, k)
 logging.info("Model options:\n{}".format(pprint.pformat(config)))
-#logging.info("Theano config: %s" % theano.config)
 np.show_config()
 
 nmt_model = NMTModel(config)

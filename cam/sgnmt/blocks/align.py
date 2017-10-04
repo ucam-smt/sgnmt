@@ -15,13 +15,13 @@ from cam.sgnmt.blocks.nmt import blocks_get_default_nmt_config
 from cam.sgnmt.misc.sparse import FileBasedFeatMap
 from cam.sgnmt.output import CSVAlignmentOutputHandler, \
     NPYAlignmentOutputHandler, TextAlignmentOutputHandler
-from cam.sgnmt.ui import get_align_parser
+from cam.sgnmt.ui import get_blocks_align_parser
 
 
 logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s')
 logging.getLogger().setLevel(logging.INFO)
 
-parser = get_align_parser()
+parser = get_blocks_align_parser()
 args = parser.parse_args()
 
 # Get configuration

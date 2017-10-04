@@ -18,9 +18,6 @@ from cam.sgnmt.predictors.core import Predictor
 import numpy as np
 
 
-NEG_INF = float("-inf")
-
-
 NUM_FEATURES = 5
 EPS_R = 0.1;
 EPS_P = 0.00001;
@@ -123,7 +120,7 @@ class NBLengthPredictor(Predictor):
     def predict_next(self):
         """Returns a dictionary with single entry for EOS. """
         if self.n_consumed == 0:
-            return {utils.EOS_ID : NEG_INF}
+            return {utils.EOS_ID : utils.NEG_INF}
         return {utils.EOS_ID : self._get_eos_prob()}
     
     def _get_eos_prob(self):
@@ -153,7 +150,7 @@ class NBLengthPredictor(Predictor):
         """Get the maximum loglikelihood according cur_p, cur_r 
         TODO: replace this brute force impl. with something smarter
         """
-        max_prob = NEG_INF
+        max_prob = utils.NEG_INF
         n_prob = max_prob
         n = 0
         while n_prob == max_prob:
@@ -295,7 +292,7 @@ class ExternalLengthPredictor(Predictor):
         """
         if self.n_consumed < self.max_length:
             return 0.0
-        return NEG_INF
+        return utils.NEG_INF
     
     def predict_next(self):
         """Returns a dictionary with one entry and value 0 (=log 1). The
@@ -304,7 +301,7 @@ class ExternalLengthPredictor(Predictor):
         """
         if self.n_consumed in self.cur_scores: 
             return {utils.EOS_ID : self.cur_scores[self.n_consumed]}
-        return {utils.EOS_ID : NEG_INF} 
+        return {utils.EOS_ID : utils.NEG_INF} 
     
     def initialize(self, src_sentence):
         """Fetches the corresponding target sentence length 

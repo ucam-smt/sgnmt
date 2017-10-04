@@ -473,7 +473,6 @@ class RuleSet:
                 spans = [src_sorted_spans[src_pos] 
                                 for src_pos in rule.trgt_src_map]
             else: # Ambiguity. Set p to rhs(src)
-                #print("AMBIGUITY!")
                 span = Span(rule.rhs_src, (begin, end))
                 # Gonna need trgt_src_map in expand_hypo_multi_p
                 span.trgt_src_map = rule.trgt_src_map 
@@ -514,11 +513,6 @@ class RuleSet:
         src_trgt_map = [0] * len(trgt_src_map)
         for idx, val in enumerate(trgt_src_map):
             src_trgt_map[val]= idx 
-        
-        #print("MINMAX SPANS: %s" % minmax_spans)
-        #print("new TRGT SRC MAP: %s" % trgt_src_map)
-        #print("span_len_sum: %d" % (span_to - span_from))
-        #print("prefixes: %s" % prefixes)
         # Then, get all applicable combinations of sub spans with concrete 
         # begin and end
         spans_list = self._get_spans_from_minmax_recursive(
@@ -608,8 +602,6 @@ class RuleSet:
         returned span objects stand for minimum and maximum span 
         lengths
         """
-        #print("FACTORIZE SPAN %s Target source map:" % span)
-        #print(span.trgt_src_map)
         p_len = len(span.p)
         p_nts = [symb for symb in span.p if symb < 0]
         p_nt_pos = [pos for pos, symb in enumerate(span.p) if symb < 0]
@@ -659,7 +651,6 @@ class RuleSet:
                                         for idx in new_internal_trgt_src_map]
             spans.append(new_span)
             new_trgt_src_map.append(from_src_idx)
-        #print("p_covered: %s" % p_covered)
         # Create prefix array using p_covered
         prefixes = [[] for _ in spans]
         i = 0
@@ -834,9 +825,8 @@ class RuleXtractPredictor(Predictor):
         """Returns negative infinity if the posterior is not empty as
         words outside the grammar are not possible according this
         predictor. If ``posterior`` is empty, return 0 (= log 1)
-        """
-        #return float("-inf") if len(posterior) > 0 else 0.0 
-        return float("-inf")
+        """ 
+        return utils.NEG_INF
     
     def predict_next(self):
         """For predicting the distribution of the next target tokens, 
@@ -848,7 +838,6 @@ class RuleXtractPredictor(Predictor):
         """
         # If there are still partial hypotheses...
         if self.n_consumed < len(self.stacks):
-            #print("CURRENT STACK: %d" % self.n_consumed)
             # empty stack with n_consumed trgt_prefix length
             while self.stacks[self.n_consumed]:
                 hypo = self.stacks[self.n_consumed].pop()
@@ -865,7 +854,6 @@ class RuleXtractPredictor(Predictor):
                     else:
                         while len(self.stacks) <= n_covered:
                             self.stacks.append(Cell())
-                        #print("ADD TO STACK %d: %s" % (n_covered, new_hypo))
                         self.stacks[n_covered].add(new_hypo)
         logging.debug("Predict next (consumed: %d)" % self.n_consumed)
         for idx,c in enumerate(self.stacks):

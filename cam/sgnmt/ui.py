@@ -1,6 +1,8 @@
 """This module handles configuration and user interface when using 
 blocks. ``yaml`` and ``ArgumentParser`` are used for parsing config
 files and command line arguments.
+
+TODO: Remove Blocks dependency
 """
 
 import argparse
@@ -67,7 +69,7 @@ def parse_param_string(param):
     return config
 
 
-def get_train_parser():
+def get_blocks_train_parser():
     """Get the parser object for NMT training configuration. """
     parser = argparse.ArgumentParser()
     parser.register('type','bool',str2bool)
@@ -164,7 +166,7 @@ def get_train_parser():
     return parser
 
 
-def get_align_parser():
+def get_blocks_align_parser():
     """Get the parser object for NMT alignment configuration. """
     parser = argparse.ArgumentParser()
     parser.register('type','bool',str2bool)
@@ -204,7 +206,7 @@ def get_align_parser():
     return parser
 
 
-def get_batch_decode_parser():
+def get_blocks_batch_decode_parser():
     """Get the parser object for NMT batch decoding. """
     parser = argparse.ArgumentParser()
     parser.register('type','bool',str2bool)
@@ -300,13 +302,14 @@ def get_parser():
                         "instead of their string representations.")
     group.add_argument("--en_test", default="",
                         help="DEPRECATED: Old name for --src_test")
+    group.add_argument("--indexing_scheme", default="blocks",
+                        choices=['blocks', 'tf', 't2t'],
+                        help="This parameter defines the reserved IDs.\n\n"
+                        "* 'blocks': eps,unk: 0, <s>: 1, </s>: 2.\n"
+                        "* 'tf': unk: 3, <s>: 1, </s>: 2.\n"
+                        "* 't2t': unk: 3, <s>: 2, </s>: 1.")
     group.add_argument("--legacy_indexing", default=False, type='bool',
-                        help="Defines the set of reserved word indices. The "
-                        "standard convention is:\n"
-                        "0: unk/eps, 1: <s>, 2: </s>.\n"
-                        "Older systems use the TensorFlow scheme:"
-                        "0: pad, 1: <s>, 2: </s>, 3: unk.\n"
-                        "Set this parameter to true to use the old scheme.")
+                        help="DEPRECATED: Use --indexing_scheme=tf instead")
     group.add_argument("--input_method", default="file",
                         choices=['dummy', 'file', 'shell', 'stdin'],
                         help="This parameter controls how the input to GNMT "
@@ -649,6 +652,9 @@ def get_parser():
                         "* 'nmt': neural machine translation predictor.\n"
                         "         Options: nmt_config, nmt_path, gnmt_beta, "
                         "nmt_model_selector, cache_nmt_posteriors.\n"
+                        "* 't2t': Tensor2Tensor predictor.\n"
+                        "         Options: t2t_usr_dir, t2t_model, "
+                        "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir\n"
                         "* 'srilm': n-gram language model.\n"
                         "          Options: srilm_path, srilm_order\n"
                         "* 'nplm': neural n-gram language model (NPLM).\n"
@@ -719,6 +725,10 @@ def get_parser():
                         "* 'word2char': Wraps word-level predictors when SGNMT"
                         " is running on character level.\n"
                         "            Options: word2char_map\n"
+                        "* 'skipvocab': Skip a subset of the predictor "
+                        "vocabulary.\n"
+                        "               Options: skipvocab_max_id, "
+                        "skipvocab_stop_size\n"
                         "\n"
                         "Note that you can use multiple instances of the same "
                         "predictor. For example, 'nmt,nmt,nmt' can be used "
@@ -819,6 +829,27 @@ def get_parser():
                        help="If this is greater than zero, add a coverage "
                        "penalization term following Googles NMT (Wu et al., "
                        "2016) to the NMT score.")
+    group.add_argument("--t2t_usr_dir", default="",
+                       help="Available for the t2t predictor. See the "
+                       "--t2t_usr_dir argument in tensor2tensor.")
+    group.add_argument("--t2t_model", default="transformer",
+                       help="Available for the t2t predictor. Name of the "
+                       "tensor2tensor model.")
+    group.add_argument("--t2t_problem", default="translate_ende_wmt32k",
+                       help="Available for the t2t predictor. Name of the "
+                       "tensor2tensor problem.")
+    group.add_argument("--t2t_hparams_set",
+                       default="transformer_base_single_gpu",
+                       help="Available for the t2t predictor. Name of the "
+                       "tensor2tensor hparams set.")
+    group.add_argument("--t2t_checkpoint_dir", default="",
+                       help="Available for the t2t predictor. Path to the "
+                       "tensor2tensor checkpoint directory. Same as "
+                       "--output_dir in t2t_trainer.")
+    group.add_argument("--t2t_src_vocab_size", default=30000, type=int,
+                        help="T2T source vocabulary size")
+    group.add_argument("--t2t_trg_vocab_size", default=30000, type=int,
+                        help="T2T target vocabulary size")
 
     # Length predictors
     group = parser.add_argument_group('Length predictor options')
@@ -874,6 +905,14 @@ def get_parser():
                        "by this factor each time the ngram is consumed")
     group.add_argument("--unkc_src_vocab_size", default=30003, type=int,
                         help="Vocabulary size for the unkc predictor.")
+    group.add_argument("--skipvocab_max_id", default=30003, type=int,
+                        help="All tokens above this threshold are skipped "
+                        "by the skipvocab predictor wrapper.")
+    group.add_argument("--skipvocab_stop_size", default=1, type=int,
+                        help="The internal beam search of the skipvocab "
+                        "predictor wrapper stops if the best stop_size "
+                         "scores are for in-vocabulary words (ie. with index "
+                         "lower or equal skipvocab_max_id")
 
     # Forced predictors
     group = parser.add_argument_group('Forced decoding predictor options')
@@ -1076,7 +1115,25 @@ def get_parser():
         group.add_argument("--nmt_path%s" % n, default="",
                         help="Overrides --nmt_path for the %s nmt" % w)
         group.add_argument("--nmt_engine%s" % n, default="",
-                        help="Overrides --nmt_engine for the %s nmt" % w)                        
+                        help="Overrides --nmt_engine for the %s nmt" % w)
+        group.add_argument("--t2t_model%s" % n, default="",
+                        help="Overrides --t2t_model for the %s t2t predictor"
+                        % w)
+        group.add_argument("--t2t_problem%s" % n, default="",
+                        help="Overrides --t2t_problem for the %s t2t predictor"
+                        % w)
+        group.add_argument("--t2t_hparams_set%s" % n, default="",
+                        help="Overrides --t2t_hparams_set for the %s t2t "
+                        "predictor" % w)
+        group.add_argument("--t2t_checkpoint_dir%s" % n, default="",
+                        help="Overrides --t2t_checkpoint_dir for the %s t2t "
+                        "predictor" % w)
+        group.add_argument("--t2t_src_vocab_size%s" % n, default=0, type=int,
+                        help="Overrides --t2t_src_vocab_size for the %s t2t "
+                        "predictor" % w)
+        group.add_argument("--t2t_trg_vocab_size%s" % n, default=0, type=int,
+                        help="Overrides --t2t_trg_vocab_size for the %s t2t "
+                        "predictor" % w)
         group.add_argument("--rnnlm_config%s" % n,  default="",
                         help="If the --predictors string contains more than "
                         "one rnnlm predictor, you can specify the configuration "
@@ -1135,13 +1192,15 @@ def get_args():
         args.trg_idxmap = args.fr_idxmap
     if args.length_normalization:
         args.combination_scheme = "length_norm"
+    if args.legacy_indexing:
+        args.indexing_scheme = "tf"
     if args.output_fst_unk_id:
         args.fst_unk_id = args.output_fst_unk_id 
     return args
 
 
 def validate_args(args):
-    """Some very rudimental sanity checks for configuration options.
+    """Some rudimentary sanity checks for configuration options.
     This method directly prints help messages to the user. In case of fatal
     errors, it terminates using ``logging.fatal()``
     
@@ -1149,10 +1208,11 @@ def validate_args(args):
         args (object):  Configuration as returned by ``get_args``
     """
     for depr in ['en_test', 'fr_test',
-                 'length_normalization',
+                 'length_normalization', 'legacy_indexing',
                  'en_idxmap', 'fr_idxmap']:
         if getattr(args, depr):
-            logging.warn("Using deprecated argument %s." % depr)
+            logging.warn("Using deprecated argument %s. Please check the "
+                         "documentation for the replacement." % depr)
     # Validate --range
     if args.range:
         if args.input_method == 'shell':
