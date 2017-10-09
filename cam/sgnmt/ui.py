@@ -335,6 +335,10 @@ def get_parser():
                         "log values l1,l2.\n\n"
                         "* 'tropical': approximate with max(l1,l2)\n"
                         "* 'log': Use logsumexp in scipy")
+    group.add_argument("--single_cpu_thread", default=False, type='bool',
+                        help="If true, try to prevent libraries like Theano "
+                        "or TensorFlow from doing internal multithreading. "
+                        "Also, see the OMP_NUM_THREADS environment variable.")
     
     ## Decoding options
     group = parser.add_argument_group('Decoding options')

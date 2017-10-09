@@ -172,7 +172,8 @@ def add_predictors(decoder):
                                  _get_override_args("t2t_model"),
                                  _get_override_args("t2t_problem"),
                                  _get_override_args("t2t_hparams_set"),
-                                 _get_override_args("t2t_checkpoint_dir"))
+                                 _get_override_args("t2t_checkpoint_dir"),
+                                 single_cpu_thread=args.single_cpu_thread)
             elif pred == "fst":
                 p = FstPredictor(_get_override_args("fst_path"),
                                  args.use_fst_weights,

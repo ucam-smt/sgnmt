@@ -53,6 +53,12 @@ try:
         @property
         def vocab_size(self):
             return self._vocab_size
+
+    # Define flags from the t2t binaries
+    flags = tf.flags
+    FLAGS = flags.FLAGS
+    flags.DEFINE_string("schedule", "train_and_evaluate",
+                        "Method of tf.contrib.learn.Experiment to run.")
 except ImportError:
     pass # Deal with it in decode.py
 
@@ -81,7 +87,8 @@ class T2TPredictor(Predictor):
                  problem_name,
                  hparams_set_name,
                  checkpoint_dir,
-                 t2t_unk_id=None):
+                 t2t_unk_id=None,
+                 single_cpu_thread=False):
         """Creates a new T2T predictor. The constructor prepares the
         TensorFlow session for predict_next() calls. This includes:
         - Load hyper parameters from the given set (hparams)
@@ -104,6 +111,8 @@ class T2TPredictor(Predictor):
                                      `checkpoints` file.
             t2t_unk_id (int): If set, use this ID to get UNK scores. If
                               None, UNK is always scored with -inf.
+            single_cpu_thread (bool): If true, prevent tensorflow from
+                                      doing multithreading.
         """
         super(T2TPredictor, self).__init__()
         if not T2TPredictor.t2t_initialized:
@@ -113,6 +122,7 @@ class T2TPredictor(Predictor):
             trainer_utils.log_registry()
             T2TPredictor.t2t_initialized = True
         self._t2t_unk_id = t2t_unk_id
+        self._single_cpu_thread = single_cpu_thread
         self.consumed = []
         self.src_sentence = []
         predictor_graph = tf.Graph()
@@ -158,14 +168,21 @@ class T2TPredictor(Predictor):
         """Creates the session config with t2t default parameters."""
         graph_options = tf.GraphOptions(optimizer_options=tf.OptimizerOptions(
             opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
-        gpu_options = tf.GPUOptions(
-            per_process_gpu_memory_fraction=0.95)
-
-        config = tf.ConfigProto(
-            allow_soft_placement=True,
-            graph_options=graph_options,
-            gpu_options=gpu_options,
-            log_device_placement=False)
+        if self._single_cpu_thread:
+            config = tf.ConfigProto(
+                intra_op_parallelism_threads=1,
+                inter_op_parallelism_threads=1,
+                allow_soft_placement=True,
+                graph_options=graph_options,
+                log_device_placement=False)
+        else:
+            gpu_options = tf.GPUOptions(
+                per_process_gpu_memory_fraction=0.95)
+            config = tf.ConfigProto(
+                allow_soft_placement=True,
+                graph_options=graph_options,
+                gpu_options=gpu_options,
+                log_device_placement=False)
         return config
     
     def _create_hparams(
