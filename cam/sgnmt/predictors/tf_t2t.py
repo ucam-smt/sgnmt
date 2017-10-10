@@ -13,6 +13,7 @@ sequence models.
 """
 
 import logging
+import os
 
 from cam.sgnmt import utils
 from cam.sgnmt.predictors.core import Predictor
@@ -121,6 +122,10 @@ class T2TPredictor(Predictor):
             usr_dir.import_usr_dir(t2t_usr_dir)
             trainer_utils.log_registry()
             T2TPredictor.t2t_initialized = True
+        if not os.path.isfile("%s/checkpoint" % checkpoint_dir):
+            logging.fatal("T2T checkpoint file %s/checkpoint not found!" 
+                          % checkpoint_dir)
+            raise IOError
         self._t2t_unk_id = t2t_unk_id
         self._single_cpu_thread = single_cpu_thread
         self.consumed = []

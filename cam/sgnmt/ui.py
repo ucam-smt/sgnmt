@@ -425,7 +425,7 @@ def get_parser():
                         "limited to max_len_factor times the length of the "
                         "source sentence.")
     group.add_argument("--early_stopping", default=True, type='bool',
-                        help="Use this parameter if you are only interested in"
+                        help="Use this parameter if you are only interested in "
                         "the first best decoding result. This option has a "
                         "different effect depending on the used --decoder. For"
                         " the beam decoder, it means stopping decoding when "
@@ -433,7 +433,7 @@ def get_parser():
                         "do not stop until all hypotheses end with EOS. For "
                         "the dfs and restarting decoders, early stopping "
                         "enables admissible pruning of branches when the "
-                        "accumulated score already exceeded the currently best"
+                        "accumulated score already exceeded the currently best "
                         "score. DO NOT USE early stopping in combination with "
                         "the dfs or restarting decoder when your predictors "
                         "can produce positive scores!")
