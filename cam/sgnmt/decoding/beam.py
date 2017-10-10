@@ -9,7 +9,11 @@ import numpy as np
 
 
 class BeamDecoder(Decoder):
-    """This decoder implements vanilla beam search. """
+    """This decoder implements standard beam search and several
+    variants of it such as diversity promoting beam search and beam
+    search with heuristic future cost estimates. This implementation
+    supports risk-free pruning and hypotheses recombination.
+    """
     
     def __init__(self,
                  decoder_args,
@@ -25,7 +29,7 @@ class BeamDecoder(Decoder):
                                    from the configuration API.
             hypo_recombination (bool): Activates hypo recombination 
             beam_size (int): Absolute beam size. A beam of 12 means
-                             that we keep track of 12 active hypothesis
+                             that we keep track of 12 active hypotheses
             pure_heuristic_scores (bool): Hypotheses to keep in the beam
                                           are normally selected 
                                           according the sum of partial
@@ -61,6 +65,7 @@ class BeamDecoder(Decoder):
         self.pure_heuristic_scores = pure_heuristic_scores
     
     def _get_combined_score(self, hypo):
+        """Combines hypo score with future cost estimates."""
         est_score = -self.estimate_future_cost(hypo)
         if not self.pure_heuristic_scores:
             return est_score + hypo.score
@@ -136,16 +141,14 @@ class BeamDecoder(Decoder):
         return new_hypos
 
     def _get_next_hypos(self, all_hypos, all_scores):
-        """Get hypos for the next beam iteration. """
+        """Get hypos for the next iteration. """
         hypos = [all_hypos[idx]
-                        for idx in np.argsort(all_scores)[-self.beam_size:]
-                        if all_hypos[idx].score > self.min_score]
+                        for idx in np.argsort(all_scores)[-self.beam_size:]]
         hypos.reverse()
         return hypos
     
     def _register_score(self, score):
-        """Updates best_scores and min_score.
-        """
+        """Updates best_scores and min_score. """
         if not self.maintain_best_scores:
             return
         self.best_scores.append(score)

@@ -7,7 +7,7 @@ combination with SGNMT:
 
 https://github.com/fstahlberg/tensor2tensor
 
-This predictor can read any model trained with tensor2tensor which
+The t2t predictor can read any model trained with tensor2tensor which
 includes the transformer model, convolutional models, and RNN-based
 sequence models.
 """
@@ -64,12 +64,92 @@ except ImportError:
     pass # Deal with it in decode.py
 
 
+T2T_INITIALIZED = False
+"""Set to true by _initialize_t2t() after first constructor call."""
+
+
+def _initialize_t2t(t2t_usr_dir):
+    global T2T_INITIALIZED
+    if not T2T_INITIALIZED:
+        logging.info("Setting up tensor2tensor library...")
+        tf.logging.set_verbosity(tf.logging.INFO)
+        usr_dir.import_usr_dir(t2t_usr_dir)
+        trainer_utils.log_registry()
+        T2T_INITIALIZED = True
+
+
 def log_prob_from_logits(logits):
     """Softmax function."""
     return logits - tf.reduce_logsumexp(logits, keep_dims=True)
 
 
-class T2TPredictor(Predictor):
+class _BaseTensor2TensorPredictor(Predictor):
+    """Base class for tensor2tensor based predictors."""
+
+    def __init__(self, t2t_usr_dir, checkpoint_dir, t2t_unk_id, single_cpu_thread):
+        """Common initialization for tensor2tensor predictors.
+
+        Args:
+            t2t_usr_dir (string): See --t2t_usr_dir in tensor2tensor.
+            checkpoint_dir (string): Path to the T2T checkpoint 
+                                     directory. The predictor will load
+                                     the top most checkpoint in the 
+                                     `checkpoints` file.
+            t2t_unk_id (int): If set, use this ID to get UNK scores. If
+                              None, UNK is always scored with -inf.
+            single_cpu_thread (bool): If true, prevent tensorflow from
+                                      doing multithreading.
+
+        Raises:
+            IOError if checkpoint file not found.
+        """
+        super(_BaseTensor2TensorPredictor, self).__init__()
+        if not os.path.isfile("%s/checkpoint" % checkpoint_dir):
+            logging.fatal("T2T checkpoint file %s/checkpoint not found!" 
+                          % checkpoint_dir)
+            raise IOError
+        self._single_cpu_thread = single_cpu_thread
+        self._t2t_unk_id = t2t_unk_id
+        self._checkpoint_dir = checkpoint_dir
+        _initialize_t2t(t2t_usr_dir)
+
+    def _session_config(self):
+        """Creates the session config with t2t default parameters."""
+        graph_options = tf.GraphOptions(optimizer_options=tf.OptimizerOptions(
+            opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
+        if self._single_cpu_thread:
+            config = tf.ConfigProto(
+                intra_op_parallelism_threads=1,
+                inter_op_parallelism_threads=1,
+                allow_soft_placement=True,
+                graph_options=graph_options,
+                log_device_placement=False)
+        else:
+            gpu_options = tf.GPUOptions(
+                per_process_gpu_memory_fraction=0.95)
+            config = tf.ConfigProto(
+                allow_soft_placement=True,
+                graph_options=graph_options,
+                gpu_options=gpu_options,
+                log_device_placement=False)
+        return config
+
+    def create_session(self):
+        """Creates a MonitoredSession for this predictor."""
+        checkpoint_path = saver.latest_checkpoint(self._checkpoint_dir)
+        return training.MonitoredSession(
+            session_creator=training.ChiefSessionCreator(
+                checkpoint_filename_with_path=checkpoint_path,
+                config=self._session_config()))
+
+    def get_unk_probability(self, posterior):
+        """Fetch posterior[t2t_unk_id] or return NEG_INF if None."""
+        if self._t2t_unk_id is None:
+            return utils.NEG_INF
+        return posterior[self._t2t_unk_id]
+
+
+class T2TPredictor(_BaseTensor2TensorPredictor):
     """This predictor implements scoring with Tensor2Tensor models. We
     follow the decoder implementation in T2T and do not reuse network
     states in decoding. We rather compute the full forward pass along
@@ -77,8 +157,6 @@ class T2TPredictor(Predictor):
     the full history of consumed words.
     """
 
-    t2t_initialized = False
-    """Set to true after first constructor call."""
     
     def __init__(self,
                  t2t_usr_dir,
@@ -115,19 +193,10 @@ class T2TPredictor(Predictor):
             single_cpu_thread (bool): If true, prevent tensorflow from
                                       doing multithreading.
         """
-        super(T2TPredictor, self).__init__()
-        if not T2TPredictor.t2t_initialized:
-            logging.info("Setting up tensor2tensor library...")
-            tf.logging.set_verbosity(tf.logging.INFO)
-            usr_dir.import_usr_dir(t2t_usr_dir)
-            trainer_utils.log_registry()
-            T2TPredictor.t2t_initialized = True
-        if not os.path.isfile("%s/checkpoint" % checkpoint_dir):
-            logging.fatal("T2T checkpoint file %s/checkpoint not found!" 
-                          % checkpoint_dir)
-            raise IOError
-        self._t2t_unk_id = t2t_unk_id
-        self._single_cpu_thread = single_cpu_thread
+        super(T2TPredictor, self).__init__(t2t_usr_dir, 
+                                           checkpoint_dir, 
+                                           t2t_unk_id, 
+                                           single_cpu_thread)
         self.consumed = []
         self.src_sentence = []
         predictor_graph = tf.Graph()
@@ -163,32 +232,8 @@ class T2TPredictor(Predictor):
             sharded_logits, _ = model.model_fn(features, 
                                                last_position_only=True)
             self._log_probs = log_prob_from_logits(sharded_logits[0])
-            checkpoint_path = saver.latest_checkpoint(checkpoint_dir)
-            self.mon_sess = training.MonitoredSession(
-                session_creator=training.ChiefSessionCreator(
-                    checkpoint_filename_with_path=checkpoint_path,
-                    config=self._session_config()))
+            self.mon_sess = self.create_session()
 
-    def _session_config(self):
-        """Creates the session config with t2t default parameters."""
-        graph_options = tf.GraphOptions(optimizer_options=tf.OptimizerOptions(
-            opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
-        if self._single_cpu_thread:
-            config = tf.ConfigProto(
-                intra_op_parallelism_threads=1,
-                inter_op_parallelism_threads=1,
-                allow_soft_placement=True,
-                graph_options=graph_options,
-                log_device_placement=False)
-        else:
-            gpu_options = tf.GPUOptions(
-                per_process_gpu_memory_fraction=0.95)
-            config = tf.ConfigProto(
-                allow_soft_placement=True,
-                graph_options=graph_options,
-                gpu_options=gpu_options,
-                log_device_placement=False)
-        return config
     
     def _create_hparams(
           self, src_vocab_size, trg_vocab_size, hparams_set_name, problem_name):
@@ -225,12 +270,6 @@ class T2TPredictor(Predictor):
         hparams.problems = [p_hparams]
         return hparams
                 
-    def get_unk_probability(self, posterior):
-        """Fetch posterior[t2t_unk_id] or return NEG_INF if None."""
-        if self._t2t_unk_id is None:
-            return utils.NEG_INF
-        return posterior[self._t2t_unk_id]
-    
     def predict_next(self):
         """Call the T2T model in self.mon_sess."""
         log_probs = self.mon_sess.run(self._log_probs,
