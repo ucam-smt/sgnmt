@@ -17,13 +17,10 @@ class DFSDecoder(Decoder):
     space has cycles this decoder may run into an infinite loop.
     """
     
-    def __init__(self,
-                 decoder_args,
-                 early_stopping = True,
-                 max_expansions = 0):
-        """Creates new DFS decoder instance.
+    def __init__(self, decoder_args):
+        """Creates new DFS decoder instance. The following values are
+        fetched from `decoder_args`:
         
-        Args:
             decoder_args (object): Decoder configuration passed through
                                    from the configuration API.
             early_stopping (bool): Enable safe (admissible) branch
@@ -33,10 +30,14 @@ class DFSDecoder(Decoder):
                                    scores can be positive
             max_expansions (int): Maximum number of node expansions for
                                   inadmissible pruning.
+
+        Args:
+            decoder_args (object): Decoder configuration passed through
+                                   from the configuration API.
         """
         super(DFSDecoder, self).__init__(decoder_args)
-        self.early_stopping = early_stopping
-        self.max_expansions_param = max_expansions
+        self.early_stopping = decoder_args.early_stopping
+        self.max_expansions_param = decoder_args.max_node_expansions
     
     def _dfs(self, partial_hypo):
         """Recursive function for doing dfs. Note that we do not keep

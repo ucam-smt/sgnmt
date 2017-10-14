@@ -44,7 +44,6 @@ class AstarDecoder(Decoder):
         Args:
             decoder_args (object): Decoder configuration passed through
                                    from the configuration API.
-
         """
         super(AstarDecoder, self).__init__(decoder_args)
         self.nbest = max(1, decoder_args.nbest)

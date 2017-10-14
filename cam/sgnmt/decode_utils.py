@@ -368,12 +368,7 @@ def create_decoder(new_args):
     if args.decoder == "greedy":
         decoder = GreedyDecoder(args)
     elif args.decoder == "beam":
-        decoder = BeamDecoder(args,
-                              args.hypo_recombination,
-                              args.beam,
-                              args.pure_heuristic_scores,
-                              args.decoder_diversity_factor,
-                              args.early_stopping)
+        decoder = BeamDecoder(args)
     elif args.decoder == "multisegbeam":
         decoder = MultisegBeamDecoder(args,
                                       args.hypo_recombination,
@@ -398,9 +393,7 @@ def create_decoder(new_args):
                                  args.decoder_diversity_factor,
                                  args.early_stopping)
     elif args.decoder == "dfs":
-        decoder = DFSDecoder(args, 
-                             args.early_stopping,
-                             args.max_node_expansions)
+        decoder = DFSDecoder(args)
     elif args.decoder == "restarting":
         decoder = RestartingDecoder(args,
                                     args.hypo_recombination,
