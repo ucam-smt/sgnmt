@@ -149,6 +149,22 @@ class _BaseTensor2TensorPredictor(Predictor):
         return posterior[self._t2t_unk_id]
 
 
+def expand_input_dims_for_t2t(t):
+    """Expands a plain input tensor for using it in a T2T graph.
+
+    Args:
+        t: Tensor
+
+    Returns:
+      Tensor `t` expanded by 1 dimension on the left and two dimensions
+      on the right.
+    """
+    t = tf.expand_dims(t, 0) # Because of batch_size
+    t = tf.expand_dims(t, -1) # Because of modality
+    t = tf.expand_dims(t, -1) # Because of random reason X
+    return t
+
+
 class T2TPredictor(_BaseTensor2TensorPredictor):
     """This predictor implements scoring with Tensor2Tensor models. We
     follow the decoder implementation in T2T and do not reuse network
@@ -157,14 +173,13 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
     the full history of consumed words.
     """
 
-    
     def __init__(self,
-                 t2t_usr_dir,
                  src_vocab_size,
                  trg_vocab_size,
                  model_name,
                  problem_name,
                  hparams_set_name,
+                 t2t_usr_dir,
                  checkpoint_dir,
                  t2t_unk_id=None,
                  single_cpu_thread=False):
@@ -178,12 +193,12 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
           restoring checkpoints.
         
         Args:
-            t2t_usr_dir (string): See --t2t_usr_dir in tensor2tensor.
             src_vocab_size (int): Source vocabulary size.
             trg_vocab_size (int): Target vocabulary size.
             model_name (string): T2T model name.
             problem_name (string): T2T problem name.
             hparams_set_name (string): T2T hparams set name.
+            t2t_usr_dir (string): See --t2t_usr_dir in tensor2tensor.
             checkpoint_dir (string): Path to the T2T checkpoint 
                                      directory. The predictor will load
                                      the top most checkpoint in the 
@@ -210,11 +225,6 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
             self._targets_var = tf.placeholder(dtype=tf.int32, 
                                                shape=[None], 
                                                name="sgnmt_targets")
-            def expand_input_dims_for_t2t(t):
-                t = tf.expand_dims(t, 0) # Because of batch_size
-                t = tf.expand_dims(t, -1) # Because of modality
-                t = tf.expand_dims(t, -1) # Because of random reason X
-                return t
             features = {"problem_choice": tf.constant(0),
                         "input_space_id": tf.constant(p_hparams.input_space_id),
                         "target_space_id": tf.constant(
@@ -234,7 +244,6 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
             self._log_probs = log_prob_from_logits(sharded_logits[0])
             self.mon_sess = self.create_session()
 
-    
     def _create_hparams(
           self, src_vocab_size, trg_vocab_size, hparams_set_name, problem_name):
         """Creates hparams object.
@@ -295,6 +304,185 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
     def set_state(self, state):
         """The predictor state is the complete history."""
         self.consumed = state
+
+    def reset(self):
+        """Empty method. """
+        pass
+
+    def is_equal(self, state1, state2):
+        """Returns true if the history is the same """
+        return state1 == state2
+
+
+class T2TLayerbylayerPredictor(_BaseTensor2TensorPredictor):
+    """This predictor can be used to decode with layer-by-layer models.
+    The state of the predictor includes the current sequence of target
+    roots. We introduce a new end-of-layer symbol </l> which is set to
+    0 (t2t PAD) by default. We initially use the </s> score for </l> 
+    and set </s> to -inf. When </l> is consumed, we update the 
+    predictor state as follows:
+      - If only terminals have been consumed since the last </l>, we
+        finalize this hypothesis by forcing </s> at the next step.
+      - Otherwise, update the current sequence of target roots to the
+        sequence consumed since the last </l> and reset the history.
+    Decoding with this predictor will generate a sequence of tokens
+    which can be split into segments at </l>. Each segment describes
+    one layer of the generated tree with increasing depth.
+    """
+
+    def __init__(self,
+                 root_id,
+                 max_terminal_id,
+                 terminal_list,
+                 src_vocab_size,
+                 trg_vocab_size,
+                 model_name,
+                 problem_name,
+                 hparams_set_name,
+                 t2t_usr_dir,
+                 checkpoint_dir,
+                 t2t_unk_id=None,
+                 single_cpu_thread=False,
+                 eol=None):
+        """Creates a new layerbylayer predictor, similar to the
+        T2TPredictor constructor.
+        
+        Args:
+            root_id (int): ID of the ROOT token.
+            max_terminal_id (int): All IDs larger than this are non-
+                                   terminals except for the ones in
+                                   `terminal_list`.
+            terminal_list (string): Comma separated list of IDs larger
+                                    than max_terminal_id which still 
+                                    should be treated as terminals.
+            src_vocab_size (int): Source vocabulary size.
+            trg_vocab_size (int): Target vocabulary size.
+            model_name (string): T2T model name.
+            problem_name (string): T2T problem name.
+            hparams_set_name (string): T2T hparams set name.
+            t2t_usr_dir (string): See --t2t_usr_dir in tensor2tensor.
+            checkpoint_dir (string): Path to the T2T checkpoint 
+                                     directory. The predictor will load
+                                     the top most checkpoint in the 
+                                     `checkpoints` file.
+            t2t_unk_id (int): If set, use this ID to get UNK scores. If
+                              None, UNK is always scored with -inf.
+            single_cpu_thread (bool): If true, prevent tensorflow from
+                                      doing multithreading.
+            eol (int): If set, token ID to use for the end-of-layer
+                       symbol.
+
+        Raises:
+            ValueError if root_id is negative.
+        """
+        super(T2TLayerbylayerPredictor, self).__init__(t2t_usr_dir, 
+                                                       checkpoint_dir, 
+                                                       t2t_unk_id, 
+                                                       single_cpu_thread)
+        if root_id < 0:
+            logging.fatal("Set layerbylayer_root_id to the correct value!") 
+            raise ValueError
+        self.max_terminal_id = max_terminal_id
+        if terminal_list:
+            self.terminal_list = [int(i) for i in terminal_list.split(",")]
+        else:
+            self.terimnal_list = []
+        self.root_id = root_id
+        self.eol_id = text_encoder.PAD_ID if eol is None else eol
+        predictor_graph = tf.Graph()
+        with predictor_graph.as_default() as g:
+            hparams = self._create_hparams(
+                src_vocab_size, trg_vocab_size, hparams_set_name, problem_name)
+            p_hparams = hparams.problems[0]
+            self._inputs_var = tf.placeholder(dtype=tf.int32, 
+                                              shape=[None], 
+                                              name="sgnmt_inputs")
+            self._targets_var = tf.placeholder(dtype=tf.int32, 
+                                               shape=[None], 
+                                               name="sgnmt_targets")
+            self._target_roots_var = tf.placeholder(dtype=tf.int32, 
+                                                    shape=[None], 
+                                                    name="sgnmt_target_roots")
+            features = {"problem_choice": tf.constant(0),
+                        "input_space_id": tf.constant(p_hparams.input_space_id),
+                        "target_space_id": tf.constant(
+                            p_hparams.target_space_id),
+                        "inputs": expand_input_dims_for_t2t(self._inputs_var),
+                        "targets": expand_input_dims_for_t2t(self._targets_var),
+                        "target_roots": expand_input_dims_for_t2t(
+                                            self._target_roots_var)}
+        
+            model = registry.model(model_name)(
+                hparams,
+                tf.estimator.ModeKeys.PREDICT,
+                hparams.problems[0],
+                0,
+                devices.data_parallelism(),
+                devices.ps_devices(all_workers=True))
+            sharded_logits, _ = model.model_fn(features, 
+                                               last_position_only=True)
+            self._log_probs = log_prob_from_logits(sharded_logits[0])
+            self.mon_sess = self.create_session()
+
+    def _create_hparams(
+          self, src_vocab_size, trg_vocab_size, hparams_set_name, problem_name):
+        """Creates hparams object, similar to T2TPredictor._create_hparams."""
+        hparams = registry.hparams(hparams_set_name)()
+        problem = registry.problem(problem_name)
+        # The following hack is necessary to prevent the problem from creating
+        # the default TextEncoders, which would fail due to the lack of a
+        # vocabulary file.
+        problem._encoders = {
+            "inputs": DummyTextEncoder(vocab_size=src_vocab_size),
+            "targets": DummyTextEncoder(vocab_size=trg_vocab_size),
+            "target_roots": DummyTextEncoder(vocab_size=trg_vocab_size)
+        }
+        p_hparams = problem.get_hparams(hparams)
+        hparams.problem_instances = [problem]
+        hparams.problems = [p_hparams]
+        return hparams
+                
+    def predict_next(self):
+        """Call the T2T model in self.mon_sess."""
+        log_probs = self.mon_sess.run(self._log_probs,
+            {self._inputs_var: self.src_sentence,
+             self._target_roots_var: self.target_roots,
+             self._targets_var: self.consumed + [text_encoder.PAD_ID]})
+        log_probs_squeezed = log_probs[0, 0, 0, 0, :]
+        log_probs_squeezed[text_encoder.PAD_ID] = utils.NEG_INF
+        if self.has_nonterminals:
+            log_probs_squeezed[self.eol_id] = \
+              log_probs_squeezed[text_encoder.EOS_ID]
+            log_probs_squeezed[text_encoder.EOS_ID] = utils.NEG_INF
+        else:
+            log_probs_squeezed[self.eol_id] = utils.NEG_INF
+        return log_probs_squeezed
+    
+    def initialize(self, src_sentence):
+        """Set src_sentence, reset state."""
+        self.has_nonterminals = False
+        self.consumed = []
+        self.target_roots = [self.root_id, text_encoder.EOS_ID]
+        self.src_sentence = src_sentence + [text_encoder.EOS_ID]
+
+    def _is_nonterminal(self, word):
+        return word > self.max_terminal_id and not word in self.terminal_list
+    
+    def consume(self, word):
+        if word == self.eol_id: # Decode next layer
+            self.target_roots = self.consumed + [text_encoder.EOS_ID]
+            self.has_nonterminals = False
+            self.consumed = []
+        else:
+            self.consumed.append(word)
+            if not self.has_nonterminals:
+                self.has_nonterminals = self._is_nonterminal(word)
+    
+    def get_state(self):
+        return self.has_nonterminals, self.consumed, self.target_roots
+    
+    def set_state(self, state):
+        self.has_nonterminals, self.consumed, self.target_roots = state
 
     def reset(self):
         """Empty method. """

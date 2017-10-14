@@ -658,6 +658,11 @@ def get_parser():
                         "* 't2t': Tensor2Tensor predictor.\n"
                         "         Options: t2t_usr_dir, t2t_model, "
                         "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir\n"
+                        "* 'layerbylayer': Layerbylayer models.\n"
+                        "                  Options: t2t_usr_dir, t2t_model, "
+                        "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
+                        "layerbylayer_root_id, layerbylayer_max_terminal_id, "
+                        "layerbylayer_terminal_list\n"
                         "* 'srilm': n-gram language model.\n"
                         "          Options: srilm_path, srilm_order\n"
                         "* 'nplm': neural n-gram language model (NPLM).\n"
@@ -693,7 +698,7 @@ def get_parser():
                         "minimize_rtns, remove_epsilon_in_rtns, "
                         "normalize_rtn_weights\n"
                         "* 'lrhiero': Direct Hiero (left-to-right Hiero). This "
-                        "is a EXPERIMENTAL implementation of LRHiero.\n"
+                        "is an EXPERIMENTAL implementation of LRHiero.\n"
                         "             Options: rules_path, "
                         "grammar_feature_weights, use_grammar_weights\n"
                         "* 'wc': Number of words feature.\n"
@@ -830,8 +835,22 @@ def get_parser():
                         "histories containing UNK and reload them when needed")
     group.add_argument("--gnmt_beta", default=0.0, type=float,
                        help="If this is greater than zero, add a coverage "
-                       "penalization term following Googles NMT (Wu et al., "
+                       "penalization term following Google's NMT (Wu et al., "
                        "2016) to the NMT score.")
+    group.add_argument("--layerbylayer_root_id", default=-1, type=int,
+                       help="Must be set for the layerbylayer predictor. ID "
+                       "of the initial target root label.")
+    group.add_argument("--layerbylayer_max_terminal_id", default=30003,
+                       type=int,
+                       help="All token IDs larger than this are considered to "
+                       "be non-terminal symbols except the ones specified by "
+                       "--layerbylayer_terminal_list")
+    group.add_argument("--layerbylayer_terminal_list", default="",
+                       help="List of IDs which are explicitly treated as "
+                       "terminals, in addition to all IDs lower or equal "
+                       "--layerbylayer_max_terminal_id. This can be used to "
+                       "exclude the POP symbol from the list of non-terminals "
+                       "even though it has a ID higher than max_terminal_id.")
     group.add_argument("--t2t_usr_dir", default="",
                        help="Available for the t2t predictor. See the "
                        "--t2t_usr_dir argument in tensor2tensor.")

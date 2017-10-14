@@ -43,7 +43,7 @@ from cam.sgnmt.predictors.automata import FstPredictor, \
                                          RtnPredictor, \
                                          NondeterministicFstPredictor
 from cam.sgnmt.predictors.bow import BagOfWordsPredictor, \
-    BagOfWordsSearchPredictor
+                                     BagOfWordsSearchPredictor
 from cam.sgnmt.predictors.ffnnlm import NPLMPredictor
 from cam.sgnmt.predictors.forced import ForcedPredictor, ForcedLstPredictor
 from cam.sgnmt.predictors.grammar import RuleXtractPredictor
@@ -55,7 +55,7 @@ from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
                                             UnkvocabPredictor, \
                                             SkipvocabPredictor
 from cam.sgnmt.predictors.ngram import SRILMPredictor
-from cam.sgnmt.predictors.tf_t2t import T2TPredictor
+from cam.sgnmt.predictors.tf_t2t import T2TPredictor, T2TLayerbylayerPredictor
 from cam.sgnmt.predictors.tokenization import Word2charPredictor, FSTTokPredictor
 from cam.sgnmt.tf.interface import tf_get_nmt_predictor, tf_get_nmt_vanilla_decoder, \
     tf_get_rnnlm_predictor, tf_get_default_nmt_config, tf_get_rnnlm_prefix
@@ -166,12 +166,25 @@ def add_predictors(decoder):
                 elif nmt_engine != 'none':
                     logging.fatal("NMT engine %s is not supported (yet)!" % nmt_engine)
             elif pred == "t2t":
-                p = T2TPredictor(args.t2t_usr_dir,
+                p = T2TPredictor(_get_override_args("t2t_src_vocab_size"),
+                                 _get_override_args("t2t_trg_vocab_size"),
+                                 _get_override_args("t2t_model"),
+                                 _get_override_args("t2t_problem"),
+                                 _get_override_args("t2t_hparams_set"),
+                                 args.t2t_usr_dir,
+                                 _get_override_args("t2t_checkpoint_dir"),
+                                 single_cpu_thread=args.single_cpu_thread)
+            elif pred == "layerbylayer":
+                p = T2TLayerbylayerPredictor(
+                                 args.layerbylayer_root_id,
+                                 args.layerbylayer_max_terminal_id,
+                                 args.layerbylayer_terminal_list,
                                  _get_override_args("t2t_src_vocab_size"),
                                  _get_override_args("t2t_trg_vocab_size"),
                                  _get_override_args("t2t_model"),
                                  _get_override_args("t2t_problem"),
                                  _get_override_args("t2t_hparams_set"),
+                                 args.t2t_usr_dir,
                                  _get_override_args("t2t_checkpoint_dir"),
                                  single_cpu_thread=args.single_cpu_thread)
             elif pred == "fst":
