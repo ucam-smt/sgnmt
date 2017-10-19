@@ -65,6 +65,7 @@ class WordMapper(object):
                               '<epsilon> ': utils.UNK_ID,
                               '<s> ': utils.GO_ID,
                               '</s> ': utils.EOS_ID}
+        logging.info('Using UNK_ID {}'.format(utils.UNK_ID))
 
     def synchronize(self):
         """Synchronizes the internal state of this mapper with
@@ -599,8 +600,8 @@ class MultisegBeamDecoder(Decoder):
                         hypo1 = new_hypo
                         hypo2 = hypo
                         hypos[idx] = new_hypo
-                    logging.debug("Hypo recombination: %s > %s" % (
-                        hypo1.trgt_sentence, hypo2.trgt_sentence))
+                    #logging.debug("Hypo recombination: %s > %s" % (
+                    #    hypo1.trgt_sentence, hypo2.trgt_sentence))
                     combined = True
                     break
             if not combined:
@@ -738,11 +739,11 @@ class MultisegBeamDecoder(Decoder):
                 break
             it = it + 1
             next_hypos = [guard_hypo]
-            #print("HYPOS")
+            #logging.debug("HYPOS")
             #for hypo in hypos:
-            #    print("it%d: %s (%f)" % (it, utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score))
+                #logging.debug("it%d: %s (%f)" % (it, utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score))
             for hypo in hypos:
-                #print("H: %s (%f: %f, %f, %f)" % (utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score, sum([s[0][0] for s in hypo.score_breakdown]), sum([s[1][0] for s in hypo.score_breakdown]), sum([s[2][0] for s in hypo.score_breakdown])))
+                #logging.debug("H: %s (%f: %f, %f, %f)" % (utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score, sum([s[0][0] for s in hypo.score_breakdown]), sum([s[1][0] for s in hypo.score_breakdown]), sum([s[2][0] for s in hypo.score_breakdown])))
                 if hypo.get_last_word() == utils.EOS_ID:
                     next_hypos = self._rebuild_hypo_list(next_hypos, hypo)
                 for s, cont in self._get_complete_continuations(

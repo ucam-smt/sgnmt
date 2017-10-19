@@ -1058,8 +1058,12 @@ def get_parser():
                         "permitted parses")
     group.add_argument("--parse_word_out", default=False, type='bool',
                         help="Whether to output word tokens only from parse" 
-                        "predictor. Should be used with a trg_idxmap."
+                        "predictor."
                         "Default outputs all rules.")
+    group.add_argument("--parse_beam", default=1, type=int,
+                        help="Beam size when internally searching for words" 
+                       "using parse predictor")
+
     group.add_argument("--parse_tok_grammar", default=False, type='bool',
                         help="Whether to use a token-based grammar."
                         "Default uses rule-based.")
