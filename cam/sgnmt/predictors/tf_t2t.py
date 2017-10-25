@@ -18,6 +18,8 @@ import os
 from cam.sgnmt import utils
 from cam.sgnmt.predictors.core import Predictor
 
+POP = "##POP##"
+"""Textual representation of the POP symbol."""
 
 try:
     # Requires tensor2tensor
@@ -41,7 +43,7 @@ try:
         integer sequences.
         """
 
-        def __init__(self, vocab_size):
+        def __init__(self, vocab_size, pop_id=None):
             super(DummyTextEncoder, self).__init__(num_reserved_ids=None)
             self._vocab_size = vocab_size
 
@@ -343,7 +345,10 @@ class T2TLayerbylayerPredictor(_BaseTensor2TensorPredictor):
                  checkpoint_dir,
                  t2t_unk_id=None,
                  single_cpu_thread=False,
-                 eol=None):
+                 terminal_strategy="skip",
+                 max_depth=5,
+                 eol="add",
+                 pop_id=-1):
         """Creates a new layerbylayer predictor, similar to the
         T2TPredictor constructor.
         
@@ -369,8 +374,17 @@ class T2TLayerbylayerPredictor(_BaseTensor2TensorPredictor):
                               None, UNK is always scored with -inf.
             single_cpu_thread (bool): If true, prevent tensorflow from
                                       doing multithreading.
-            eol (int): If set, token ID to use for the end-of-layer
-                       symbol.
+            terminal_strategy (string): 'force': Force output to parent if
+                                        parent is terminal.
+                                        'skip': Like force, but use 0 scores.
+                                        Otherwise: Treat terminal parent like
+                                        any other token
+            max_depth (int): Maximum tree depth.
+            eol (string): "pad" or "add". If "pad", we use the global token
+                          ID for the end-of-layer (eol) symbol. "add" means
+                          adding an entry to the posterior vector, ie. the
+                          EOL token ID is equal to trg_vocab_size.
+            pop_id (int): If positive, ID of the POP symbol.
 
         Raises:
             ValueError if root_id is negative.
@@ -383,12 +397,15 @@ class T2TLayerbylayerPredictor(_BaseTensor2TensorPredictor):
             logging.fatal("Set layerbylayer_root_id to the correct value!") 
             raise ValueError
         self.max_terminal_id = max_terminal_id
+        self.force_terminals = terminal_strategy == "force"
+        self.skip_terminals = terminal_strategy == "skip"
+        self.max_depth = max_depth
+        self.pop_id = pop_id if pop_id >= 0 else None
         if terminal_list:
             self.terminal_list = [int(i) for i in terminal_list.split(",")]
         else:
             self.terimnal_list = []
         self.root_id = root_id
-        self.eol_id = text_encoder.PAD_ID if eol is None else eol
         predictor_graph = tf.Graph()
         with predictor_graph.as_default() as g:
             hparams = self._create_hparams(
@@ -422,6 +439,19 @@ class T2TLayerbylayerPredictor(_BaseTensor2TensorPredictor):
             sharded_logits, _ = model.model_fn(features, 
                                                last_position_only=True)
             self._log_probs = log_prob_from_logits(sharded_logits[0])
+            if eol == "pad":
+              self.eol_id = text_encoder.PAD_ID
+            elif eol == "add":
+              self.eol_id = trg_vocab_size
+              self._log_probs = tf.pad(self._log_probs, [[0, 0],
+                                                         [0, 0],
+                                                         [0, 0],
+                                                         [0, 0],
+                                                         [0, 1]])
+            else:
+              logging.fatal("Unkown end-of-layer token ID strategy.")
+              raise ValueError
+            logging.info("End-of-layer ID: %d" % self.eol_id)
             self.mon_sess = self.create_session()
 
     def _create_hparams(
@@ -434,43 +464,91 @@ class T2TLayerbylayerPredictor(_BaseTensor2TensorPredictor):
         # vocabulary file.
         problem._encoders = {
             "inputs": DummyTextEncoder(vocab_size=src_vocab_size),
-            "targets": DummyTextEncoder(vocab_size=trg_vocab_size),
+            "targets": DummyTextEncoder(vocab_size=trg_vocab_size, 
+                                        pop_id=self.pop_id),
             "target_roots": DummyTextEncoder(vocab_size=trg_vocab_size)
         }
+        try:
+            hparams.add_hparam("max_terminal_id", self.max_terminal_id)
+        except:
+            pass
+        try:
+            hparams.add_hparam("pop_id", self.pop_id)
+        except:
+            pass
         p_hparams = problem.get_hparams(hparams)
         hparams.problem_instances = [problem]
         hparams.problems = [p_hparams]
         return hparams
-                
+
     def predict_next(self):
         """Call the T2T model in self.mon_sess."""
+        if not self.pop_id is None:
+            num_pop = sum([int(i == self.pop_id) for i in self.consumed])
+            cur_target_root = self.target_roots[num_pop]
+        # Skip computation if terminal root and skip_terminals
+        if self.skip_terminals and not self._is_nonterminal(cur_target_root):
+            if self.consumed[-1:] == [cur_target_root]:
+                return {self.pop_id: 0.0}
+            else:
+                return {cur_target_root: 0.0}
+        # Run tensorflow to get log probs
         log_probs = self.mon_sess.run(self._log_probs,
             {self._inputs_var: self.src_sentence,
              self._target_roots_var: self.target_roots,
              self._targets_var: self.consumed + [text_encoder.PAD_ID]})
         log_probs_squeezed = log_probs[0, 0, 0, 0, :]
+        # Set EOS or EOL scores depending on self.has_nonterminals
         log_probs_squeezed[text_encoder.PAD_ID] = utils.NEG_INF
         if self.has_nonterminals:
             log_probs_squeezed[self.eol_id] = \
-              log_probs_squeezed[text_encoder.EOS_ID]
+                log_probs_squeezed[text_encoder.EOS_ID]
             log_probs_squeezed[text_encoder.EOS_ID] = utils.NEG_INF
         else:
             log_probs_squeezed[self.eol_id] = utils.NEG_INF
+        # Restrict the total number of POPs
+        if not self.pop_id is None and num_pop >= len(self.target_roots) - 1:
+            log_probs_squeezed[self.pop_id] = utils.NEG_INF
+        # Force terminals if max depth is reached
+        if self.cur_depth >= self.max_depth:
+            log_probs_squeezed = self._set_nts_to_inf(log_probs_squeezed)
+        # Force output if force_terminals is enabled
+        if self.force_terminals and not self._is_nonterminal(cur_target_root):
+            return {cur_target_root: log_probs_squeezed[cur_target_root],
+                    self.pop_id: log_probs_squeezed[self.pop_id]}
         return log_probs_squeezed
     
     def initialize(self, src_sentence):
         """Set src_sentence, reset state."""
         self.has_nonterminals = False
         self.consumed = []
+        self.cur_depth = 0
         self.target_roots = [self.root_id, text_encoder.EOS_ID]
         self.src_sentence = src_sentence + [text_encoder.EOS_ID]
 
+    def _set_nts_to_inf(self, log_probs):
+        """Set scores of all non terminals to -inf."""
+        for idx in xrange(self.max_terminal_id + 1, len(log_probs)):
+            if not idx in self.terminal_list:
+                log_probs[idx] = utils.NEG_INF
+        return log_probs
+
     def _is_nonterminal(self, word):
+        if word == text_encoder.EOS_ID:
+            return True
         return word > self.max_terminal_id and not word in self.terminal_list
     
     def consume(self, word):
         if word == self.eol_id: # Decode next layer
+            self.cur_depth += 1
+            if self.cur_depth >= self.max_depth:
+                logging.debug("Maximum tree depth reached!")
+            if  self.target_roots == self.consumed + [text_encoder.EOS_ID]:
+                logging.warn("Repeated tree layers: %s!" % (self.target_roots,))
             self.target_roots = self.consumed + [text_encoder.EOS_ID]
+            if self.pop_id is not None:
+              self.target_roots = [t for t in self.target_roots 
+                                   if t != self.pop_id]
             self.has_nonterminals = False
             self.consumed = []
         else:
@@ -479,10 +557,10 @@ class T2TLayerbylayerPredictor(_BaseTensor2TensorPredictor):
                 self.has_nonterminals = self._is_nonterminal(word)
     
     def get_state(self):
-        return self.has_nonterminals, self.consumed, self.target_roots
+        return self.has_nonterminals, self.consumed, self.target_roots, self.cur_depth
     
     def set_state(self, state):
-        self.has_nonterminals, self.consumed, self.target_roots = state
+        self.has_nonterminals, self.consumed, self.target_roots, self.cur_depth = state
 
     def reset(self):
         """Empty method. """

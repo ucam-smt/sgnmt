@@ -311,20 +311,20 @@ def get_parser():
                         help="DEPRECATED: Use --indexing_scheme=tf instead")
     group.add_argument("--input_method", default="file",
                         choices=['dummy', 'file', 'shell', 'stdin'],
-                        help="This parameter controls how the input to GNMT "
-                        "is provided. GNMT supports three modes:\n\n"
+                        help="This parameter controls how the input to SGNMT "
+                        "is provided. SGNMT supports three modes:\n\n"
                         "* 'dummy': Use dummy source sentences.\n"
                         "* 'file': Read test sentences from a plain text file"
                             "specified by --src_test.\n"
                         "* 'shell': Start SGNMT in an interactive shell.\n"
                         "* 'stdin': Test sentences are read from stdin\n\n"
-                        "In shell and stdin mode you can change GNMT options "
+                        "In shell and stdin mode you can change SGNMT options "
                         "on the fly: Beginning a line with the string '!sgnmt '"
-                        " signals GNMT directives instead of sentences to "
+                        " signals SGNMT directives instead of sentences to "
                         "translate. E.g. '!sgnmt config predictor_weights "
                         "0.2,0.8' changes the current predictor weights. "
                         "'!sgnmt help' lists all available directives. Using "
-                        "GNMT directives is particularly useful in combination"
+                        "SGNMT directives is particularly useful in combination"
                         " with MERT to avoid start up times between "
                         "evaluations. Note that input sentences still have to "
                         "be written using word ids in all cases.")
@@ -662,7 +662,9 @@ def get_parser():
                         "                  Options: t2t_usr_dir, t2t_model, "
                         "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
                         "layerbylayer_root_id, layerbylayer_max_terminal_id, "
-                        "layerbylayer_terminal_list\n"
+                        "layerbylayer_terminal_list, layerbylayer_pop_id,"
+                        "layerbylayer_terminal_strategy, "
+                        "layerbylayer_max_depth\n"
                         "* 'srilm': n-gram language model.\n"
                         "          Options: srilm_path, srilm_order\n"
                         "* 'nplm': neural n-gram language model (NPLM).\n"
@@ -837,9 +839,26 @@ def get_parser():
                        help="If this is greater than zero, add a coverage "
                        "penalization term following Google's NMT (Wu et al., "
                        "2016) to the NMT score.")
+    group.add_argument("--layerbylayer_terminal_strategy", default="force", 
+                        choices=['none', 'force', 'skip'],
+                        help="Strategy for dealing with terminals as parents "
+                        "in layerbylayer predictors with POP attention.\n"
+                        "'none': Treat terminal parents like any other token\n"
+                        "'force': Force the output to the terminal parent "
+                        "label.\n"
+                        "'skip': Like 'force', but with log(1)=0 scores. This "
+                        "is usually faster, and must be used if the model is "
+                        "trained with use_loss_mask.")
+    group.add_argument("--layerbylayer_max_depth", default=30, type=int,
+                       help="Maximum depth of generated trees. After this "
+                       "depth is reached, only terminals and POP are allowed "
+                       "on the next layer.")
     group.add_argument("--layerbylayer_root_id", default=-1, type=int,
                        help="Must be set for the layerbylayer predictor. ID "
                        "of the initial target root label.")
+    group.add_argument("--layerbylayer_pop_id", default=-1, type=int,
+                       help="Must be set to a positive values if the "
+                       "layerbylayer predictor uses POP attention")
     group.add_argument("--layerbylayer_max_terminal_id", default=30003,
                        type=int,
                        help="All token IDs larger than this are considered to "
@@ -1034,7 +1053,7 @@ def get_parser():
     group.add_argument("--grammar_feature_weights", default='',
                         help="If rules_path points to a factorized rules file "
                         "(i.e. containing rules associated with a number of "
-                        "features, not only one score) GNMT uses a weighted "
+                        "features, not only one score) SGNMT uses a weighted "
                         "sum for them. You can specify the weights for this "
                         "summation here (comma-separated) or leave it blank "
                         "to sum them up equally weighted.")
@@ -1076,7 +1095,7 @@ def get_parser():
                         help="This option applies to fst and nfst "
                         "predictors. Lattices produced by HiFST contain the "
                         "<S> symbol and often have scores on the corresponding"
-                        " arc. However, GNMT skips <S> and this score is not "
+                        " arc. However, SGNMT skips <S> and this score is not "
                         "regarded anywhere. Set this option to true to add the "
                         "<S> scores. This ensures that the "
                         "complete path scores for the [n]fst and rtn "

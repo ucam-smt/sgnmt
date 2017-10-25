@@ -176,17 +176,20 @@ def add_predictors(decoder):
                                  single_cpu_thread=args.single_cpu_thread)
             elif pred == "layerbylayer":
                 p = T2TLayerbylayerPredictor(
-                                 args.layerbylayer_root_id,
-                                 args.layerbylayer_max_terminal_id,
-                                 args.layerbylayer_terminal_list,
-                                 _get_override_args("t2t_src_vocab_size"),
-                                 _get_override_args("t2t_trg_vocab_size"),
-                                 _get_override_args("t2t_model"),
-                                 _get_override_args("t2t_problem"),
-                                 _get_override_args("t2t_hparams_set"),
-                                 args.t2t_usr_dir,
-                                 _get_override_args("t2t_checkpoint_dir"),
-                                 single_cpu_thread=args.single_cpu_thread)
+                         args.layerbylayer_root_id,
+                         args.layerbylayer_max_terminal_id,
+                         args.layerbylayer_terminal_list,
+                         _get_override_args("t2t_src_vocab_size"),
+                         _get_override_args("t2t_trg_vocab_size"),
+                         _get_override_args("t2t_model"),
+                         _get_override_args("t2t_problem"),
+                         _get_override_args("t2t_hparams_set"),
+                         args.t2t_usr_dir,
+                         _get_override_args("t2t_checkpoint_dir"),
+                         single_cpu_thread=args.single_cpu_thread,
+                         max_depth=args.layerbylayer_max_depth,
+                         terminal_strategy=args.layerbylayer_terminal_strategy,
+                         pop_id=args.layerbylayer_pop_id)
             elif pred == "fst":
                 p = FstPredictor(_get_override_args("fst_path"),
                                  args.use_fst_weights,
