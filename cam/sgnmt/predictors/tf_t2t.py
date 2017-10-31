@@ -366,7 +366,8 @@ class _BaseLayerbylayerPredictor(_BaseTensor2TensorPredictor):
                  pop_id=-1,
                  root_id=-1,
                  terminal_list=None,
-                 max_depth=5):
+                 max_depth=5,
+                 pad_vocab=0):
         """Creates a new bfslayerbylayer predictor, similar to the
         T2TPredictor constructor.
         
@@ -394,6 +395,7 @@ class _BaseLayerbylayerPredictor(_BaseTensor2TensorPredictor):
                                     than max_terminal_id which still 
                                     should be treated as terminals.
             max_depth (int): Maximum tree depth.
+            pad_vocab (int): Extend the target vocabulary by this much
 
         Raises:
             ValueError if root_id is negative.
@@ -405,6 +407,8 @@ class _BaseLayerbylayerPredictor(_BaseTensor2TensorPredictor):
         if root_id < 0:
             logging.fatal("Set layerbylayer_root_id to the correct value!")
             raise ValueError
+        self.src_vocab_size = src_vocab_size
+        self.trg_vocab_size = trg_vocab_size
         self.max_terminal_id = max_terminal_id
         self.max_depth = max_depth
         self.pop_id = pop_id if pop_id >= 0 else None
@@ -446,6 +450,12 @@ class _BaseLayerbylayerPredictor(_BaseTensor2TensorPredictor):
             sharded_logits, _ = model.model_fn(features, 
                                                last_position_only=True)
             self._log_probs = log_prob_from_logits(sharded_logits[0])
+            if pad_vocab:
+                self._log_probs = tf.pad(self._log_probs, [[0, 0],
+                                                           [0, 0],
+                                                           [0, 0],
+                                                           [0, 0],
+                                                           [0, pad_vocab]])
             self.mon_sess = self.create_session()
 
     def _create_hparams(
@@ -516,26 +526,21 @@ class T2TBFSLayerbylayerPredictor(_BaseLayerbylayerPredictor):
         Raises:
             ValueError if root_id is negative.
         """
-        eol = kwargs["eol"]
-        terminal_strategy = kwargs["terminal_strategy"]
-        del kwargs["eol"]
-        del kwargs["terminal_strategy"]
-        super(T2TBFSLayerbylayerPredictor, self).__init__(*args, **kwargs)
-        if eol == "pad":
-            self.eol_id = text_encoder.PAD_ID
-        elif eol == "add":
-            self.eol_id = kwargs["trg_vocab_size"]
-            self._log_probs = tf.pad(self._log_probs, [[0, 0],
-                                                       [0, 0],
-                                                       [0, 0],
-                                                       [0, 0],
-                                                       [0, 1]])
-        else:
-            logging.fatal("Unkown end-of-layer token ID strategy.")
-            raise ValueError
-        logging.info("End-of-layer ID: %d" % self.eol_id)
+        eol = kwargs.get("eol", "add")
+        terminal_strategy = kwargs.get("terminal_strategy", "force")
+        if eol == "add":
+            kwargs["pad_vocab"] = 1
         self.force_terminals = terminal_strategy == "force"
         self.skip_terminals = terminal_strategy == "skip"
+        if "eol" in kwargs:
+            del kwargs["eol"]
+        if "terminal_strategy" in kwargs:
+            del kwargs["terminal_strategy"]
+        kwargs["pad_vocab"] = 1
+        super(T2TBFSLayerbylayerPredictor, self).__init__(*args, **kwargs)
+        self.eol_id = text_encoder.PAD_ID if eol == "pad" \
+                                          else self.trg_vocab_size
+        logging.info("End-of-layer ID: %d" % self.eol_id)
 
     def predict_next(self):
         """Predict token scores for the next timestep."""

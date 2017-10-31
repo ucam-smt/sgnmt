@@ -207,8 +207,7 @@ def add_predictors(decoder):
                          pop_id=args.syntax_pop_id,
                          root_id=args.syntax_root_id,
                          terminal_list=args.syntax_terminal_list,
-                         max_depth=args.syntax_max_depth,
-                         terminal_strategy=args.layerbylayer_terminal_strategy)
+                         max_depth=args.syntax_max_depth)
             elif pred == "bracket":
                 p = BracketPredictor(args.syntax_max_terminal_id,
                                      args.syntax_pop_id,
