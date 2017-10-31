@@ -658,13 +658,21 @@ def get_parser():
                         "* 't2t': Tensor2Tensor predictor.\n"
                         "         Options: t2t_usr_dir, t2t_model, "
                         "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir\n"
-                        "* 'layerbylayer': Layerbylayer models.\n"
+                        "* 'bfslayerbylayer': Layerbylayer models (BFS).\n"
                         "                  Options: t2t_usr_dir, t2t_model, "
                         "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
-                        "layerbylayer_root_id, layerbylayer_max_terminal_id, "
-                        "layerbylayer_terminal_list, layerbylayer_pop_id,"
-                        "layerbylayer_terminal_strategy, "
-                        "layerbylayer_max_depth\n"
+                        "syntax_root_id, syntax_max_terminal_id, "
+                        "syntax_terminal_list, syntax_pop_id,"
+                        "layerbylayer_terminal_strategy, syntax_max_depth\n"
+                        "* 'dfslayerbylayer': Layerbylayer models (DFS).\n"
+                        "                  Options: t2t_usr_dir, t2t_model, "
+                        "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
+                        "syntax_root_id, syntax_max_terminal_id, "
+                        "syntax_terminal_list, syntax_pop_id,"
+                        "layerbylayer_terminal_strategy, syntax_max_depth\n"
+                        "* 'bracket': Well-formed bracketing.\n"
+                        "         Options: syntax_max_terminal_id, "
+                        "syntax_pop_id, syntax_max_depth\n"
                         "* 'srilm': n-gram language model.\n"
                         "          Options: srilm_path, srilm_order\n"
                         "* 'nplm': neural n-gram language model (NPLM).\n"
@@ -849,25 +857,26 @@ def get_parser():
                         "'skip': Like 'force', but with log(1)=0 scores. This "
                         "is usually faster, and must be used if the model is "
                         "trained with use_loss_mask.")
-    group.add_argument("--layerbylayer_max_depth", default=30, type=int,
+    group.add_argument("--syntax_max_depth", default=30, type=int,
                        help="Maximum depth of generated trees. After this "
                        "depth is reached, only terminals and POP are allowed "
                        "on the next layer.")
-    group.add_argument("--layerbylayer_root_id", default=-1, type=int,
+    group.add_argument("--syntax_root_id", default=-1, type=int,
                        help="Must be set for the layerbylayer predictor. ID "
                        "of the initial target root label.")
-    group.add_argument("--layerbylayer_pop_id", default=-1, type=int,
+    group.add_argument("--syntax_pop_id", default=-1, type=int,
                        help="Must be set to a positive values if the "
-                       "layerbylayer predictor uses POP attention")
-    group.add_argument("--layerbylayer_max_terminal_id", default=30003,
+                       "layerbylayer predictor uses POP attention. This is "
+                       "also used for the closing bracket in linearised trees")
+    group.add_argument("--syntax_max_terminal_id", default=30003,
                        type=int,
                        help="All token IDs larger than this are considered to "
                        "be non-terminal symbols except the ones specified by "
-                       "--layerbylayer_terminal_list")
-    group.add_argument("--layerbylayer_terminal_list", default="",
+                       "--syntax_terminal_list")
+    group.add_argument("--syntax_terminal_list", default="",
                        help="List of IDs which are explicitly treated as "
                        "terminals, in addition to all IDs lower or equal "
-                       "--layerbylayer_max_terminal_id. This can be used to "
+                       "--syntax_max_terminal_id. This can be used to "
                        "exclude the POP symbol from the list of non-terminals "
                        "even though it has a ID higher than max_terminal_id.")
     group.add_argument("--t2t_usr_dir", default="",

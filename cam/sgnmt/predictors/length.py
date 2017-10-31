@@ -14,7 +14,7 @@ from scipy.special import gammaln
 
 from cam.sgnmt import utils
 from cam.sgnmt.misc.trie import SimpleTrie
-from cam.sgnmt.predictors.core import Predictor
+from cam.sgnmt.predictors.core import Predictor, UnboundedVocabularyPredictor
 import numpy as np
 
 
@@ -571,3 +571,72 @@ class UnkCountPredictor(Predictor):
         return state1 == state2
 
 
+class BracketPredictor(UnboundedVocabularyPredictor):
+    """This predictor constrains the output to well-formed bracket
+    expressions.
+    """
+    
+    def __init__(self, max_terminal_id, closing_bracket_id, max_depth=-1):
+        """Creates a new bracket predictor.
+        
+        Args:
+            max_terminal_id (int): All IDs greater than this are brackets
+            closing_bracket_id (int): All brackets except this one are opening
+            max_depth (int): If positive, restrict the maximum depth
+        """
+        super(BracketPredictor, self).__init__()
+        self.max_terminal_id = max_terminal_id
+        self.closing_bracket_id = closing_bracket_id
+        self.max_depth = max_depth if max_depth >=0 else 1000000
+    
+    def initialize(self, src_sentence):
+        """Sets the current depth to 0.
+        
+        Args:
+            src_sentence (list): Not used
+        """
+        self.cur_depth = 0
+    
+    def predict_next(self, words):
+        """If the maximum depth is reached, exclude all opening
+        brackets. If history is not balanced, exclude EOS.
+        
+        Args:
+            words (list): Set of words to score
+        Returns:
+            dict.
+        """
+        if self.cur_depth == 0:
+            return {self.closing_bracket_id: utils.NEG_INF}
+        if self.cur_depth >= self.max_depth:
+            return {w: utils.NEG_INF for w in words 
+                if w > self.max_terminal_id and w != self.closing_bracket_id}
+        return {utils.EOS_ID: utils.NEG_INF}
+        
+    def get_unk_probability(self, posterior):
+        """Always returns 0.0"""
+        return 0.0
+    
+    def consume(self, word):
+        """Updates current depth."""
+        if word == self.closing_bracket_id:
+            self.cur_depth -= 1
+        elif word > self.max_terminal_id:
+            self.cur_depth += 1
+    
+    def get_state(self):
+        """Returns the current depth"""
+        return self.cur_depth
+    
+    def set_state(self, state):
+        """Sets the current depth"""
+        self.cur_depth = state
+
+    def reset(self):
+        """Empty."""
+        pass
+    
+    def is_equal(self, state1, state2):
+        """Returns true if the depth is the same"""
+        return state1 == state2
+    
