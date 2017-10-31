@@ -191,7 +191,7 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
         TensorFlow session for predict_next() calls. This includes:
         - Load hyper parameters from the given set (hparams)
         - Update registry, load T2T model
-        - Create TF placeholders for source sequence and target pefix
+        - Create TF placeholders for source sequence and target prefix
         - Create computation graph for computing log probs.
         - Create a MonitoredSession object, which also handles 
           restoring checkpoints.
@@ -211,7 +211,10 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
                               None, UNK is always scored with -inf.
             single_cpu_thread (bool): If true, prevent tensorflow from
                                       doing multithreading.
+            max_terminal_id (int): If positive, maximum terminal ID. Needs to
+                be set for syntax-based T2T models.
             pop_id (int): If positive, ID of the POP or closing bracket symbol.
+                Needs to be set for syntax-based T2T models.
         """
         super(T2TPredictor, self).__init__(t2t_usr_dir, 
                                            checkpoint_dir, 
@@ -333,7 +336,7 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
         return state1 == state2
 
 
-class T2TBFSLayerbylayerPredictor(_BaseTensor2TensorPredictor):
+class _BaseLayerbylayerPredictor(_BaseTensor2TensorPredictor):
     """This predictor can be used to decode with layer-by-layer models.
     The state of the predictor includes the current sequence of target
     roots. We introduce a new end-of-layer symbol </l> which is set to
@@ -350,9 +353,6 @@ class T2TBFSLayerbylayerPredictor(_BaseTensor2TensorPredictor):
     """
 
     def __init__(self,
-                 root_id,
-                 max_terminal_id,
-                 terminal_list,
                  src_vocab_size,
                  trg_vocab_size,
                  model_name,
@@ -362,21 +362,15 @@ class T2TBFSLayerbylayerPredictor(_BaseTensor2TensorPredictor):
                  checkpoint_dir,
                  t2t_unk_id=None,
                  single_cpu_thread=False,
-                 terminal_strategy="skip",
-                 max_depth=5,
-                 eol="add",
-                 pop_id=-1):
-        """Creates a new layerbylayer predictor, similar to the
+                 max_terminal_id=30003,
+                 pop_id=-1,
+                 root_id=-1,
+                 terminal_list=None,
+                 max_depth=5):
+        """Creates a new bfslayerbylayer predictor, similar to the
         T2TPredictor constructor.
         
         Args:
-            root_id (int): ID of the ROOT token.
-            max_terminal_id (int): All IDs larger than this are non-
-                                   terminals except for the ones in
-                                   `terminal_list`.
-            terminal_list (string): Comma separated list of IDs larger
-                                    than max_terminal_id which still 
-                                    should be treated as terminals.
             src_vocab_size (int): Source vocabulary size.
             trg_vocab_size (int): Target vocabulary size.
             model_name (string): T2T model name.
@@ -391,31 +385,27 @@ class T2TBFSLayerbylayerPredictor(_BaseTensor2TensorPredictor):
                               None, UNK is always scored with -inf.
             single_cpu_thread (bool): If true, prevent tensorflow from
                                       doing multithreading.
-            terminal_strategy (string): 'force': Force output to parent if
-                                        parent is terminal.
-                                        'skip': Like force, but use 0 scores.
-                                        Otherwise: Treat terminal parent like
-                                        any other token
-            max_depth (int): Maximum tree depth.
-            eol (string): "pad" or "add". If "pad", we use the global token
-                          ID for the end-of-layer (eol) symbol. "add" means
-                          adding an entry to the posterior vector, ie. the
-                          EOL token ID is equal to trg_vocab_size.
+            max_terminal_id (int): All IDs larger than this are non-
+                                   terminals except for the ones in
+                                   `terminal_list`.
             pop_id (int): If positive, ID of the POP symbol.
+            root_id (int): ID of the ROOT token.
+            terminal_list (string): Comma separated list of IDs larger
+                                    than max_terminal_id which still 
+                                    should be treated as terminals.
+            max_depth (int): Maximum tree depth.
 
         Raises:
             ValueError if root_id is negative.
         """
-        super(T2TLayerbylayerPredictor, self).__init__(t2t_usr_dir, 
-                                                       checkpoint_dir, 
-                                                       t2t_unk_id, 
-                                                       single_cpu_thread)
+        super(_BaseLayerbylayerPredictor, self).__init__(t2t_usr_dir, 
+                                                         checkpoint_dir, 
+                                                         t2t_unk_id, 
+                                                         single_cpu_thread)
         if root_id < 0:
-            logging.fatal("Set layerbylayer_root_id to the correct value!") 
+            logging.fatal("Set layerbylayer_root_id to the correct value!")
             raise ValueError
         self.max_terminal_id = max_terminal_id
-        self.force_terminals = terminal_strategy == "force"
-        self.skip_terminals = terminal_strategy == "skip"
         self.max_depth = max_depth
         self.pop_id = pop_id if pop_id >= 0 else None
         if terminal_list:
@@ -456,19 +446,6 @@ class T2TBFSLayerbylayerPredictor(_BaseTensor2TensorPredictor):
             sharded_logits, _ = model.model_fn(features, 
                                                last_position_only=True)
             self._log_probs = log_prob_from_logits(sharded_logits[0])
-            if eol == "pad":
-              self.eol_id = text_encoder.PAD_ID
-            elif eol == "add":
-              self.eol_id = trg_vocab_size
-              self._log_probs = tf.pad(self._log_probs, [[0, 0],
-                                                         [0, 0],
-                                                         [0, 0],
-                                                         [0, 0],
-                                                         [0, 1]])
-            else:
-              logging.fatal("Unkown end-of-layer token ID strategy.")
-              raise ValueError
-            logging.info("End-of-layer ID: %d" % self.eol_id)
             self.mon_sess = self.create_session()
 
     def _create_hparams(
@@ -502,8 +479,66 @@ class T2TBFSLayerbylayerPredictor(_BaseTensor2TensorPredictor):
         hparams.problems = [p_hparams]
         return hparams
 
+
+class T2TBFSLayerbylayerPredictor(_BaseLayerbylayerPredictor):
+    """This predictor can be used to decode with layer-by-layer models.
+    The state of the predictor includes the current sequence of target
+    roots. We introduce a new end-of-layer symbol </l> which is set to
+    0 (t2t PAD) by default. We initially use the </s> score for </l> 
+    and set </s> to -inf. When </l> is consumed, we update the 
+    predictor state as follows:
+      - If only terminals have been consumed since the last </l>, we
+        finalize this hypothesis by forcing </s> at the next step.
+      - Otherwise, update the current sequence of target roots to the
+        sequence consumed since the last </l> and reset the history.
+    Decoding with this predictor will generate a sequence of tokens
+    which can be split into segments at </l>. Each segment describes
+    one layer of the generated tree with increasing depth.
+    """
+
+    def __init__(self, *args, **kwargs):
+        """Creates a new bfslayerbylayer predictor, similar to the
+        T2TPredictor constructor.
+        
+        Args:
+            *args: See BaseLayerbylayerPredictor
+            *kwargs: See BaseLayerbylayerPredictor
+            terminal_strategy (string): 'force': Force output to parent if
+                                        parent is terminal.
+                                        'skip': Like force, but use 0 scores.
+                                        Otherwise: Treat terminal parent like
+                                        any other token
+            eol (string): "pad" or "add". If "pad", we use the global token
+                          ID for the end-of-layer (eol) symbol. "add" means
+                          adding an entry to the posterior vector, ie. the
+                          EOL token ID is equal to trg_vocab_size.
+
+        Raises:
+            ValueError if root_id is negative.
+        """
+        eol = kwargs["eol"]
+        terminal_strategy = kwargs["terminal_strategy"]
+        del kwargs["eol"]
+        del kwargs["terminal_strategy"]
+        super(T2TBFSLayerbylayerPredictor, self).__init__(*args, **kwargs)
+        if eol == "pad":
+            self.eol_id = text_encoder.PAD_ID
+        elif eol == "add":
+            self.eol_id = kwargs["trg_vocab_size"]
+            self._log_probs = tf.pad(self._log_probs, [[0, 0],
+                                                       [0, 0],
+                                                       [0, 0],
+                                                       [0, 0],
+                                                       [0, 1]])
+        else:
+            logging.fatal("Unkown end-of-layer token ID strategy.")
+            raise ValueError
+        logging.info("End-of-layer ID: %d" % self.eol_id)
+        self.force_terminals = terminal_strategy == "force"
+        self.skip_terminals = terminal_strategy == "skip"
+
     def predict_next(self):
-        """Call the T2T model in self.mon_sess."""
+        """Predict token scores for the next timestep."""
         if not self.pop_id is None:
             num_pop = sum([int(i == self.pop_id) for i in self.consumed])
             cur_target_root = self.target_roots[num_pop]
@@ -560,16 +595,19 @@ class T2TBFSLayerbylayerPredictor(_BaseTensor2TensorPredictor):
         return word > self.max_terminal_id and not word in self.terminal_list
     
     def consume(self, word):
+        """If `word` is end-of-layer, clear history and update target
+        roots. Otherwise, append to current history.
+        """
         if word == self.eol_id: # Decode next layer
             self.cur_depth += 1
             if self.cur_depth >= self.max_depth:
                 logging.debug("Maximum tree depth reached!")
             if  self.target_roots == self.consumed + [text_encoder.EOS_ID]:
-                logging.warn("Repeated tree layers: %s!" % (self.target_roots,))
+                logging.warn("Repeated tree layers: %s" % (self.target_roots,))
             self.target_roots = self.consumed + [text_encoder.EOS_ID]
             if self.pop_id is not None:
-              self.target_roots = [t for t in self.target_roots 
-                                   if t != self.pop_id]
+                self.target_roots = [t for t in self.target_roots 
+                                     if t != self.pop_id]
             self.has_nonterminals = False
             self.consumed = []
         else:
@@ -578,10 +616,16 @@ class T2TBFSLayerbylayerPredictor(_BaseTensor2TensorPredictor):
                 self.has_nonterminals = self._is_nonterminal(word)
     
     def get_state(self):
-        return self.has_nonterminals, self.consumed, self.target_roots, self.cur_depth
+        return (self.has_nonterminals,
+                self.consumed,
+                self.target_roots,
+                self.cur_depth)
     
     def set_state(self, state):
-        self.has_nonterminals, self.consumed, self.target_roots, self.cur_depth = state
+        (self.has_nonterminals,
+         self.consumed,
+         self.target_roots,
+         self.cur_depth) = state
 
     def reset(self):
         """Empty method. """
@@ -592,129 +636,32 @@ class T2TBFSLayerbylayerPredictor(_BaseTensor2TensorPredictor):
         return state1[1] == state2[1] and state1[2] == state2[2]
 
 
-class T2TDFSLayerbylayerPredictor(_BaseTensor2TensorPredictor):
-    """TODO"""
-
-    def __init__(self,
-                 root_id,
-                 max_terminal_id,
-                 terminal_list,
-                 src_vocab_size,
-                 trg_vocab_size,
-                 model_name,
-                 problem_name,
-                 hparams_set_name,
-                 t2t_usr_dir,
-                 checkpoint_dir,
-                 t2t_unk_id=None,
-                 single_cpu_thread=False,
-                 terminal_strategy="skip",
-                 max_depth=5,
-                 pop_id=-1):
-        """TODO"""
-        super(T2TDFSLayerbylayerPredictor, self).__init__(t2t_usr_dir, 
-                                                       checkpoint_dir, 
-                                                       t2t_unk_id, 
-                                                       single_cpu_thread)
-        if root_id < 0:
-            logging.fatal("Set layerbylayer_root_id to the correct value!") 
-            raise ValueError
-        self.max_terminal_id = max_terminal_id
-        self.force_terminals = terminal_strategy == "force"
-        self.skip_terminals = terminal_strategy == "skip"
-        self.max_depth = max_depth
-        self.pop_id = pop_id if pop_id >= 0 else None
-        if terminal_list:
-            self.terminal_list = [int(i) for i in terminal_list.split(",")]
-        else:
-            self.terminal_list = []
-        self.terminal_list.append(self.pop_id)
-        self.root_id = root_id
-        predictor_graph = tf.Graph()
-        with predictor_graph.as_default() as g:
-            hparams = self._create_hparams(
-                src_vocab_size, trg_vocab_size, hparams_set_name, problem_name)
-            p_hparams = hparams.problems[0]
-            self._inputs_var = tf.placeholder(dtype=tf.int32, 
-                                              shape=[None], 
-                                              name="sgnmt_inputs")
-            self._targets_var = tf.placeholder(dtype=tf.int32, 
-                                               shape=[None], 
-                                               name="sgnmt_targets")
-            self._target_roots_var = tf.placeholder(dtype=tf.int32, 
-                                                    shape=[None], 
-                                                    name="sgnmt_target_roots")
-            features = {"problem_choice": tf.constant(0),
-                        "input_space_id": tf.constant(p_hparams.input_space_id),
-                        "target_space_id": tf.constant(
-                            p_hparams.target_space_id),
-                        "inputs": expand_input_dims_for_t2t(self._inputs_var),
-                        "targets": expand_input_dims_for_t2t(self._targets_var),
-                        "target_roots": expand_input_dims_for_t2t(
-                                            self._target_roots_var)}
-        
-            model = registry.model(model_name)(
-                hparams,
-                tf.estimator.ModeKeys.PREDICT,
-                hparams.problems[0],
-                0,
-                devices.data_parallelism(),
-                devices.ps_devices(all_workers=True))
-            sharded_logits, _ = model.model_fn(features, 
-                                               last_position_only=True)
-            self._log_probs = log_prob_from_logits(sharded_logits[0])
-            self.mon_sess = self.create_session()
-
-    def _create_hparams(
-          self, src_vocab_size, trg_vocab_size, hparams_set_name, problem_name):
-        """Creates hparams object, similar to T2TPredictor._create_hparams."""
-        hparams = registry.hparams(hparams_set_name)()
-        problem = registry.problem(problem_name)
-        # The following hack is necessary to prevent the problem from creating
-        # the default TextEncoders, which would fail due to the lack of a
-        # vocabulary file.
-        problem._encoders = {
-            "inputs": DummyTextEncoder(vocab_size=src_vocab_size),
-            "targets": DummyTextEncoder(vocab_size=trg_vocab_size, 
-                                        pop_id=self.pop_id),
-            "target_roots": DummyTextEncoder(vocab_size=trg_vocab_size)
-        }
-        try:
-            hparams.add_hparam("max_terminal_id", self.max_terminal_id)
-        except:
-            if hparams.max_terminal_id != self.max_terminal_id:
-                logging.warn("T2T max_terminal_id does not match (%d!=%d)"
-                             % (hparams.max_terminal_id, self.max_terminal_id))
-        try:
-            hparams.add_hparam("pop_id", self.pop_id)
-        except:
-            if hparams.pop_id != self.pop_id:
-                logging.warn("T2T pop_id does not match (%d!=%d)"
-                             % (hparams.pop_id, self.pop_id))
-            pass
-        p_hparams = problem.get_hparams(hparams)
-        hparams.problem_instances = [problem]
-        hparams.problems = [p_hparams]
-        return hparams
+class T2TDFSLayerbylayerPredictor(_BaseLayerbylayerPredictor):
+    """This layerbylayer predictor constructs trees in a DFS order, ie.
+    the output sequences with this predictor are linearised trees.
+    However, the underlying scores come from a layerbylayer model. The
+    predictor maintains partial hypotheses for each layer. Hypos are
+    expanded on demand, and not further as necessary for scoring the 
+    current node. This is only possible with POP attention since it
+    only requires the prefix of the target roots up to a certain
+    length.
+    """
 
     def predict_next(self):
-        """Call the T2T model in self.mon_sess."""
+        """Predict token scores for the next timestep."""
         # Force EOS if parent is EOS
         if self.cur_depth == 0:
             return {utils.EOS_ID: self._compute_eos_score()}
         # Run tensorflow to get log probs
-        #print("\nPREDICT NEXT START (%d)" % self.cur_depth)
-        #print(self._strip_pop(self.layer_targets[self.cur_depth-1]))
-        #print(self.layer_targets[self.cur_depth])
-        #print("PREDICT NEXT STOP")
         log_probs = self.mon_sess.run(self._log_probs,
             {self._inputs_var: self.src_sentence,
-             self._target_roots_var: self._strip_pop(self.layer_targets[self.cur_depth-1]),
-             self._targets_var: self.layer_targets[self.cur_depth] + [text_encoder.PAD_ID]})
+             self._target_roots_var: 
+                self._strip_pop(self.layer_targets[self.cur_depth-1]),
+             self._targets_var: 
+                self.layer_targets[self.cur_depth] + [text_encoder.PAD_ID]})
         log_probs_squeezed = log_probs[0, 0, 0, 0, :]
         # Go not deeper than max_depth
         if self.cur_depth >= self.max_depth - 1:
-            #print("SET NTs to -inf")
             log_probs_squeezed = self._set_nts_to_inf(log_probs_squeezed)
         log_probs_squeezed[text_encoder.PAD_ID] = utils.NEG_INF
         log_probs_squeezed[text_encoder.EOS_ID] = utils.NEG_INF
@@ -732,12 +679,16 @@ class T2TDFSLayerbylayerPredictor(_BaseTensor2TensorPredictor):
         self.src_sentence = src_sentence + [text_encoder.EOS_ID]
 
     def _compute_eos_score(self):
+        """The EOS scores is the sum of all EOS scores across all layers."""
         eos_score = 0.0
         for depth in xrange(1, self.tree_depth + 1):
             log_probs = self.mon_sess.run(self._log_probs,
                 {self._inputs_var: self.src_sentence,
-                 self._target_roots_var: self._strip_pop(self.layer_targets[depth-1]) + [text_encoder.EOS_ID],
-                 self._targets_var: self.layer_targets[depth] + [text_encoder.PAD_ID]})
+                 self._target_roots_var: 
+                    self._strip_pop(self.layer_targets[depth-1])
+                    + [text_encoder.EOS_ID],
+                 self._targets_var:
+                    self.layer_targets[depth] + [text_encoder.PAD_ID]})
             eos_score += log_probs[0, 0, 0, 0, text_encoder.EOS_ID]
         return eos_score
 
@@ -761,9 +712,6 @@ class T2TDFSLayerbylayerPredictor(_BaseTensor2TensorPredictor):
         else: # When producing a terminal, propagate to all next layers
             for i in xrange(self.cur_depth + 1, len(self.layer_targets)):
                 self.layer_targets[i].extend([word, self.pop_id])
-        #print("consumed %d new depth %d" % (word, self.cur_depth))
-        #for i in xrange(min(6, len(self.layer_targets))):
-        #    print(self.layer_targets[i])
     
     def get_state(self):
         return self.cur_depth, self.tree_depth, self.layer_targets
@@ -776,5 +724,5 @@ class T2TDFSLayerbylayerPredictor(_BaseTensor2TensorPredictor):
         pass
 
     def is_equal(self, state1, state2):
-        """TODO"""
+        """Trivial implementation."""
         return state1 == state2 

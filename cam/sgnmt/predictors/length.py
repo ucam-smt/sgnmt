@@ -599,7 +599,8 @@ class BracketPredictor(UnboundedVocabularyPredictor):
     
     def predict_next(self, words):
         """If the maximum depth is reached, exclude all opening
-        brackets. If history is not balanced, exclude EOS.
+        brackets. If history is not balanced, exclude EOS. If the
+        current depth is zero, exclude closing brackets.
         
         Args:
             words (list): Set of words to score
