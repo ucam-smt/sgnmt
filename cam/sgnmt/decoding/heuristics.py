@@ -65,6 +65,26 @@ class ScorePerWordHeuristic(Heuristic):
         pass
 
 
+class LastTokenHeuristic(Heuristic):
+    """This heuristic reflects the score of the last token in the
+    translation prefix only, ie. not the accumulated score. Using this
+    with pure_heuristic_estimates leads to expanding the partial 
+    hypothesis with the end token with the best individual score. This
+    can be useful in search spaces in which bad translation prefixes
+    imply low individual scores later.
+    """
+    
+    def estimate_future_cost(self, hypo):
+        """Returns the negative score of the last token in hypo."""
+        if len(hypo.trgt_sentence) > 0:
+            return hypo.score - hypo.score/len(hypo.trgt_sentence)
+        return 0.0
+    
+    def initialize(self, src_sentence):
+        """Empty method."""
+        pass
+
+
 class GreedyHeuristic(Heuristic):
     """This heuristic performs greedy decoding to get future cost 
     estimates. This is expensive but can lead to very close estimates.

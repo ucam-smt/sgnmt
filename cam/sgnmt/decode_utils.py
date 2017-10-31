@@ -30,7 +30,9 @@ from cam.sgnmt.decoding.flip import FlipDecoder
 from cam.sgnmt.decoding.greedy import GreedyDecoder
 from cam.sgnmt.decoding.heuristics import GreedyHeuristic, \
                                          PredictorHeuristic, \
-                                         ScorePerWordHeuristic, StatsHeuristic
+                                         ScorePerWordHeuristic, \
+                                         StatsHeuristic, \
+                                         LastTokenHeuristic
 from cam.sgnmt.decoding.multisegbeam import MultisegBeamDecoder
 from cam.sgnmt.decoding.restarting import RestartingDecoder
 from cam.sgnmt.decoding.sepbeam import SepBeamDecoder
@@ -534,6 +536,8 @@ def add_heuristics(decoder):
                                                  args.collect_statistics))
         elif name == 'scoreperword':
             decoder.add_heuristic(ScorePerWordHeuristic())
+        elif name == 'lasttoken':
+            decoder.add_heuristic(LastTokenHeuristic())
         else:
             logging.fatal("Heuristic %s not available. Please double-check "
                           "the --heuristics parameter." % name)

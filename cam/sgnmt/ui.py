@@ -447,6 +447,8 @@ def get_parser():
                         "of all selected predictors.\n"
                         "* 'greedy': Do greedy decoding to get the heuristic"
                         " costs. This is expensive but accurate.\n"
+                        "* 'lasttoken': Use the single score of the last "
+                        "token.\n"
                         "* 'stats': Collect unigram statistics during decoding"
                         "and compare actual hypothesis scores with the product"
                         " of unigram scores of the used words.\n"
