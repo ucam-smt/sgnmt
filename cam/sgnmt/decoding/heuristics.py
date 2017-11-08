@@ -76,9 +76,7 @@ class LastTokenHeuristic(Heuristic):
     
     def estimate_future_cost(self, hypo):
         """Returns the negative score of the last token in hypo."""
-        if len(hypo.trgt_sentence) > 0:
-            return hypo.score - hypo.score/len(hypo.trgt_sentence)
-        return 0.0
+        return -Decoder.combi_arithmetic_unnormalized(hypo.score_breakdown[-1])
     
     def initialize(self, src_sentence):
         """Empty method."""

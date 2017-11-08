@@ -674,7 +674,7 @@ def get_parser():
                         "layerbylayer_terminal_strategy, syntax_max_depth\n"
                         "* 'bracket': Well-formed bracketing.\n"
                         "         Options: syntax_max_terminal_id, "
-                        "syntax_pop_id, syntax_max_depth\n"
+                        "syntax_pop_id, syntax_max_depth, extlength_path\n"
                         "* 'srilm': n-gram language model.\n"
                         "          Options: srilm_path, srilm_order\n"
                         "* 'nplm': neural n-gram language model (NPLM).\n"

@@ -213,7 +213,8 @@ def add_predictors(decoder):
             elif pred == "bracket":
                 p = BracketPredictor(args.syntax_max_terminal_id,
                                      args.syntax_pop_id,
-                                     max_depth=args.syntax_max_depth)
+                                     max_depth=args.syntax_max_depth,
+                                     extlength_path=args.extlength_path)
             elif pred == "fst":
                 p = FstPredictor(_get_override_args("fst_path"),
                                  args.use_fst_weights,
