@@ -76,9 +76,9 @@ def switch_to_t2t_indexing():
     global GO_ID
     global EOS_ID
     global UNK_ID
-    GO_ID = 3 # Usually not used
+    GO_ID = 2 # Usually not used
     EOS_ID = 1
-    UNK_ID = 2 # Don't rely on this: UNK not standardized in T2T
+    UNK_ID = 3 # Don't rely on this: UNK not standardized in T2T
 
 
 # Log summation
