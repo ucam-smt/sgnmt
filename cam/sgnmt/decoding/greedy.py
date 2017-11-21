@@ -2,6 +2,7 @@
 
 from cam.sgnmt import utils
 from cam.sgnmt.decoding.core import Decoder, Hypothesis
+import logging
 
 
 class GreedyDecoder(Decoder):
@@ -39,6 +40,8 @@ class GreedyDecoder(Decoder):
             trgt_word = utils.argmax(posterior)
             score += posterior[trgt_word]
             trgt_sentence.append(trgt_word)
+            logging.debug("Partial hypothesis (%f): %s" % (
+                    score, " ".join([str(i) for i in trgt_sentence]))) 
             score_breakdown.append(breakdown[trgt_word])
             self.consume(trgt_word)
         self.add_full_hypo(Hypothesis(trgt_sentence, score, score_breakdown))

@@ -739,11 +739,7 @@ class MultisegBeamDecoder(Decoder):
                 break
             it = it + 1
             next_hypos = [guard_hypo]
-            #logging.debug("HYPOS")
-            #for hypo in hypos:
-                #logging.debug("it%d: %s (%f)" % (it, utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score))
             for hypo in hypos:
-                #logging.debug("H: %s (%f: %f, %f, %f)" % (utils.apply_trg_wmap(hypo.trgt_sentence), hypo.score, sum([s[0][0] for s in hypo.score_breakdown]), sum([s[1][0] for s in hypo.score_breakdown]), sum([s[2][0] for s in hypo.score_breakdown])))
                 if hypo.get_last_word() == utils.EOS_ID:
                     next_hypos = self._rebuild_hypo_list(next_hypos, hypo)
                 for s, cont in self._get_complete_continuations(

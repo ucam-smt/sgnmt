@@ -14,13 +14,38 @@ from scipy.special import gammaln
 
 from cam.sgnmt import utils
 from cam.sgnmt.misc.trie import SimpleTrie
-from cam.sgnmt.predictors.core import Predictor
+from cam.sgnmt.predictors.core import Predictor, UnboundedVocabularyPredictor
 import numpy as np
 
 
 NUM_FEATURES = 5
 EPS_R = 0.1;
 EPS_P = 0.00001;
+
+
+def load_external_lengths(path):
+    """Loads a length distribution from a plain text file. The file
+    must contain blank separated <length>:<score> pairs in each line.
+    
+    Args:
+        path (string): Path to the length file.
+    
+    Returns:
+        list of dicts mapping a length to its scores, one dict for each
+        sentence.
+    """
+    lengths = []
+    with open(path) as f:
+        for line in f:
+            scores = {}
+            for pair in line.strip().split():
+                if ':' in pair:
+                    length, score = pair.split(':')
+                    scores[int(length)] = float(score)
+                else:
+                    scores[int(pair)] = 0.0
+            lengths.append(scores)
+    return lengths
 
 
 class NBLengthPredictor(Predictor):
@@ -276,14 +301,7 @@ class ExternalLengthPredictor(Predictor):
                            distributions.
         """
         super(ExternalLengthPredictor, self).__init__()
-        self.trg_lengths = []
-        with open(path) as f:
-            for line in f:
-                scores = {}
-                for pair in line.strip().split():
-                    length,score = pair.split(':')
-                    scores[int(length)] = float(score)
-                self.trg_lengths.append(scores)
+        self.trg_lengths = load_external_lengths(path)
         
     def get_unk_probability(self, posterior):
         """Returns 0=log 1 if the partial hypothesis does not exceed
@@ -571,3 +589,114 @@ class UnkCountPredictor(Predictor):
         return state1 == state2
 
 
+class BracketPredictor(UnboundedVocabularyPredictor):
+    """This predictor constrains the output to well-formed bracket
+    expressions. It also allows to specify the number of terminals with
+    an external length distribution file.
+    """
+    
+    def __init__(self, max_terminal_id, closing_bracket_id, max_depth=-1, 
+                 extlength_path=""):
+        """Creates a new bracket predictor.
+        
+        Args:
+            max_terminal_id (int): All IDs greater than this are 
+                brackets
+            closing_bracket_id (int): All brackets except this one are 
+                opening
+            max_depth (int): If positive, restrict the maximum depth
+            extlength_path (string): If this is set, restrict the 
+                number of terminals to the distribution specified in
+                the referenced file. Terminals can be implicit: We
+                count a single terminal between each adjacent opening
+                and closing bracket.
+        """
+        super(BracketPredictor, self).__init__()
+        self.max_terminal_id = max_terminal_id
+        self.closing_bracket_id = closing_bracket_id
+        self.max_depth = max_depth if max_depth >= 0 else 1000000
+        if extlength_path:
+            self.length_scores = load_external_lengths(extlength_path)
+        else:
+            self.length_scores = None
+            self.max_length = 1000000
+    
+    def initialize(self, src_sentence):
+        """Sets the current depth to 0.
+        
+        Args:
+            src_sentence (list): Not used
+        """
+        self.cur_depth = 0
+        self.ends_with_opening = True
+        self.n_terminals = 0
+        if self.length_scores:
+            self.cur_length_scores = self.length_scores[self.current_sen_id]
+            self.max_length = max(self.cur_length_scores)
+    
+    def predict_next(self, words):
+        """If the maximum depth is reached, exclude all opening
+        brackets. If history is not balanced, exclude EOS. If the
+        current depth is zero, exclude closing brackets.
+        
+        Args:
+            words (list): Set of words to score
+        Returns:
+            dict.
+        """
+        if self.cur_depth == 0:
+            # Balanced: Score EOS with extlengths, supress closing bracket
+            if self.ends_with_opening:  # Initial predict next call
+                return {self.closing_bracket_id: utils.NEG_INF, 
+                        utils.EOS_ID: utils.NEG_INF}
+            return {utils.EOS_ID: self.cur_length_scores.get(
+                        self.n_terminals, utils.NEG_INF) 
+                       if self.length_scores else 0.0}
+        # Unbalanced: do not allow EOS
+        ret = {utils.EOS_ID: utils.NEG_INF}
+        if (self.cur_depth >= self.max_depth 
+                or self.n_terminals >= self.max_length):
+            # Do not allow opening brackets
+            ret.update({w: utils.NEG_INF for w in words 
+                if w > self.max_terminal_id and w != self.closing_bracket_id})
+        if (self.length_scores 
+                and self.cur_depth == 1 
+                and self.n_terminals > 0 
+                and not self.n_terminals in self.cur_length_scores):
+            # Do not allow to go back to depth 0 with wrong number of terminals
+            ret[self.closing_bracket_id] = utils.NEG_INF
+        return ret
+        
+    def get_unk_probability(self, posterior):
+        """Always returns 0.0"""
+        if self.cur_depth == 0 and not self.ends_with_opening:
+            return utils.NEG_INF 
+        return 0.0
+    
+    def consume(self, word):
+        """Updates current depth and the number of consumed terminals."""
+        if word == self.closing_bracket_id:
+            if self.ends_with_opening:
+                self.n_terminals += 1
+            self.cur_depth -= 1
+            self.ends_with_opening = False
+        elif word > self.max_terminal_id:
+            self.cur_depth += 1
+            self.ends_with_opening = True
+    
+    def get_state(self):
+        """Returns the current depth and number of consumed terminals"""
+        return self.cur_depth, self.n_terminals, self.ends_with_opening
+    
+    def set_state(self, state):
+        """Sets the current depth and number of consumed terminals"""
+        self.cur_depth, self.n_terminals, self.ends_with_opening = state
+
+    def reset(self):
+        """Empty."""
+        pass
+    
+    def is_equal(self, state1, state2):
+        """Trivial implementation"""
+        return state1 == state2
+    

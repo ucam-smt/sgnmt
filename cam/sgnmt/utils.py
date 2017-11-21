@@ -43,7 +43,8 @@ def switch_to_tf_indexing():
     """Calling this method overrides the global definitions of the 
     reserved  word ids ``GO_ID``, ``EOS_ID``, and ``UNK_ID``
     with the TensorFlow indexing scheme. This scheme is used the 
-    TensorFlow NMT and RNNLM models. """
+    TensorFlow NMT and RNNLM models. 
+    """
     global GO_ID
     global EOS_ID
     global UNK_ID
@@ -56,7 +57,8 @@ def switch_to_blocks_indexing():
     """Calling this method overrides the global definitions of the 
     reserved  word ids ``GO_ID``, ``EOS_ID``, and ``UNK_ID``
     with the Blocks indexing scheme. This scheme is used in the
-    Blocks NMT implementation and it's SGNMT extensions. """
+    Blocks NMT implementation and it's SGNMT extensions. 
+    """
     global GO_ID
     global EOS_ID
     global UNK_ID
@@ -69,13 +71,14 @@ def switch_to_t2t_indexing():
     """Calling this method overrides the global definitions of the 
     reserved  word ids ``GO_ID``, ``EOS_ID``, and ``UNK_ID``
     with the tensor2tensor indexing scheme. This scheme is used in all
-    t2t models. """
+    t2t models. 
+    """
     global GO_ID
     global EOS_ID
     global UNK_ID
-    GO_ID = 3 # Usually not used
+    GO_ID = 2 # Usually not used
     EOS_ID = 1
-    UNK_ID = 2 # Don't rely on this: UNK not standardized in T2T
+    UNK_ID = 3 # Don't rely on this: UNK not standardized in T2T
 
 
 # Log summation

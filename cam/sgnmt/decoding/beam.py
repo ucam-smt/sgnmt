@@ -15,21 +15,13 @@ class BeamDecoder(Decoder):
     supports risk-free pruning and hypotheses recombination.
     """
     
-    def __init__(self,
-                 decoder_args,
-                 hypo_recombination,
-                 beam_size,
-                 pure_heuristic_scores = False, 
-                 diversity_factor = -1.0,
-                 early_stopping = True):
-        """Creates a new beam decoder instance
+    def __init__(self, decoder_args):
+        """Creates a new beam decoder instance. The following values
+        are fetched from `decoder_args`:
         
-        Args:
-            decoder_args (object): Decoder configuration passed through
-                                   from the configuration API.
             hypo_recombination (bool): Activates hypo recombination 
-            beam_size (int): Absolute beam size. A beam of 12 means
-                             that we keep track of 12 active hypotheses
+            beam (int): Absolute beam size. A beam of 12 means
+                        that we keep track of 12 active hypotheses
             pure_heuristic_scores (bool): Hypotheses to keep in the beam
                                           are normally selected 
                                           according the sum of partial
@@ -49,20 +41,28 @@ class BeamDecoder(Decoder):
                                    only interested in the single best
                                    decoding result. If you want to 
                                    create full 12-best lists, disable
+
+        Args:
+            decoder_args (object): Decoder configuration passed through
+                                   from the configuration API.
         """
         super(BeamDecoder, self).__init__(decoder_args)
-        self.diversity_factor = diversity_factor
-        self.diverse_decoding = (diversity_factor > 0.0)
-        if diversity_factor > 0.0:
+        self.diversity_factor = decoder_args.decoder_diversity_factor
+        self.diverse_decoding = (self.diversity_factor > 0.0)
+        if self.diversity_factor > 0.0:
             logging.fatal("Diversity promoting beam search is not implemented "
                           "yet")
-        self.beam_size = beam_size
-        self.hypo_recombination = hypo_recombination
-        self.stop_criterion = self._best_eos if early_stopping else self._all_eos
-        self.maintain_best_scores = early_stopping and not hypo_recombination 
-        if self.maintain_best_scores:
-            logging.debug("Risk-free beam-search pruning enabled")
-        self.pure_heuristic_scores = pure_heuristic_scores
+        self.beam_size = decoder_args.beam
+        self.hypo_recombination = decoder_args.hypo_recombination
+        self.maintain_best_scores = False
+        if decoder_args.early_stopping:
+            self.stop_criterion = self._best_eos 
+            if not self.hypo_recombination:
+                self.maintain_best_scores = True
+                logging.debug("Risk-free beam-search pruning enabled")
+        else:
+            self.stop_criterion = self._all_eos
+        self.pure_heuristic_scores = decoder_args.pure_heuristic_scores
     
     def _get_combined_score(self, hypo):
         """Combines hypo score with future cost estimates."""

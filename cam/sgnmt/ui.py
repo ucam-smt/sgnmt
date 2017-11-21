@@ -312,20 +312,20 @@ def get_parser():
                         help="DEPRECATED: Use --indexing_scheme=tf instead")
     group.add_argument("--input_method", default="file",
                         choices=['dummy', 'file', 'shell', 'stdin'],
-                        help="This parameter controls how the input to GNMT "
-                        "is provided. GNMT supports three modes:\n\n"
+                        help="This parameter controls how the input to SGNMT "
+                        "is provided. SGNMT supports three modes:\n\n"
                         "* 'dummy': Use dummy source sentences.\n"
                         "* 'file': Read test sentences from a plain text file"
                             "specified by --src_test.\n"
                         "* 'shell': Start SGNMT in an interactive shell.\n"
                         "* 'stdin': Test sentences are read from stdin\n\n"
-                        "In shell and stdin mode you can change GNMT options "
+                        "In shell and stdin mode you can change SGNMT options "
                         "on the fly: Beginning a line with the string '!sgnmt '"
-                        " signals GNMT directives instead of sentences to "
+                        " signals SGNMT directives instead of sentences to "
                         "translate. E.g. '!sgnmt config predictor_weights "
                         "0.2,0.8' changes the current predictor weights. "
                         "'!sgnmt help' lists all available directives. Using "
-                        "GNMT directives is particularly useful in combination"
+                        "SGNMT directives is particularly useful in combination"
                         " with MERT to avoid start up times between "
                         "evaluations. Note that input sentences still have to "
                         "be written using word ids in all cases.")
@@ -448,6 +448,8 @@ def get_parser():
                         "of all selected predictors.\n"
                         "* 'greedy': Do greedy decoding to get the heuristic"
                         " costs. This is expensive but accurate.\n"
+                        "* 'lasttoken': Use the single score of the last "
+                        "token.\n"
                         "* 'stats': Collect unigram statistics during decoding"
                         "and compare actual hypothesis scores with the product"
                         " of unigram scores of the used words.\n"
@@ -659,6 +661,21 @@ def get_parser():
                         "* 't2t': Tensor2Tensor predictor.\n"
                         "         Options: t2t_usr_dir, t2t_model, "
                         "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir\n"
+                        "* 'bfslayerbylayer': Layerbylayer models (BFS).\n"
+                        "                  Options: t2t_usr_dir, t2t_model, "
+                        "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
+                        "syntax_root_id, syntax_max_terminal_id, "
+                        "syntax_terminal_list, syntax_pop_id,"
+                        "layerbylayer_terminal_strategy, syntax_max_depth\n"
+                        "* 'dfslayerbylayer': Layerbylayer models (DFS).\n"
+                        "                  Options: t2t_usr_dir, t2t_model, "
+                        "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
+                        "syntax_root_id, syntax_max_terminal_id, "
+                        "syntax_terminal_list, syntax_pop_id,"
+                        "layerbylayer_terminal_strategy, syntax_max_depth\n"
+                        "* 'bracket': Well-formed bracketing.\n"
+                        "         Options: syntax_max_terminal_id, "
+                        "syntax_pop_id, syntax_max_depth, extlength_path\n"
                         "* 'srilm': n-gram language model.\n"
                         "          Options: srilm_path, srilm_order\n"
                         "* 'nplm': neural n-gram language model (NPLM).\n"
@@ -694,7 +711,7 @@ def get_parser():
                         "minimize_rtns, remove_epsilon_in_rtns, "
                         "normalize_rtn_weights\n"
                         "* 'lrhiero': Direct Hiero (left-to-right Hiero). This "
-                        "is a EXPERIMENTAL implementation of LRHiero.\n"
+                        "is an EXPERIMENTAL implementation of LRHiero.\n"
                         "             Options: rules_path, "
                         "grammar_feature_weights, use_grammar_weights\n"
                         "* 'wc': Number of words feature.\n"
@@ -831,8 +848,40 @@ def get_parser():
                         "histories containing UNK and reload them when needed")
     group.add_argument("--gnmt_beta", default=0.0, type=float,
                        help="If this is greater than zero, add a coverage "
-                       "penalization term following Googles NMT (Wu et al., "
+                       "penalization term following Google's NMT (Wu et al., "
                        "2016) to the NMT score.")
+    group.add_argument("--layerbylayer_terminal_strategy", default="force", 
+                        choices=['none', 'force', 'skip'],
+                        help="Strategy for dealing with terminals as parents "
+                        "in layerbylayer predictors with POP attention.\n"
+                        "'none': Treat terminal parents like any other token\n"
+                        "'force': Force the output to the terminal parent "
+                        "label.\n"
+                        "'skip': Like 'force', but with log(1)=0 scores. This "
+                        "is usually faster, and must be used if the model is "
+                        "trained with use_loss_mask.")
+    group.add_argument("--syntax_max_depth", default=30, type=int,
+                       help="Maximum depth of generated trees. After this "
+                       "depth is reached, only terminals and POP are allowed "
+                       "on the next layer.")
+    group.add_argument("--syntax_root_id", default=-1, type=int,
+                       help="Must be set for the layerbylayer predictor. ID "
+                       "of the initial target root label.")
+    group.add_argument("--syntax_pop_id", default=-1, type=int,
+                       help="Must be set to a positive values if the "
+                       "layerbylayer predictor uses POP attention. This is "
+                       "also used for the closing bracket in linearised trees")
+    group.add_argument("--syntax_max_terminal_id", default=30003,
+                       type=int,
+                       help="All token IDs larger than this are considered to "
+                       "be non-terminal symbols except the ones specified by "
+                       "--syntax_terminal_list")
+    group.add_argument("--syntax_terminal_list", default="",
+                       help="List of IDs which are explicitly treated as "
+                       "terminals, in addition to all IDs lower or equal "
+                       "--syntax_max_terminal_id. This can be used to "
+                       "exclude the POP symbol from the list of non-terminals "
+                       "even though it has a ID higher than max_terminal_id.")
     group.add_argument("--t2t_usr_dir", default="",
                        help="Available for the t2t predictor. See the "
                        "--t2t_usr_dir argument in tensor2tensor.")
@@ -1016,7 +1065,7 @@ def get_parser():
     group.add_argument("--grammar_feature_weights", default='',
                         help="If rules_path points to a factorized rules file "
                         "(i.e. containing rules associated with a number of "
-                        "features, not only one score) GNMT uses a weighted "
+                        "features, not only one score) SGNMT uses a weighted "
                         "sum for them. You can specify the weights for this "
                         "summation here (comma-separated) or leave it blank "
                         "to sum them up equally weighted.")
@@ -1085,7 +1134,7 @@ def get_parser():
                         help="This option applies to fst and nfst "
                         "predictors. Lattices produced by HiFST contain the "
                         "<S> symbol and often have scores on the corresponding"
-                        " arc. However, GNMT skips <S> and this score is not "
+                        " arc. However, SGNMT skips <S> and this score is not "
                         "regarded anywhere. Set this option to true to add the "
                         "<S> scores. This ensures that the "
                         "complete path scores for the [n]fst and rtn "

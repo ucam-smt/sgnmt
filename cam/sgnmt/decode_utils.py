@@ -32,7 +32,9 @@ from cam.sgnmt.decoding.flip import FlipDecoder
 from cam.sgnmt.decoding.greedy import GreedyDecoder
 from cam.sgnmt.decoding.heuristics import GreedyHeuristic, \
                                          PredictorHeuristic, \
-                                         ScorePerWordHeuristic, StatsHeuristic
+                                         ScorePerWordHeuristic, \
+                                         StatsHeuristic, \
+                                         LastTokenHeuristic
 from cam.sgnmt.decoding.multisegbeam import MultisegBeamDecoder
 from cam.sgnmt.decoding.restarting import RestartingDecoder
 from cam.sgnmt.decoding.sepbeam import SepBeamDecoder
@@ -45,19 +47,20 @@ from cam.sgnmt.predictors.automata import FstPredictor, \
                                          RtnPredictor, \
                                          NondeterministicFstPredictor
 from cam.sgnmt.predictors.bow import BagOfWordsPredictor, \
-    BagOfWordsSearchPredictor
+                                     BagOfWordsSearchPredictor
 from cam.sgnmt.predictors.ffnnlm import NPLMPredictor
 from cam.sgnmt.predictors.forced import ForcedPredictor, ForcedLstPredictor
 from cam.sgnmt.predictors.grammar import RuleXtractPredictor
 from cam.sgnmt.predictors.length import WordCountPredictor, NBLengthPredictor, \
-    ExternalLengthPredictor, NgramCountPredictor, UnkCountPredictor
+    ExternalLengthPredictor, NgramCountPredictor, UnkCountPredictor, BracketPredictor
 from cam.sgnmt.predictors.misc import UnboundedAltsrcPredictor, AltsrcPredictor
 from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
                                             UnboundedIdxmapPredictor, \
                                             UnkvocabPredictor, \
                                             SkipvocabPredictor
 from cam.sgnmt.predictors.ngram import SRILMPredictor
-from cam.sgnmt.predictors.tf_t2t import T2TPredictor
+from cam.sgnmt.predictors.tf_t2t import T2TPredictor, T2TBFSLayerbylayerPredictor, \
+                                        T2TDFSLayerbylayerPredictor
 from cam.sgnmt.predictors.tokenization import Word2charPredictor, FSTTokPredictor
 from cam.sgnmt.tf.interface import tf_get_nmt_predictor, tf_get_nmt_vanilla_decoder, \
     tf_get_rnnlm_predictor, tf_get_default_nmt_config, tf_get_rnnlm_prefix
@@ -182,14 +185,52 @@ def add_predictors(decoder):
                 elif nmt_engine != 'none':
                     logging.fatal("NMT engine %s is not supported (yet)!" % nmt_engine)
             elif pred == "t2t":
-                p = T2TPredictor(args.t2t_usr_dir,
-                                 _get_override_args("t2t_src_vocab_size"),
+                p = T2TPredictor(_get_override_args("t2t_src_vocab_size"),
                                  _get_override_args("t2t_trg_vocab_size"),
                                  _get_override_args("t2t_model"),
                                  _get_override_args("t2t_problem"),
                                  _get_override_args("t2t_hparams_set"),
+                                 args.t2t_usr_dir,
                                  _get_override_args("t2t_checkpoint_dir"),
-                                 single_cpu_thread=args.single_cpu_thread)
+                                 single_cpu_thread=args.single_cpu_thread,
+                                 max_terminal_id=args.syntax_max_terminal_id,
+                                 pop_id=args.syntax_pop_id)
+            elif pred == "bfslayerbylayer":
+                p = T2TBFSLayerbylayerPredictor(
+                         _get_override_args("t2t_src_vocab_size"),
+                         _get_override_args("t2t_trg_vocab_size"),
+                         _get_override_args("t2t_model"),
+                         _get_override_args("t2t_problem"),
+                         _get_override_args("t2t_hparams_set"),
+                         args.t2t_usr_dir,
+                         _get_override_args("t2t_checkpoint_dir"),
+                         single_cpu_thread=args.single_cpu_thread,
+                         max_terminal_id=args.syntax_max_terminal_id,
+                         pop_id=args.syntax_pop_id,
+                         root_id=args.syntax_root_id,
+                         terminal_list=args.syntax_terminal_list,
+                         max_depth=args.syntax_max_depth,
+                         terminal_strategy=args.layerbylayer_terminal_strategy)
+            elif pred == "dfslayerbylayer":
+                p = T2TDFSLayerbylayerPredictor(
+                         _get_override_args("t2t_src_vocab_size"),
+                         _get_override_args("t2t_trg_vocab_size"),
+                         _get_override_args("t2t_model"),
+                         _get_override_args("t2t_problem"),
+                         _get_override_args("t2t_hparams_set"),
+                         args.t2t_usr_dir,
+                         _get_override_args("t2t_checkpoint_dir"),
+                         single_cpu_thread=args.single_cpu_thread,
+                         max_terminal_id=args.syntax_max_terminal_id,
+                         pop_id=args.syntax_pop_id,
+                         root_id=args.syntax_root_id,
+                         terminal_list=args.syntax_terminal_list,
+                         max_depth=args.syntax_max_depth)
+            elif pred == "bracket":
+                p = BracketPredictor(args.syntax_max_terminal_id,
+                                     args.syntax_pop_id,
+                                     max_depth=args.syntax_max_depth,
+                                     extlength_path=args.extlength_path)
             elif pred == "fst":
                 p = FstPredictor(_get_override_args("fst_path"),
                                  args.use_fst_weights,
@@ -387,12 +428,7 @@ def create_decoder(new_args):
     if args.decoder == "greedy":
         decoder = GreedyDecoder(args)
     elif args.decoder == "beam":
-        decoder = BeamDecoder(args,
-                              args.hypo_recombination,
-                              args.beam,
-                              args.pure_heuristic_scores,
-                              args.decoder_diversity_factor,
-                              args.early_stopping)
+        decoder = BeamDecoder(args)
     elif args.decoder == "multisegbeam":
         decoder = MultisegBeamDecoder(args,
                                       args.hypo_recombination,
@@ -417,9 +453,7 @@ def create_decoder(new_args):
                                  args.decoder_diversity_factor,
                                  args.early_stopping)
     elif args.decoder == "dfs":
-        decoder = DFSDecoder(args, 
-                             args.early_stopping,
-                             args.max_node_expansions)
+        decoder = DFSDecoder(args)
     elif args.decoder == "restarting":
         decoder = RestartingDecoder(args,
                                     args.hypo_recombination,
@@ -535,6 +569,8 @@ def add_heuristics(decoder):
                                                  args.collect_statistics))
         elif name == 'scoreperword':
             decoder.add_heuristic(ScorePerWordHeuristic())
+        elif name == 'lasttoken':
+            decoder.add_heuristic(LastTokenHeuristic())
         else:
             logging.fatal("Heuristic %s not available. Please double-check "
                           "the --heuristics parameter." % name)
