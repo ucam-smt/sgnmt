@@ -249,10 +249,12 @@ def add_predictors(decoder):
                                              "parse_nmt_config")
                 if args.parse_tok_grammar:
                     p = TokParsePredictor(args.parse_path,
-                                       nmt_p,
-                                       args.parse_word_out,
-                                       args.normalize_fst_weights,
-                                       to_log=args.fst_to_log)
+                                          nmt_p,
+                                          args.parse_word_out,
+                                          args.normalize_fst_weights,
+                                          to_log=args.fst_to_log,
+                                          beam_size=args.parse_beam,
+                                          consume_out_of_class=args.parse_consume_ooc)
                 else:
                     p = ParsePredictor(args.parse_path,
                                           nmt_p,

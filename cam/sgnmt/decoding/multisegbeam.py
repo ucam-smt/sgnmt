@@ -60,12 +60,13 @@ class WordMapper(object):
         self.wmap_len = 0
         self.key2id = {}
         self.synchronize()
-        self.reserved_keys = {'<unk> ': utils.UNK_ID,
+        self.reserved_keys = {'<unk> ': 3,
                               '<eps> ': utils.UNK_ID,
                               '<epsilon> ': utils.UNK_ID,
                               '<s> ': utils.GO_ID,
                               '</s> ': utils.EOS_ID}
-        logging.info('Using UNK_ID {}'.format(utils.UNK_ID))
+        self.UNK_ID = self.reserved_keys['<unk> ']
+        logging.info('Using UNK_ID {} EOS_ID {}, GO_ID {}'.format(utils.UNK_ID, utils.EOS_ID, utils.GO_ID))
 
     def synchronize(self):
         """Synchronizes the internal state of this mapper with
@@ -76,7 +77,7 @@ class WordMapper(object):
         if self.wmap_len == len(utils.trg_wmap):
             return
         self.key2id = {}
-        self.max_word_id = 3
+        self.max_word_id = 4
         for word_id, key in utils.trg_wmap.iteritems():
             self.max_word_id = max(self.max_word_id, word_id)
             self.key2id["%s " % key] = word_id
@@ -94,7 +95,8 @@ class WordMapper(object):
             the key cannot be found in ``utils.trg_wmap`` 
         """
         if not key:
-            return utils.UNK_ID
+            logging.info("didn't find a key {}".format(key))
+            return self.UNK_ID
         if key in self.reserved_keys:
             return self.reserved_keys[key]
         self.synchronize()
@@ -152,6 +154,7 @@ class WordTokenizer(Tokenizer):
     
     def __init__(self, path):
         self.id2key = {}
+        self.UNK_ID = 3
         self.key2id = {}
         try:
             split = path.split(":", 1)
@@ -164,12 +167,12 @@ class WordTokenizer(Tokenizer):
                 entry = line.strip().split()
                 key = entry[0]
                 word_id = int(entry[-1])
-                if word_id < max_id and word_id != utils.UNK_ID:
+                if word_id < max_id:
                     self.id2key[word_id] = "%s " % key
                     self.key2id["%s " % key] = word_id
     
     def key2tokens(self, key):
-        return [self.key2id.get(key, utils.UNK_ID)]
+        return [self.key2id.get(key, self.UNK_ID)]
     
     def tokens2key(self, tokens):
         if len(tokens) != 1:
@@ -485,7 +488,9 @@ class Continuation(object):
         pred_weights = []
         for idx,(p, w) in enumerate(decoder.predictors):
             p.set_state(copy.deepcopy(self.pred_stubs[idx].pred_state))
-            p.consume(self.pred_stubs[idx].tokens[-1])
+            key = decoder.toks[idx].id2key[self.pred_stubs[idx].tokens[-1]] 
+            logging.info('{} consuming {}'.format(p, key))
+            p.consume(self.pred_stubs[idx].tokens[-1], external=True)
             score_breakdown.append((self.pred_stubs[idx].score, w))
             pred_weights.append(w)
         word_id = WordMapper.get_singleton().get_word_id(self.key)
@@ -554,6 +559,7 @@ class MultisegBeamDecoder(Decoder):
         self.stop_criterion = self._best_eos if early_stopping else self._all_eos
         self.toks = []
         self.max_word_len = max_word_len
+        
         if not tokenizations:
             logging.fatal("Specify --multiseg_tokenizations!")
         for tok_config in tokenizations.split(","):
@@ -569,12 +575,12 @@ class MultisegBeamDecoder(Decoder):
 
     def _best_eos(self, hypos):
         """Returns true if the best hypothesis ends with </S>"""
-        return hypos[0].get_last_word() != utils.EOS_ID
+        return hypos[0].get_last_word() not in self.eos_ids
 
     def _all_eos(self, hypos):
         """Returns true if the all hypotheses end with </S>"""
         for hypo in hypos[:self.beam_size]:
-            if hypo.get_last_word() != utils.EOS_ID:
+            if hypo.get_last_word() not in self.eos_ids:
                 return True
         return False
     
@@ -625,7 +631,9 @@ class MultisegBeamDecoder(Decoder):
         posteriors = []
         for p, _ in self.predictors:
             posterior = p.predict_next()
-            posterior[utils.UNK_ID] = p.get_unk_probability(posterior) 
+            if p.UNK_ID not in posterior:
+                posterior[p.UNK_ID] = p.get_unk_probability(posterior)
+            #    logging.info('{} unk {} prob = {}'.format(p, p.UNK_ID, posterior[p.UNK_ID]))
             posteriors.append(posterior)
         return posteriors
 
@@ -647,6 +655,7 @@ class MultisegBeamDecoder(Decoder):
         """Stopping criterion for single predictor full word search.
         We stop full word search if the n best stubs are complete.
         """
+        #logging.info('{} {}'.format(tok, [tok.tokens2key(s.tokens) for s in stubs[:self.beam_size]]))
         return all([is_key_complete(tok.tokens2key(s.tokens)) 
                                            for s in stubs[:self.beam_size]])
 
@@ -656,6 +665,7 @@ class MultisegBeamDecoder(Decoder):
             next_stubs = []
             for stub in stubs[:self.beam_size]:
                 key = tok.tokens2key(stub.tokens)
+                #logging.info('{} searching for complete word, key {}'.format(predictor, key))
                 if (not key) or len(key) > self.max_word_len:
                     continue
                 if is_key_complete(key):
@@ -666,7 +676,7 @@ class MultisegBeamDecoder(Decoder):
                 posterior = predictor.predict_next()
                 pred_state = predictor.get_state()
                 for t, s in utils.common_iterable(posterior):
-                    if t != utils.UNK_ID and not tok.is_word_begin_token(t):
+                    if not tok.is_word_begin_token(t): #and t != utils.UNK_ID:
                         child_stub = stub.expand(t, s, pred_state)
                         if child_stub.score >= min_score:
                             next_stubs.append(child_stub)
@@ -707,14 +717,15 @@ class MultisegBeamDecoder(Decoder):
                         keys[key] = Continuation(hypo, stubs, key)
         # Fill in stubs which are set to None
         for cont in keys.itervalues():
-            for pidx in xrange(len(self.predictors)):
+            for pidx, (p, _) in enumerate(self.predictors):
+            #for pidx in xrange(len(self.predictors)):
                 if cont.pred_stubs[pidx] is None:
                     stub = PredictorStub(self.toks[pidx].key2tokens(cont.key),
                                          pred_states[pidx])
                     stub.score_next(utils.common_get(
                                          start_posteriors[pidx],
                                          stub.tokens[0],
-                                         start_posteriors[pidx][utils.UNK_ID]))
+                                         start_posteriors[pidx][p.UNK_ID]))
                     cont.pred_stubs[pidx] = stub
         conts = [(-c.calculate_score(pred_weights), c) for c in keys.itervalues()]
         heapq.heapify(conts)
@@ -740,8 +751,11 @@ class MultisegBeamDecoder(Decoder):
             it = it + 1
             next_hypos = [guard_hypo]
             for hypo in hypos:
-                if hypo.get_last_word() == utils.EOS_ID:
-                    next_hypos = self._rebuild_hypo_list(next_hypos, hypo)
+                if hypo.get_last_word() in self.eos_ids:
+                    if hypo.score >= next_hypos[-1].score:
+                        next_hypos = self._rebuild_hypo_list(next_hypos, hypo)
+                    continue
+                #logging.info('continuations')
                 for s, cont in self._get_complete_continuations(
                                                         hypo,
                                                         next_hypos[-1].score):
@@ -752,7 +766,7 @@ class MultisegBeamDecoder(Decoder):
                                             cont.generate_expanded_hypo(self))
             hypos = [h for h in next_hypos if h.score > utils.NEG_INF]  
         for hypo in hypos:
-            if hypo.get_last_word() == utils.EOS_ID:
+            if hypo.get_last_word() in self.eos_ids:
                 self.add_full_hypo(hypo.generate_full_hypothesis()) 
         if not self.full_hypos:
             logging.warn("No complete hypotheses found for %s" % src_sentence)

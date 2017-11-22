@@ -1112,7 +1112,9 @@ def get_parser():
     group.add_argument("--parse_beam", default=1, type=int,
                         help="Beam size when internally searching for words" 
                        "using parse predictor")
-
+    group.add_argument("--parse_consume_ooc", default=False, type='bool',
+                        help="Whether to let parse predictor consume tokens "
+                       "which are not permitted by the current LHS")
     group.add_argument("--parse_tok_grammar", default=False, type='bool',
                         help="Whether to use a token-based grammar."
                         "Default uses rule-based.")

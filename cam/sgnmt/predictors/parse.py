@@ -2,7 +2,7 @@ import copy
 import logging
 
 from cam.sgnmt import utils
-from cam.sgnmt.predictors.misc import SkipvocabInternalHypothesis as InternalHypo
+from cam.sgnmt.predictors.vocabulary import SkipvocabInternalHypothesis as InternalHypo
 from cam.sgnmt.predictors.core import Predictor
 from cam.sgnmt.utils import w2f
 import pywrapfst as fst
@@ -56,7 +56,10 @@ class ParsePredictor(Predictor):
         Returns:
             float. Negative infinity
         """
-        return utils.NEG_INF 
+        if utils.UNK_ID in posterior:
+            return posterior[utils.UNK_ID] 
+        else:
+            return utils.NEG_INF
     
     def predict_next(self, predicting_next_word=False):
         """Adds outgoing arcs from the current node as permitted by 
@@ -200,7 +203,8 @@ class TokParsePredictor(Predictor):
     """
     
     def __init__(self, grammar_path, nmt_predictor, word_out,
-                 normalize_scores=True, to_log=True, beam_size=12):
+                 normalize_scores=True, to_log=True, beam_size=12,
+                 consume_out_of_class=False):
         """Creates a new parse predictor.
         Args:
             grammar_path (string): Path to the grammar file
@@ -208,6 +212,7 @@ class TokParsePredictor(Predictor):
         super(TokParsePredictor, self).__init__()
         self.grammar_path = grammar_path
         self.nmt = nmt_predictor
+        self.UNK_ID = 3
         self.weight_factor = -1.0 if to_log else 1.0
         self.word_out = word_out
         self.use_weights = True
@@ -217,8 +222,9 @@ class TokParsePredictor(Predictor):
         self.stack = []
         self.current_lhs = None
         self.current_rhs = []
+        self.consume_ooc = consume_out_of_class
         self.prepare_grammar()
-    
+
     def prepare_grammar(self):
         self.lhs_to_can_follow = {}
         with open(self.grammar_path) as f:
@@ -238,14 +244,12 @@ class TokParsePredictor(Predictor):
         return False
 
     def get_unk_probability(self, posterior):
-        """Always returns negative infinity: Words outside the 
-        translation lattice are not possible according to this
-        predictor.
-        
-        Returns:
-            float. Negative infinity
+        """Return probability of unk from most recent posterior
         """
-        return utils.NEG_INF 
+        if self.UNK_ID in posterior:
+            return posterior[self.UNK_ID] 
+        else:
+            return utils.NEG_INF
     
     def predict_next(self, predicting_next_word=False):
         """predict next tokens as permitted by 
@@ -297,7 +301,10 @@ class TokParsePredictor(Predictor):
             next_hypos.sort(key=lambda h: -h.score)
             hypos = next_hypos[:self.beam_size]
         self.set_state(best_hypo.predictor_state)
+        #for tok in best_posterior:
+        #    best_posterior[tok] += best_hypo.score # include path score 
         return best_posterior
+
 
     def find_word(self, posterior):
         """Check whether rhs of best option in posterior is a terminal
@@ -341,7 +348,7 @@ class TokParsePredictor(Predictor):
         else:
             self.current_lhs = utils.EOS_ID
 
-    def consume(self, word):
+    def consume(self, word, external=False):
         """Updates the current node by following the arc labelled with
         ``word``. If there is no such arc, we set ``cur_node`` to -1,
         indicating that the predictor is in an invalid state. In this
@@ -352,8 +359,20 @@ class TokParsePredictor(Predictor):
         Returns:
             float. Weight on the traversed arc
         """
+        #logging.info('consuming {}'.format(word))
+        if self.current_lhs:
+            current_allowed = self.lhs_to_can_follow[self.current_lhs]
+        else:
+            current_allowed = set([utils.GO_ID])
+        if word == utils.UNK_ID:
+            logging.info('changing unk consumption')
+            word = self.UNK_ID
+        if not self.consume_ooc and word not in current_allowed:
+            #logging.info('currently allowed words like {}, not {}. Consuming unk instead.'.format(list(current_allowed)[-1], word))
+            word = self.UNK_ID
+        #if external:
+            #logging.info('Parse consuming {}'.format(word))
         self.nmt.consume(word) 
-        logging.debug('consuming {}'.format(word))
         if self.is_nt(word):
             self.current_rhs.append(word)
             if self.last_nt_in_rule[word]:

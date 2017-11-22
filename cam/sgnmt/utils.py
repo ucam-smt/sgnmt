@@ -325,6 +325,9 @@ def apply_trg_wmap(seq, inv_wmap = None):
         inv_wmap = trg_wmap
     if not inv_wmap:
         return ' '.join([str(i) for i in seq])
+    #logging.info('raw seq {}'.format(seq))
+    #for i in range(50):
+    #    logging.info('{} {}'.format(i, inv_wmap.get(i, 'UNK')))
     return ' '.join([inv_wmap.get(i, 'UNK') for i in seq])
 
 
