@@ -1119,16 +1119,6 @@ def get_parser():
                         help="Whether to use a token-based grammar."
                         "Default uses rule-based.")
 
-    group.add_argument("--parse_nmt_path", default="train",
-                        help="Only required for parse predictor. Sets "
-                        "the path to nmt model for parse predictor")
-    group.add_argument("--parse_nmt_config", default="cfg",
-                        help="Only required for parse predictor. Sets "
-                        "the path to nmt model for parse predictor")
-    group.add_argument("--parse_nmt_engine", default="tensorflow",
-                        help="Only required for parse predictor. Sets "
-                        "the nmt engine for the parse predictor")
-
     group.add_argument("--rtn_path", default="rtn/",
                         help="Only required for rtn predictor. Sets "
                         "the path to the RTN directory as created by HiFST")

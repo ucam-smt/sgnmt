@@ -243,24 +243,6 @@ def add_predictors(decoder):
                                                  args.normalize_fst_weights,
                                                  args.fst_skip_bos_weight,
                                                  to_log=args.fst_to_log)
-            elif pred == "parse":
-                nmt_p = create_nmt_predictor(_get_override_args("parse_nmt_engine"),
-                                             _get_override_args("parse_nmt_path"),
-                                             "parse_nmt_config")
-                if args.parse_tok_grammar:
-                    p = TokParsePredictor(args.parse_path,
-                                          nmt_p,
-                                          args.parse_word_out,
-                                          args.normalize_fst_weights,
-                                          to_log=args.fst_to_log,
-                                          beam_size=args.parse_beam,
-                                          consume_out_of_class=args.parse_consume_ooc)
-                else:
-                    p = ParsePredictor(args.parse_path,
-                                          nmt_p,
-                                          args.parse_word_out,
-                                          args.normalize_fst_weights,
-                                          to_log=args.fst_to_log)
             elif pred == "forced":
                 p = ForcedPredictor(args.trg_test)
             elif pred == "bow":
@@ -353,6 +335,22 @@ def add_predictors(decoder):
                         p = UnboundedIdxmapPredictor(src_path, trg_path, p, 1.0) 
                     else: # idxmap predictor for bounded predictors
                         p = IdxmapPredictor(src_path, trg_path, p, 1.0)
+
+                elif wrapper == "parse":
+                    if args.parse_tok_grammar:
+                        p = TokParsePredictor(args.parse_path,
+                                              p,
+                                              args.parse_word_out,
+                                              args.normalize_fst_weights,
+                                              to_log=args.fst_to_log,
+                                              beam_size=args.parse_beam,
+                                              consume_out_of_class=args.parse_consume_ooc)
+                    else:
+                        p = ParsePredictor(args.parse_path,
+                                           p,
+                                           args.parse_word_out,
+                                           args.normalize_fst_weights,
+                                           to_log=args.fst_to_log)
                 elif wrapper == "altsrc":
                     src_test = _get_override_args("altsrc_test")
                     if isinstance(p, UnboundedVocabularyPredictor): 
