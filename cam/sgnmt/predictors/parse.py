@@ -225,6 +225,7 @@ class TokParsePredictor(Predictor):
         self.consume_ooc = consume_out_of_class
         self.prepare_grammar()
 
+
     def prepare_grammar(self):
         self.lhs_to_can_follow = {}
         with open(self.grammar_path) as f:

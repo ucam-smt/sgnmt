@@ -1115,9 +1115,9 @@ def get_parser():
     group.add_argument("--parse_consume_ooc", default=False, type='bool',
                         help="Whether to let parse predictor consume tokens "
                        "which are not permitted by the current LHS")
-    group.add_argument("--parse_tok_grammar", default=False, type='bool',
+    group.add_argument("--parse_tok_grammar", default=True, type='bool',
                         help="Whether to use a token-based grammar."
-                        "Default uses rule-based.")
+                        "Default uses token-based.")
 
     group.add_argument("--rtn_path", default="rtn/",
                         help="Only required for rtn predictor. Sets "
