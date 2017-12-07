@@ -659,19 +659,26 @@ def get_parser():
                         "nmt_model_selector, cache_nmt_posteriors.\n"
                         "* 't2t': Tensor2Tensor predictor.\n"
                         "         Options: t2t_usr_dir, t2t_model, "
-                        "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir\n"
+                        "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
+                        "pred_src_vocab_size, pred_trg_vocab_size\n"
+                        "* 'nizza': Nizza alignment models.\n"
+                        "           Options: nizza_model, nizza_hparams_set, "
+                        "nizza_checkpoint_dir, pred_src_vocab_size, "
+                        "pred_trg_vocab_size\n"
                         "* 'bfslayerbylayer': Layerbylayer models (BFS).\n"
                         "                  Options: t2t_usr_dir, t2t_model, "
                         "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
                         "syntax_root_id, syntax_max_terminal_id, "
                         "syntax_terminal_list, syntax_pop_id,"
-                        "layerbylayer_terminal_strategy, syntax_max_depth\n"
+                        "layerbylayer_terminal_strategy, syntax_max_depth, "
+                        "pred_src_vocab_size, pred_trg_vocab_size\n"
                         "* 'dfslayerbylayer': Layerbylayer models (DFS).\n"
                         "                  Options: t2t_usr_dir, t2t_model, "
                         "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
                         "syntax_root_id, syntax_max_terminal_id, "
                         "syntax_terminal_list, syntax_pop_id,"
-                        "layerbylayer_terminal_strategy, syntax_max_depth\n"
+                        "layerbylayer_terminal_strategy, syntax_max_depth, "
+                        "pred_src_vocab_size, pred_trg_vocab_size\n"
                         "* 'bracket': Well-formed bracketing.\n"
                         "         Options: syntax_max_terminal_id, "
                         "syntax_pop_id, syntax_max_depth, extlength_path\n"
@@ -690,12 +697,12 @@ def get_parser():
                         "* 'bow': Forced decoding with one bag-of-words ref.\n"
                         "         Options: trg_test, heuristic_scores_file, "
                         "bow_heuristic_strategies, bow_accept_subsets, "
-                        "bow_accept_duplicates, bow_equivalence_vocab_size\n"
+                        "bow_accept_duplicates, pred_trg_vocab_size\n"
                         "* 'bowsearch': Forced decoding with one bag-of-words ref.\n"
                         "         Options: hypo_recombination, trg_test, "
                         "heuristic_scores_file, bow_heuristic_strategies, "
                         "bow_accept_subsets, bow_accept_duplicates, "
-                        "bow_equivalence_vocab_size\n"
+                        "pred_trg_vocab_size\n"
                         "* 'fst': Deterministic translation lattices\n"
                         "         Options: fst_path, use_fst_weights, "
                         "normalize_fst_weights, fst_to_log, "
@@ -716,7 +723,8 @@ def get_parser():
                         "* 'wc': Number of words feature.\n"
                         "        Options: wc_word.\n"
                         "* 'unkc': Poisson model for number of UNKs.\n"
-                        "          Options: unk_count_lambdas.\n"
+                        "          Options: unk_count_lambdas, "
+                        "pred_src_vocab_size.\n"
                         "* 'ngramc': Number of ngram feature.\n"
                         "            Options: ngramc_path, ngramc_order.\n"
                         "* 'length': Target sentence length model\n"
@@ -735,9 +743,9 @@ def get_parser():
                         "an alternative source.\n"
                         "            Options: altsrc_test\n"
                         "* 'unkvocab': This wrapper explicitly excludes "
-                        "matching word indices higher than trg_vocab_size "
-                        "with UNK scores.\n"
-                        "             Options: trg_vocab_size\n"
+                        "matching word indices higher than pred_trg_vocab_size"
+                        " with UNK scores.\n"
+                        "             Options: pred_trg_vocab_size\n"
                         "* 'fsttok': Uses an FST to transduce SGNMT tokens to "
                         "predictor tokens.\n"
                         "             Options: fsttok_path, "
@@ -800,6 +808,12 @@ def get_parser():
                         "with --combination_scheme after each node expansion. "
                         "If false, apply it only to complete hypotheses at "
                         "the end of decoding")
+    group.add_argument("--pred_src_vocab_size", default=30000, type=int,
+                        help="Predictor source vocabulary size. Used by the "
+                        "bow, bowsearch, t2t, nizza, unkc predictors.")
+    group.add_argument("--pred_trg_vocab_size", default=30000, type=int,
+                        help="Predictor target vocabulary size. Used by the"
+                        "bow, bowsearch, t2t, nizza, unkc predictors.")
     
     # Neural predictors
     group = parser.add_argument_group('Neural predictor options')
@@ -898,10 +912,21 @@ def get_parser():
                        help="Available for the t2t predictor. Path to the "
                        "tensor2tensor checkpoint directory. Same as "
                        "--output_dir in t2t_trainer.")
-    group.add_argument("--t2t_src_vocab_size", default=30000, type=int,
-                        help="T2T source vocabulary size")
-    group.add_argument("--t2t_trg_vocab_size", default=30000, type=int,
-                        help="T2T target vocabulary size")
+    group.add_argument("--t2t_src_vocab_size", default=0, type=int,
+                        help="DEPRECATED! Use --pred_src_vocab_size")
+    group.add_argument("--t2t_trg_vocab_size", default=0, type=int,
+                        help="DEPRECATED! Use --pred_trg_vocab_size")
+    group.add_argument("--nizza_model", default="model1",
+                       help="Available for the nizza predictor. Name of the "
+                       "nizza model.")
+    group.add_argument("--nizza_hparams_set",
+                       default="model1_default",
+                       help="Available for the nizza predictor. Name of the "
+                       "nizza hparams set.")
+    group.add_argument("--nizza_checkpoint_dir", default="",
+                       help="Available for the nizza predictor. Path to the "
+                       "nizza checkpoint directory. Same as "
+                       "--model_dir in nizza_trainer.")
 
     # Length predictors
     group = parser.add_argument_group('Length predictor options')
@@ -955,8 +980,6 @@ def get_parser():
     group.add_argument("--ngramc_discount_factor", default=-1.0, type=float,
                        help="If this is non-negative, discount ngram counts "
                        "by this factor each time the ngram is consumed")
-    group.add_argument("--unkc_src_vocab_size", default=30003, type=int,
-                        help="Vocabulary size for the unkc predictor.")
     group.add_argument("--skipvocab_max_id", default=30003, type=int,
                         help="All tokens above this threshold are skipped "
                         "by the skipvocab predictor wrapper.")
@@ -1004,11 +1027,6 @@ def get_parser():
                        "allows a word in the bag to appear multiple times, "
                        "i.e. the exact count of the word is not enforced. "
                        "Can only be used in conjunction with bow_accept_subsets")
-    group.add_argument("--bow_equivalence_vocab_size", default=-1, type=int,
-                       help="If positive, bow predictor states are considered "
-                       "equal if the the remaining words within that vocab "
-                       "and OOVs regarding this vocab are the same. Only "
-                       "relevant when using hypothesis recombination")
     group.add_argument("--bow_diversity_heuristic_factor", default=-1.0, type=float,
                        help="If this is greater than zero, promote diversity "
                        "between bags via the bow predictor heuristic. Bags "
@@ -1161,11 +1179,11 @@ def get_parser():
         group.add_argument("--t2t_checkpoint_dir%s" % n, default="",
                         help="Overrides --t2t_checkpoint_dir for the %s t2t "
                         "predictor" % w)
-        group.add_argument("--t2t_src_vocab_size%s" % n, default=0, type=int,
-                        help="Overrides --t2t_src_vocab_size for the %s t2t "
+        group.add_argument("--pred_src_vocab_size%s" % n, default=0, type=int,
+                        help="Overrides --pred_src_vocab_size for the %s t2t "
                         "predictor" % w)
-        group.add_argument("--t2t_trg_vocab_size%s" % n, default=0, type=int,
-                        help="Overrides --t2t_trg_vocab_size for the %s t2t "
+        group.add_argument("--pred_trg_vocab_size%s" % n, default=0, type=int,
+                        help="Overrides --pred_trg_vocab_size for the %s t2t "
                         "predictor" % w)
         group.add_argument("--rnnlm_config%s" % n,  default="",
                         help="If the --predictors string contains more than "
@@ -1215,6 +1233,10 @@ def get_args():
     args = parse_args(parser)
     
     # Legacy parameter names
+    if args.t2t_src_vocab_size > 0:
+        args.pred_src_vocab_size = args.t2t_src_vocab_size
+    if args.t2t_trg_vocab_size > 0:
+        args.pred_trg_vocab_size = args.t2t_trg_vocab_size
     if args.en_test:
         args.src_test = args.en_test
     if args.fr_test:
@@ -1242,7 +1264,8 @@ def validate_args(args):
     """
     for depr in ['en_test', 'fr_test',
                  'length_normalization', 'legacy_indexing',
-                 'en_idxmap', 'fr_idxmap']:
+                 'en_idxmap', 'fr_idxmap', 't2t_src_vocab_size',
+                 't2t_trg_vocab_size']:
         if getattr(args, depr):
             logging.warn("Using deprecated argument %s. Please check the "
                          "documentation for the replacement." % depr)

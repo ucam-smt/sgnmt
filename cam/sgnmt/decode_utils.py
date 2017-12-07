@@ -59,6 +59,7 @@ from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
 from cam.sgnmt.predictors.ngram import SRILMPredictor
 from cam.sgnmt.predictors.tf_t2t import T2TPredictor, T2TBFSLayerbylayerPredictor, \
                                         T2TDFSLayerbylayerPredictor
+from cam.sgnmt.predictors.tf_nizza import NizzaPredictor
 from cam.sgnmt.predictors.tokenization import Word2charPredictor, FSTTokPredictor
 from cam.sgnmt.tf.interface import tf_get_nmt_predictor, tf_get_nmt_vanilla_decoder, \
     tf_get_rnnlm_predictor, tf_get_default_nmt_config, tf_get_rnnlm_prefix
@@ -168,9 +169,16 @@ def add_predictors(decoder):
                         args, _get_override_args("nmt_path"), nmt_config)
                 elif nmt_engine != 'none':
                     logging.fatal("NMT engine %s is not supported (yet)!" % nmt_engine)
+            elif pred == "nizza":
+                p = NizzaPredictor(_get_override_args("pred_src_vocab_size"),
+                                   _get_override_args("pred_trg_vocab_size"),
+                                   _get_override_args("nizza_model"),
+                                   _get_override_args("nizza_hparams_set"),
+                                   _get_override_args("nizza_checkpoint_dir"),
+                                   single_cpu_thread=args.single_cpu_thread)
             elif pred == "t2t":
-                p = T2TPredictor(_get_override_args("t2t_src_vocab_size"),
-                                 _get_override_args("t2t_trg_vocab_size"),
+                p = T2TPredictor(_get_override_args("pred_src_vocab_size"),
+                                 _get_override_args("pred_trg_vocab_size"),
                                  _get_override_args("t2t_model"),
                                  _get_override_args("t2t_problem"),
                                  _get_override_args("t2t_hparams_set"),
@@ -181,8 +189,8 @@ def add_predictors(decoder):
                                  pop_id=args.syntax_pop_id)
             elif pred == "bfslayerbylayer":
                 p = T2TBFSLayerbylayerPredictor(
-                         _get_override_args("t2t_src_vocab_size"),
-                         _get_override_args("t2t_trg_vocab_size"),
+                         _get_override_args("pred_src_vocab_size"),
+                         _get_override_args("pred_trg_vocab_size"),
                          _get_override_args("t2t_model"),
                          _get_override_args("t2t_problem"),
                          _get_override_args("t2t_hparams_set"),
@@ -197,8 +205,8 @@ def add_predictors(decoder):
                          terminal_strategy=args.layerbylayer_terminal_strategy)
             elif pred == "dfslayerbylayer":
                 p = T2TDFSLayerbylayerPredictor(
-                         _get_override_args("t2t_src_vocab_size"),
-                         _get_override_args("t2t_trg_vocab_size"),
+                         _get_override_args("pred_src_vocab_size"),
+                         _get_override_args("pred_trg_vocab_size"),
                          _get_override_args("t2t_model"),
                          _get_override_args("t2t_problem"),
                          _get_override_args("t2t_hparams_set"),
@@ -239,7 +247,7 @@ def add_predictors(decoder):
                                 "consumed" in args.bow_heuristic_strategies,
                                 "remaining" in args.bow_heuristic_strategies,
                                 args.bow_diversity_heuristic_factor,
-                                args.bow_equivalence_vocab_size)
+                                _get_override_args("pred_trg_vocab_size"))
             elif pred == "bowsearch":
                 p = BagOfWordsSearchPredictor(
                                 decoder,
@@ -252,7 +260,7 @@ def add_predictors(decoder):
                                 "consumed" in args.bow_heuristic_strategies,
                                 "remaining" in args.bow_heuristic_strategies,
                                 args.bow_diversity_heuristic_factor,
-                                args.bow_equivalence_vocab_size)
+                                _get_override_args("pred_trg_vocab_size"))
             elif pred == "forcedlst":
                 feat_name = _get_override_args("forcedlst_sparse_feat")
                 p = ForcedLstPredictor(args.trg_test,
@@ -283,7 +291,7 @@ def add_predictors(decoder):
                                         args.ngramc_discount_factor)
             elif pred == "unkc":
                 p = UnkCountPredictor(
-                         args.unkc_src_vocab_size, 
+                         _get_override_args("pred_src_vocab_size"), 
                          [float(l) for l in args.unk_count_lambdas.split(',')])
             elif pred == "length":
                 length_model_weights = [float(w) for w in 

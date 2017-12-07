@@ -266,12 +266,6 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
             LookupError if the problem name is not in the registry or
             uses the old style problem_hparams.
         """
-        problem = registry.problem(problem_name)
-        problem._encoders = {
-            "inputs": DummyTextEncoder(vocab_size=src_vocab_size),
-            "targets": DummyTextEncoder(vocab_size=trg_vocab_size)
-        }
-        p_hparams = problem.get_hparams(hparams)
         try:
             hparams.add_hparam("max_terminal_id", self.max_terminal_id)
         except:
@@ -284,6 +278,12 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
             if hparams.closing_bracket_id != self.pop_id:
                 logging.warn("T2T closing_bracket_id does not match (%d!=%d)"
                              % (hparams.closing_bracket_id, self.pop_id))
+        problem = registry.problem(problem_name)
+        problem._encoders = {
+            "inputs": DummyTextEncoder(vocab_size=src_vocab_size),
+            "targets": DummyTextEncoder(vocab_size=trg_vocab_size)
+        }
+        p_hparams = problem.get_hparams(hparams)
         hparams.problem_instances = [problem]
         hparams.problems = [p_hparams]
         return hparams
