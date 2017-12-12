@@ -220,6 +220,10 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
                                            checkpoint_dir, 
                                            t2t_unk_id, 
                                            single_cpu_thread)
+        if not model_name or not problem_name or not hparams_set_name:
+            logging.fatal(
+                "Please specify t2t_model, t2t_problem, and t2t_hparams_set!")
+            raise AttributeError
         self.consumed = []
         self.src_sentence = []
         self.pop_id = pop_id 

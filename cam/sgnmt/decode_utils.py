@@ -366,6 +366,9 @@ def add_predictors(decoder):
         logging.fatal("One of the files required for setting up the "
                       "predictors could not be read: %s" % e)
         decoder.remove_predictors()
+    except AttributeError as e:
+        logging.fatal("Invalid arguments for one of the predictors: %s" % e)
+        decoder.remove_predictors()
     except NameError as e:
         logging.fatal("Could not find external library: %s. Please make sure "
                       "that your PYTHONPATH and LD_LIBRARY_PATH contains all "
