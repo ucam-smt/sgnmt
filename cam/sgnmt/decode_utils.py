@@ -50,7 +50,8 @@ from cam.sgnmt.predictors.ffnnlm import NPLMPredictor
 from cam.sgnmt.predictors.forced import ForcedPredictor, ForcedLstPredictor
 from cam.sgnmt.predictors.grammar import RuleXtractPredictor
 from cam.sgnmt.predictors.length import WordCountPredictor, NBLengthPredictor, \
-    ExternalLengthPredictor, NgramCountPredictor, UnkCountPredictor, BracketPredictor
+    ExternalLengthPredictor, NgramCountPredictor, UnkCountPredictor, \
+    BracketPredictor, NgramizePredictor
 from cam.sgnmt.predictors.misc import UnboundedAltsrcPredictor, AltsrcPredictor
 from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
                                             UnboundedIdxmapPredictor, \
@@ -350,6 +351,11 @@ def add_predictors(decoder):
                                         args.fst_unk_id,
                                         args.fsttok_max_pending_score,
                                         p)
+                elif wrapper == "ngramize":
+                    # ngramize always wraps bounded predictors
+                    p = NgramizePredictor(args.ngramize_min_order, 
+                                          args.ngramize_max_order,
+                                          args.max_len_factor, p)
                 elif wrapper == "unkvocab":
                     # unkvocab always wraps bounded predictors
                     p = UnkvocabPredictor(args.trg_vocab_size, p)

@@ -757,6 +757,10 @@ def get_parser():
                         "vocabulary.\n"
                         "               Options: skipvocab_max_id, "
                         "skipvocab_stop_size\n"
+                        "* 'ngramize': Extracts n-gram posterior from "
+                        "predictors without token-level history.\n"
+                        "               Options: ngramize_min_order, "
+                        "ngramize_max_order, max_len_factor\n"
                         "\n"
                         "Note that you can use multiple instances of the same "
                         "predictor. For example, 'nmt,nmt,nmt' can be used "
@@ -977,6 +981,10 @@ def get_parser():
     group.add_argument("--ngramc_order", default=0, type=int,
                        help="If positive, count only ngrams of the specified "
                        "Order. Otherwise, count all ngrams")
+    group.add_argument("--ngramize_min_order", default=1, type=int,
+                       help="Minimum ngram order for ngramize wrapper")
+    group.add_argument("--ngramize_max_order", default=4, type=int,
+                       help="Maximum ngram order for ngramize wrapper")
     group.add_argument("--ngramc_discount_factor", default=-1.0, type=float,
                        help="If this is non-negative, discount ngram counts "
                        "by this factor each time the ngram is consumed")
