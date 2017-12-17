@@ -111,7 +111,7 @@ class _BaseTensor2TensorPredictor(Predictor):
                           % checkpoint_dir)
             raise IOError
         self._single_cpu_thread = single_cpu_thread
-        self._t2t_unk_id = t2t_unk_id
+        self._t2t_unk_id = utils.UNK_ID if t2t_unk_id is None else t2t_unk_id
         self._checkpoint_dir = checkpoint_dir
         _initialize_t2t(t2t_usr_dir)
 
@@ -228,6 +228,8 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
         self.src_sentence = []
         self.pop_id = pop_id 
         self.max_terminal_id = max_terminal_id 
+        self.src_vocab_size = src_vocab_size
+        self.trg_vocab_size = trg_vocab_size
         predictor_graph = tf.Graph()
         with predictor_graph.as_default() as g:
             hparams = trainer_utils.create_hparams(hparams_set_name, None)
@@ -296,15 +298,19 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
         """Call the T2T model in self.mon_sess."""
         log_probs = self.mon_sess.run(self._log_probs,
             {self._inputs_var: self.src_sentence,
-             self._targets_var: self.consumed + [text_encoder.PAD_ID]})
+             self._targets_var: utils.oov_to_unk(
+                 self.consumed + [text_encoder.PAD_ID],
+                 self.trg_vocab_size)})
         log_probs[text_encoder.PAD_ID] = utils.NEG_INF
         return log_probs
     
     def initialize(self, src_sentence):
         """Set src_sentence, reset consumed."""
         self.consumed = []
-        self.src_sentence = src_sentence + [text_encoder.EOS_ID]
-    
+        self.src_sentence = utils.oov_to_unk(
+            src_sentence + [text_encoder.EOS_ID], 
+            self.src_vocab_size)
+   
     def consume(self, word):
         """Append ``word`` to the current history."""
         self.consumed.append(word)

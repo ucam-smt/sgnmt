@@ -108,7 +108,9 @@ log_sum = log_sum_log_semiring
 """Defines which log summation function to use. """
 
 
-def oov_to_unk(seq, vocab_size, unk_idx = UNK_ID):
+def oov_to_unk(seq, vocab_size, unk_idx=None):
+    if unk_idx is None:
+        unk_idx = UNK_ID
     return [x if x < vocab_size else unk_idx for x in seq]
 
 # Maximum functions
