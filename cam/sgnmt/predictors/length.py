@@ -796,7 +796,7 @@ class NgramizePredictor(Predictor):
         for order, (scores, unk_scores) in enumerate(zip(this_scores, 
                                                          this_unk_scores)):
             if scores and order + 1 >= self.min_order:
-                score_matrix = np.vstack(this_scores)
+                score_matrix = np.vstack(scores)
                 combined_scores.append(logsumexp(score_matrix, axis=0))
                 combined_unk_scores.append(utils.log_sum(unk_scores))
         if not combined_scores:
