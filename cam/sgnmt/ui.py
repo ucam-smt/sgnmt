@@ -884,10 +884,11 @@ def get_parser():
     group.add_argument("--syntax_root_id", default=-1, type=int,
                        help="Must be set for the layerbylayer predictor. ID "
                        "of the initial target root label.")
-    group.add_argument("--syntax_pop_id", default=-1, type=int,
-                       help="Must be set to a positive values if the "
-                       "layerbylayer predictor uses POP attention. This is "
-                       "also used for the closing bracket in linearised trees")
+    group.add_argument("--syntax_pop_id", default="-1", type=str,
+                       help="ID of the closing bracket in output syntax trees."
+                       " layerbylayer and t2t predictors support single "
+                       "integer values. The bracket predictor can take a comma"
+                       "-separated list of integers.")
     group.add_argument("--syntax_max_terminal_id", default=30003,
                        type=int,
                        help="All token IDs larger than this are considered to "

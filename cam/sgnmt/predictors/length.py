@@ -602,8 +602,8 @@ class BracketPredictor(UnboundedVocabularyPredictor):
         Args:
             max_terminal_id (int): All IDs greater than this are 
                 brackets
-            closing_bracket_id (int): All brackets except this one are 
-                opening
+            closing_bracket_id (string): All brackets except these ones are 
+                opening. Comma-separated list of integers.
             max_depth (int): If positive, restrict the maximum depth
             extlength_path (string): If this is set, restrict the 
                 number of terminals to the distribution specified in
@@ -613,7 +613,10 @@ class BracketPredictor(UnboundedVocabularyPredictor):
         """
         super(BracketPredictor, self).__init__()
         self.max_terminal_id = max_terminal_id
-        self.closing_bracket_id = closing_bracket_id
+        try:
+            self.closing_bracket_ids = map(int, closing_bracket_id.split(","))
+        except:
+            self.closing_bracket_ids = [int(closing_bracket_id)]
         self.max_depth = max_depth if max_depth >= 0 else 1000000
         if extlength_path:
             self.length_scores = load_external_lengths(extlength_path)
@@ -633,6 +636,9 @@ class BracketPredictor(UnboundedVocabularyPredictor):
         if self.length_scores:
             self.cur_length_scores = self.length_scores[self.current_sen_id]
             self.max_length = max(self.cur_length_scores)
+
+    def _no_closing_bracket(self):
+        return {i: utils.NEG_INF for i in self.closing_bracket_ids}
     
     def predict_next(self, words):
         """If the maximum depth is reached, exclude all opening
@@ -647,8 +653,9 @@ class BracketPredictor(UnboundedVocabularyPredictor):
         if self.cur_depth == 0:
             # Balanced: Score EOS with extlengths, supress closing bracket
             if self.ends_with_opening:  # Initial predict next call
-                return {self.closing_bracket_id: utils.NEG_INF, 
-                        utils.EOS_ID: utils.NEG_INF}
+                ret = self._no_closing_bracket()
+                ret[utils.EOS_ID] = utils.NEG_INF
+                return ret
             return {utils.EOS_ID: self.cur_length_scores.get(
                         self.n_terminals, utils.NEG_INF) 
                        if self.length_scores else 0.0}
@@ -658,13 +665,14 @@ class BracketPredictor(UnboundedVocabularyPredictor):
                 or self.n_terminals >= self.max_length):
             # Do not allow opening brackets
             ret.update({w: utils.NEG_INF for w in words 
-                if w > self.max_terminal_id and w != self.closing_bracket_id})
+                if (w > self.max_terminal_id 
+                    and not w in self.closing_bracket_ids)})
         if (self.length_scores 
                 and self.cur_depth == 1 
                 and self.n_terminals > 0 
                 and not self.n_terminals in self.cur_length_scores):
             # Do not allow to go back to depth 0 with wrong number of terminals
-            ret[self.closing_bracket_id] = utils.NEG_INF
+            ret.update(self._no_closing_bracket())
         return ret
         
     def get_unk_probability(self, posterior):
@@ -675,7 +683,7 @@ class BracketPredictor(UnboundedVocabularyPredictor):
     
     def consume(self, word):
         """Updates current depth and the number of consumed terminals."""
-        if word == self.closing_bracket_id:
+        if word in self.closing_bracket_ids:
             if self.ends_with_opening:
                 self.n_terminals += 1
             self.cur_depth -= 1

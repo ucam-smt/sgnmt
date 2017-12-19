@@ -226,7 +226,12 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
             raise AttributeError
         self.consumed = []
         self.src_sentence = []
-        self.pop_id = pop_id 
+        try:
+            self.pop_id = int(pop_id) 
+        except ValueError:
+            logging.warn("t2t predictor only supports single POP IDs. "
+                         "Reset to -1")
+            self.pop_id = -1
         self.max_terminal_id = max_terminal_id 
         self.src_vocab_size = src_vocab_size
         self.trg_vocab_size = trg_vocab_size
@@ -409,7 +414,12 @@ class _BaseLayerbylayerPredictor(_BaseTensor2TensorPredictor):
         self.trg_vocab_size = trg_vocab_size
         self.max_terminal_id = max_terminal_id
         self.max_depth = max_depth
-        self.pop_id = pop_id if pop_id >= 0 else None
+        try:
+            self.pop_id = int(pop_id) if int(pop_id) >= 0 else None
+        except ValueError:
+            logging.warn("t2tlayerbylayer predictor only supports single POP IDs. "
+                         "Reset to None")
+            self.pop_id = None
         if terminal_list:
             self.terminal_list = [int(i) for i in terminal_list.split(",")]
         else:
