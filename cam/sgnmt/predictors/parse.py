@@ -2,7 +2,6 @@ import copy
 import logging
 
 from cam.sgnmt import utils
-from cam.sgnmt.predictors.vocabulary import SkipvocabInternalHypothesis as InternalHypo
 from cam.sgnmt.predictors.core import Predictor
 from cam.sgnmt.utils import w2f
 import pywrapfst as fst
@@ -196,14 +195,29 @@ class ParsePredictor(Predictor):
         return state1 == state2
 
 
+class InternalHypo(object):
+    """Helper class for internal beam search in skipvocab."""
+
+    def __init__(self, score, predictor_state, word_to_consume):
+        self.score = score
+        self.predictor_state = predictor_state
+        self.word_to_consume = word_to_consume
+        self.norm_score = score
+        self.beam_len = 1
+
+    def extend(self, score, predictor_state, word_to_consume):
+        self.score += score
+        self.predictor_state = predictor_state
+        self.word_to_consume = word_to_consume
+        self.beam_len += 1
 
 class TokParsePredictor(Predictor):
-    """This predictor builds a determinized lattice, given a grammar.
+    """
     Unlike ParsePredictor, the grammar predicts tokens, not rules
     """
     
     def __init__(self, grammar_path, nmt_predictor, word_out,
-                 normalize_scores=True, to_log=True, beam_size=12,
+                 normalize_scores=True, to_log=True, beam_size=4,
                  consume_out_of_class=False):
         """Creates a new parse predictor.
         Args:
@@ -214,7 +228,8 @@ class TokParsePredictor(Predictor):
         self.nmt = nmt_predictor
         self.UNK_ID = 3
         self.weight_factor = -1.0 if to_log else 1.0
-        self.word_out = word_out
+        self.internal_alpha = 1.0
+        self.word_out = True#word_out
         self.use_weights = True
         self.normalize_scores = normalize_scores
         self.beam_size = beam_size
@@ -224,7 +239,14 @@ class TokParsePredictor(Predictor):
         self.current_rhs = []
         self.consume_ooc = consume_out_of_class
         self.prepare_grammar()
-
+        self.tok_to_internal_state = {}
+        
+    def norm_score(self, hypo):
+        length_penalty = (5.0 + hypo.beam_len) / 6
+        if self.internal_alpha != 1.0:
+            length_penalty = pow(length_penalty, self.internal_alpha)
+        hypo.norm_score = hypo.score / length_penalty
+        
 
     def prepare_grammar(self):
         self.lhs_to_can_follow = {}
@@ -252,17 +274,43 @@ class TokParsePredictor(Predictor):
         else:
             return utils.NEG_INF
     
+    def is_best_terminal(self, posterior):
+        # Return true if most probable token in posterior is a terminal or EOS token
+        best_rule_id = utils.argmax(posterior)
+        if best_rule_id == utils.EOS_ID:
+            return True
+        return not self.is_nt(best_rule_id)
+
+    def initialize(self, src_sentence):
+        self.nmt.initialize(src_sentence)
+        self.current_lhs = None
+        self.current_rhs = []
+        self.stack = [utils.EOS_ID]
+        self.consume(utils.GO_ID)
+
+    def replace_lhs(self):
+        while self.current_rhs:
+            self.stack.append(self.current_rhs.pop())
+        if self.stack:
+            self.current_lhs = self.stack.pop()
+        else:
+            self.current_lhs = utils.EOS_ID
+            
+    def get_current_allowed(self):
+        if self.current_lhs:
+            return self.lhs_to_can_follow[self.current_lhs]
+        return set([utils.GO_ID])
+
+
     def predict_next(self, predicting_next_word=False):
         """predict next tokens as permitted by 
         the current stack and the grammar
         """
         nmt_posterior = self.nmt.predict_next()
         outgoing_rules = self.lhs_to_can_follow[self.current_lhs]       
-        scores = {rule_id: 0.0 for rule_id in outgoing_rules}
+        scores = {rule_id: nmt_posterior[rule_id] for rule_id in outgoing_rules}
         if utils.EOS_ID in scores and self.add_bos_to_eos_score:
             scores[utils.EOS_ID] += self.bos_score
-        for rule_id in scores:
-            scores[rule_id] += nmt_posterior[rule_id]
         scores = self.finalize_posterior(scores, 
                                          self.use_weights,
                                          self.normalize_scores)
@@ -295,15 +343,19 @@ class TokParsePredictor(Predictor):
                     best_hypo.predictor_state = next_state
                     best_hypo.score = hypo.score
                     best_posterior = new_post
+                    self.norm_score(best_hypo)
                 else:
                     for tok, score in new_post.items(): # slow but more exhaustive
                         if self.is_nt(tok):
-                            next_hypos.append(InternalHypo(score + hypo.score, next_state, tok))
-            next_hypos.sort(key=lambda h: -h.score)
+                            new_hypo = copy.deepcopy(hypo)
+                            new_hypo.extend(score, next_state, tok)
+                            next_hypos.append(new_hypo)
+            map(self.norm_score, next_hypos)
+            next_hypos.sort(key=lambda h: -h.norm_score)
             hypos = next_hypos[:self.beam_size]
         self.set_state(best_hypo.predictor_state)
         #for tok in best_posterior:
-        #    best_posterior[tok] += best_hypo.score # include path score 
+        #    best_posterior[tok] += best_hypo.norm_score # include path score 
         return best_posterior
 
 
@@ -321,67 +373,31 @@ class TokParsePredictor(Predictor):
           else:
               return self.find_word_beam(posterior)
 
-    def is_best_terminal(self, posterior):
-        # Return true if most probable token in posterior is a terminal or EOS token
-        best_rule_id = utils.argmax(posterior)
-        if best_rule_id == utils.EOS_ID:
-            return True
-        return not self.is_nt(best_rule_id)
 
-    def initialize(self, src_sentence):
-        """Loads the FST from the file system and consumes the start
-        of sentence symbol. 
-        
-        Args:
-            src_sentence (list):  Not used
+
+    def consume(self, word):
         """
-        self.nmt.initialize(src_sentence)
-        self.current_lhs = None
-        self.current_rhs = []
-        self.stack = [utils.EOS_ID]
-        self.consume(utils.GO_ID)
-
-    def replace_lhs(self):
-        while self.current_rhs:
-            self.stack.append(self.current_rhs.pop())
-        if self.stack:
-            self.current_lhs = self.stack.pop()
-        else:
-            self.current_lhs = utils.EOS_ID
-
-    def consume(self, word, external=False):
-        """Updates the current node by following the arc labelled with
-        ``word``. If there is no such arc, we set ``cur_node`` to -1,
-        indicating that the predictor is in an invalid state. In this
-        case, all subsequent ``predict_next`` calls will return the
-        empty set.
         Args:
             word (int): Word on an outgoing arc from the current node
         Returns:
             float. Weight on the traversed arc
         """
-        #logging.info('consuming {}'.format(word))
-        if self.current_lhs:
-            current_allowed = self.lhs_to_can_follow[self.current_lhs]
-        else:
-            current_allowed = set([utils.GO_ID])
-        if word == utils.UNK_ID:
-            logging.info('changing unk consumption')
+        change_to_unk = ((word == utils.UNK_ID) or
+                       (not self.consume_ooc and word not in self.get_current_allowed()))
+        if change_to_unk:
             word = self.UNK_ID
-        if not self.consume_ooc and word not in current_allowed:
-            #logging.info('currently allowed words like {}, not {}. Consuming unk instead.'.format(list(current_allowed)[-1], word))
-            word = self.UNK_ID
-        #if external:
-            #logging.info('Parse consuming {}'.format(word))
         self.nmt.consume(word) 
+        self.update_stacks(word)
+        return self.weight_factor
+    
+    def update_stacks(self, word):
         if self.is_nt(word):
             self.current_rhs.append(word)
             if self.last_nt_in_rule[word]:
                 self.replace_lhs()
         else:
-            self.replace_lhs()            
-        return self.weight_factor
-    
+            self.replace_lhs()  
+
     def get_state(self):
         """Returns the current node. """
         return self.stack, self.current_lhs, self.current_rhs, self.nmt.get_state()

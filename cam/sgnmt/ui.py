@@ -807,6 +807,10 @@ def get_parser():
                         "* 'bayesian': Apply the Bayesian LM interpolation "
                         "scheme from Allauzen and Riley to interpolate the "
                         "predictor scores")
+    group.add_argument("--gnmt_alpha", type=float, default=0.0, 
+                       help="Power of length normalization penalty - see "
+                       "https://arxiv.org/abs/1609.08144 section 7")
+
     group.add_argument("--apply_combination_scheme_to_partial_hypos", 
                         default=False, type='bool',
                         help="If true, apply the combination scheme specified "

@@ -60,13 +60,11 @@ class WordMapper(object):
         self.wmap_len = 0
         self.key2id = {}
         self.synchronize()
-        self.reserved_keys = {'<unk> ': 3,
+        self.reserved_keys = {'<unk> ': utils.UNK_ID,
                               '<eps> ': utils.UNK_ID,
                               '<epsilon> ': utils.UNK_ID,
                               '<s> ': utils.GO_ID,
                               '</s> ': utils.EOS_ID}
-        self.UNK_ID = self.reserved_keys['<unk> ']
-        logging.info('Using UNK_ID {} EOS_ID {}, GO_ID {}'.format(utils.UNK_ID, utils.EOS_ID, utils.GO_ID))
 
     def synchronize(self):
         """Synchronizes the internal state of this mapper with
@@ -77,7 +75,7 @@ class WordMapper(object):
         if self.wmap_len == len(utils.trg_wmap):
             return
         self.key2id = {}
-        self.max_word_id = 4
+        self.max_word_id = 3
         for word_id, key in utils.trg_wmap.iteritems():
             self.max_word_id = max(self.max_word_id, word_id)
             self.key2id["%s " % key] = word_id
@@ -95,8 +93,7 @@ class WordMapper(object):
             the key cannot be found in ``utils.trg_wmap`` 
         """
         if not key:
-            logging.info("didn't find a key {}".format(key))
-            return self.UNK_ID
+            return utils.UNK_ID
         if key in self.reserved_keys:
             return self.reserved_keys[key]
         self.synchronize()
@@ -154,8 +151,8 @@ class WordTokenizer(Tokenizer):
     
     def __init__(self, path):
         self.id2key = {}
-        self.UNK_ID = 3
         self.key2id = {}
+        self.eow_id = set()
         try:
             split = path.split(":", 1)
             max_id = int(split[0])
@@ -167,12 +164,13 @@ class WordTokenizer(Tokenizer):
                 entry = line.strip().split()
                 key = entry[0]
                 word_id = int(entry[-1])
-                if word_id < max_id:
+                if word_id < max_id and word_id != utils.UNK_ID:
                     self.id2key[word_id] = "%s " % key
                     self.key2id["%s " % key] = word_id
+                    self.eow_id.add(word_id)
     
     def key2tokens(self, key):
-        return [self.key2id.get(key, self.UNK_ID)]
+        return [self.key2id.get(key, utils.UNK_ID)]
     
     def tokens2key(self, tokens):
         if len(tokens) != 1:
@@ -183,6 +181,54 @@ class WordTokenizer(Tokenizer):
         return True
 
 
+class ParseTokenizer(WordTokenizer):
+    """This tokenizer reads word maps with explicit </w> endings. This
+    can be used for subword unit based tokenizers.
+    """
+    
+    def __init__(self, path):
+        self.id2key = {}
+        self.UNK_ID = 3
+        self.key2id = {}
+        self.eow_id = set()
+        EOR = "</R>"
+        seen_eor = False # hacky way of making sure we've seen all non-terminals, ideally this would be independent of wmap ordering
+        special_toks = set(['<s>', '</s>', '<unk>', '<eps>'])
+        self.non_terminals = set()
+        try:
+            split = path.split(":", 1)
+            max_id = int(split[0])
+            path = split[1]
+        except:
+            max_id = utils.INF
+        with codecs.open(path, encoding='utf-8') as f:
+            for line in f:
+                entry = line.strip().split()
+                key = entry[0]
+                word_id = int(entry[-1])
+                if word_id >= max_id:
+                    continue
+                if len(key.split(EOR)) > 1:
+                    seen_eor = True
+                    self.non_terminals.add(word_id)
+                elif not seen_eor and key not in special_toks:
+                    self.non_terminals.add(word_id)
+                else:
+                    key = "%s " % key
+                    self.eow_id.add(word_id)
+                self.id2key[word_id] = key
+                self.key2id[key] = word_id
+        logging.debug('Using non-terminals: {}'.format(self.non_terminals))
+
+    def is_word_begin_token(self, token):
+        return token in [utils.GO_ID, utils.EOS_ID]
+
+    def tokens2key(self, tokens):
+        all_toks = ''.join([self.id2key.get(t, "") for t in tokens])
+        if is_key_complete(all_toks):
+            return self.id2key.get(tokens[-1], "")
+        return ''.join([self.id2key.get(t, "") for t in tokens])
+
 class EOWTokenizer(Tokenizer):
     """This tokenizer reads word maps with explicit </w> endings. This
     can be used for subword unit based tokenizers.
@@ -191,6 +237,7 @@ class EOWTokenizer(Tokenizer):
     def __init__(self, path):
         self.id2key = {}
         self.key2id = {}
+        self.eow_id = set()
         with codecs.open(path, encoding='utf-8') as f:
             for line in f:
                 key, word_id = line.strip().split()
@@ -198,8 +245,10 @@ class EOWTokenizer(Tokenizer):
                     continue
                 if key[-4:] == "</w>": 
                     key = "%s " % key[:-4]
+                    self.eow_id.add(word_id)
                 elif key in ['<s>', '</s>']:
                     key = "%s " % key
+                    self.eow_id.add(word_id)
                 self.id2key[int(word_id)] = key
                 self.key2id[key] = int(word_id)
     
@@ -245,6 +294,7 @@ class MixedTokenizer(Tokenizer):
         self.m_key2id = {}
         self.e_key2id = {}
         self.id2key = {}
+        self.eow_id = set()
         self.mid_tokens = {}
         try:
             split = path.split(":", 1)
@@ -269,8 +319,10 @@ class MixedTokenizer(Tokenizer):
                     key = "%s " % key[3:]
                     self.e_key2id[key[:-1]] = token_id
                     self.mid_tokens[token_id] = True
+                    self.eow_id.add(token_id)
                 else:
                     key = "%s " % key
+                    self.eow_id.add(token_id)
                     self.word_key2id[key] = token_id
                 self.id2key[token_id] = key 
     
@@ -389,7 +441,9 @@ class PredictorStub(object):
         """
         self.tokens = tokens
         self.pred_state = pred_state
+        self.alpha = 1.0
         self.score = 0.0
+        self.norm_score = 0.0
         self.score_pos = 0
     
     def has_full_score(self):
@@ -408,8 +462,16 @@ class PredictorStub(object):
                                  self.tokens[self.score_pos]
         """
         self.score += token_score
-        self.score_pos += 1
+        self.score_pos += 1      
+        self.set_norm_score()
     
+    def set_norm_score(self):
+        if self.alpha == 1.0:
+            length_penalty = (5. + len(self.tokens)) / 6.
+        else:
+            length_penalty = pow((5. + len(self.tokens)) / 6., self.alpha)
+        self.norm_score = self.score / length_penalty
+        
     def expand(self, token, token_score, pred_state):
         """Creates a new predictor stub by adding a (scored) token.
         
@@ -422,6 +484,7 @@ class PredictorStub(object):
         new_stub = PredictorStub(self.tokens + [token], pred_state)
         new_stub.score_pos = self.score_pos + 1
         new_stub.score = self.score + token_score
+        new_stub.set_norm_score()
         return new_stub
 
 
@@ -473,7 +536,7 @@ class Continuation(object):
                        zip(pred_weights,
                            [s.score if s else defaults[pidx]
                                   for pidx, s in enumerate(self.pred_stubs)])))
-        
+
     def generate_expanded_hypo(self, decoder):
         """This can be used to create a new ``PartialHypothesis`` which
         reflects the state after this continuation. This involves
@@ -488,9 +551,7 @@ class Continuation(object):
         pred_weights = []
         for idx,(p, w) in enumerate(decoder.predictors):
             p.set_state(copy.deepcopy(self.pred_stubs[idx].pred_state))
-            key = decoder.toks[idx].id2key[self.pred_stubs[idx].tokens[-1]] 
-            logging.info('{} consuming {}'.format(p, key))
-            p.consume(self.pred_stubs[idx].tokens[-1], external=True)
+            p.consume(self.pred_stubs[idx].tokens[-1])
             score_breakdown.append((self.pred_stubs[idx].score, w))
             pred_weights.append(w)
         word_id = WordMapper.get_singleton().get_word_id(self.key)
@@ -498,7 +559,7 @@ class Continuation(object):
                                        decoder.get_predictor_states(),
                                        self.calculate_score(pred_weights),
                                        score_breakdown)
-    
+        
     def expand(self, decoder):
         for pidx,(p, _) in enumerate(decoder.predictors):
             stub = self.pred_stubs[pidx]
@@ -558,8 +619,8 @@ class MultisegBeamDecoder(Decoder):
         self.beam_size = beam_size
         self.stop_criterion = self._best_eos if early_stopping else self._all_eos
         self.toks = []
+        self.alpha = 0.6
         self.max_word_len = max_word_len
-        
         if not tokenizations:
             logging.fatal("Specify --multiseg_tokenizations!")
         for tok_config in tokenizations.split(","):
@@ -567,6 +628,8 @@ class MultisegBeamDecoder(Decoder):
                 tok = MixedTokenizer(tok_config[6:])
             elif tok_config[:4] == "eow:":
                 tok = EOWTokenizer(tok_config[4:])
+            elif tok_config[:6] == "parse:":
+                tok = ParseTokenizer(tok_config[6:])
             else:
                 if tok_config[:5] == "word:":
                     tok_config = tok_config[5:]
@@ -575,15 +638,24 @@ class MultisegBeamDecoder(Decoder):
 
     def _best_eos(self, hypos):
         """Returns true if the best hypothesis ends with </S>"""
-        return hypos[0].get_last_word() not in self.eos_ids
+        return hypos[0].get_last_word() != utils.EOS_ID
 
     def _all_eos(self, hypos):
         """Returns true if the all hypotheses end with </S>"""
         for hypo in hypos[:self.beam_size]:
-            if hypo.get_last_word() not in self.eos_ids:
+            if hypo.get_last_word() != utils.EOS_ID:
                 return True
         return False
     
+    def _get_nbest_hypos(self, hypo_list):
+        hypo_list.sort(key=lambda h: h.score, reverse=True)
+        return hypo_list[:self.beam_size]
+
+
+    def _get_nbest_stubs(self, stub_list):
+        stub_list.sort(key=lambda s: s.norm_score, reverse=True)
+        return stub_list[:self.beam_size]
+
     def _rebuild_hypo_list(self, hypos, new_hypo):
         """Add new_hypo to the list of n best complete hypos.
         Implements hypothesis recombination.
@@ -606,8 +678,8 @@ class MultisegBeamDecoder(Decoder):
                         hypo1 = new_hypo
                         hypo2 = hypo
                         hypos[idx] = new_hypo
-                    #logging.debug("Hypo recombination: %s > %s" % (
-                    #    hypo1.trgt_sentence, hypo2.trgt_sentence))
+                    logging.debug("Hypo recombination: %s > %s" % (
+                        hypo1.trgt_sentence, hypo2.trgt_sentence))
                     combined = True
                     break
             if not combined:
@@ -631,9 +703,7 @@ class MultisegBeamDecoder(Decoder):
         posteriors = []
         for p, _ in self.predictors:
             posterior = p.predict_next()
-            if p.UNK_ID not in posterior:
-                posterior[p.UNK_ID] = p.get_unk_probability(posterior)
-            #    logging.info('{} unk {} prob = {}'.format(p, p.UNK_ID, posterior[p.UNK_ID]))
+            posterior[utils.UNK_ID] = p.get_unk_probability(posterior) 
             posteriors.append(posterior)
         return posteriors
 
@@ -643,52 +713,49 @@ class MultisegBeamDecoder(Decoder):
         """
         stubs = []
         pred_state = predictor.get_state()
-        for t, s in utils.common_iterable(start_posterior):
-            stub = PredictorStub([t], pred_state)
-            stub.score_next(s)
-            if stub.score >= min_score:
-                stubs.append(stub)
-        stubs.sort(key=lambda s: s.score, reverse=True)
+        for t in utils.argmax_n(start_posterior, self.beam_size):
+            stubs.append(PredictorStub([t], pred_state))
+            stubs[-1].score_next(start_posterior[t])
         return stubs
    
     def _best_keys_complete(self, stubs, tok):
         """Stopping criterion for single predictor full word search.
         We stop full word search if the n best stubs are complete.
         """
-        #logging.info('{} {}'.format(tok, [tok.tokens2key(s.tokens) for s in stubs[:self.beam_size]]))
         return all([is_key_complete(tok.tokens2key(s.tokens)) 
                                            for s in stubs[:self.beam_size]])
+        
+    def _pred_consume(self, predictor, stub):
+        predictor.set_state(copy.deepcopy(stub.pred_state))
+        predictor.consume(stub.tokens[-1])
+        posterior = predictor.predict_next()
+        pred_state = predictor.get_state()
+        return posterior, pred_state
+
 
     def _search_full_words(self, predictor, start_posterior, tok, min_score):
         stubs = self._get_initial_stubs(predictor, start_posterior, min_score)
         while not self._best_keys_complete(stubs, tok):
             next_stubs = []
-            for stub in stubs[:self.beam_size]:
+            for stub in stubs:
                 key = tok.tokens2key(stub.tokens)
-                #logging.info('{} searching for complete word, key {}'.format(predictor, key))
-                if (not key) or len(key) > self.max_word_len:
-                    continue
                 if is_key_complete(key):
                     next_stubs.append(stub)
                     continue
-                predictor.set_state(copy.deepcopy(stub.pred_state))
-                predictor.consume(stub.tokens[-1])
-                posterior = predictor.predict_next()
-                pred_state = predictor.get_state()
-                for t, s in utils.common_iterable(posterior):
-                    if not tok.is_word_begin_token(t): #and t != utils.UNK_ID:
-                        child_stub = stub.expand(t, s, pred_state)
-                        if child_stub.score >= min_score:
-                            next_stubs.append(child_stub)
-            stubs = next_stubs
-            stubs.sort(key=lambda s: s.score, reverse=True)
+                posterior, pred_state = self._pred_consume(predictor, stub)
+                for t in utils.argmax_n(posterior, self.beam_size):
+                    if not tok.is_word_begin_token(t):
+                        next_stubs.append(stub.expand(t, posterior[t], pred_state))
+            stubs = self._get_nbest_stubs(next_stubs)
+        for stub in stubs:
+            stub.score = stub.norm_score
         return stubs
-    
-    def _get_complete_continuations(self, hypo, min_hypo_score):
+
+    def _get_complete_continuations(self, hypo):
         """This is a generator which yields the complete continuations 
         of ``hypo`` in descending order of score
         """
-        min_score = min_hypo_score - hypo.score
+        min_score = self.min_score - hypo.score
         if min_score > 0.0:
             return
         
@@ -702,71 +769,70 @@ class MultisegBeamDecoder(Decoder):
                                             start_posteriors[pidx],
                                             self.toks[pidx],
                                             min_score / w)
-            n_added = 0
+            to_fill = {}
             for stub in stubs:
                 key = self.toks[pidx].tokens2key(stub.tokens)
-                if is_key_complete(key):
-                    if key in keys: # Add to existing continuation
-                        prev_stub = keys[key].pred_stubs[pidx]
-                        if prev_stub is None or prev_stub.score < stub.score:
-                            keys[key].pred_stubs[pidx] = stub
-                    elif n_added < self.beam_size: # Create new continuation
-                        n_added += 1
-                        stubs = [None] * len(self.predictors)
-                        stubs[pidx] = stub
-                        keys[key] = Continuation(hypo, stubs, key)
+                if key in keys: # Add to existing continuation
+                    prev_stub = keys[key].pred_stubs[pidx]
+                    if prev_stub is None or prev_stub.score < stub.score:
+                        keys[key].pred_stubs[pidx] = stub
+                elif len(to_fill) < self.beam_size: # Create new continuation
+                    stubs = [None] * len(self.predictors)
+                    stubs[pidx] = stub
+                    new_cont = Continuation(hypo, stubs, key)
+                    keys[key] = new_cont
+                    to_fill[key] = ((new_cont, pidx))
         # Fill in stubs which are set to None
-        for cont in keys.itervalues():
-            for pidx, (p, _) in enumerate(self.predictors):
-            #for pidx in xrange(len(self.predictors)):
-                if cont.pred_stubs[pidx] is None:
-                    stub = PredictorStub(self.toks[pidx].key2tokens(cont.key),
-                                         pred_states[pidx])
-                    stub.score_next(utils.common_get(
-                                         start_posteriors[pidx],
-                                         stub.tokens[0],
-                                         start_posteriors[pidx][p.UNK_ID]))
-                    cont.pred_stubs[pidx] = stub
-        conts = [(-c.calculate_score(pred_weights), c) for c in keys.itervalues()]
-        heapq.heapify(conts)
-        # Iterate through conts, expand if necessary, yield if complete
-        while conts:
-            s,cont = heapq.heappop(conts)
+        if len(to_fill) > 0:
+            self.fill_none_stubs(to_fill, start_posteriors)
+            for key in to_fill:
+                keys[key] = filled_stubs[key]
+
+        to_expand = [c for c in keys.itervalues() if not c.is_complete()]
+        to_return = [c for c in keys.itervalues() if c.is_complete()]
+        while to_expand:
+            cont = to_expand.pop()
+            cont.expand(self)
             if cont.is_complete():
-                yield -s,cont
-            else: # Need to rescore with sec predictors
-                cont.expand(self)
-                heapq.heappush(conts, (-cont.calculate_score(pred_weights), cont))
-    
+                to_return.append(cont)
+            else:
+                to_expand.append(cont)
+        return [(-cont.calculate_score(pred_weights), cont) for cont in to_return]
+
+    def fill_none_stubs(self, key_to_stub, start_posteriors):
+        for key, pair in key_to_stub.items():
+            cont, pidx = pair
+            if cont.pred_stubs[pidx] is None:
+                stub = PredictorStub(self.toks[pidx].key2tokens(cont.key), pred_states[pidx])
+                stub.score_next(utils.common_get(start_posteriors[pidx],
+                                                 stub.tokens[0],
+                                                 start_posteriors[pidx][utils.UNK_ID]))
+                cont.pred_stubs[pidx] = stub
+                key_to_stub[key] = cont
+            else:
+                del key_to_stub[key]
+
+
     def decode(self, src_sentence):
         """Decodes a single source sentence using beam search. """
         self.initialize_predictors(src_sentence)
         hypos = [PartialHypothesis(self.get_predictor_states())]
-        guard_hypo = PartialHypothesis(None)
-        guard_hypo.score = utils.NEG_INF
+        self.min_score = utils.NEG_INF
         it = 0
         while self.stop_criterion(hypos):
             if it > self.max_len: # prevent infinite loops
                 break
             it = it + 1
-            next_hypos = [guard_hypo]
+            next_hypos = []
             for hypo in hypos:
-                if hypo.get_last_word() in self.eos_ids:
-                    if hypo.score >= next_hypos[-1].score:
-                        next_hypos = self._rebuild_hypo_list(next_hypos, hypo)
-                    continue
-                #logging.info('continuations')
-                for s, cont in self._get_complete_continuations(
-                                                        hypo,
-                                                        next_hypos[-1].score):
-                    if hypo.score + s < next_hypos[-1].score:
-                        break
-                    next_hypos = self._rebuild_hypo_list(
-                                            next_hypos,
-                                            cont.generate_expanded_hypo(self))
-            hypos = [h for h in next_hypos if h.score > utils.NEG_INF]  
+                if hypo.get_last_word() == utils.EOS_ID:
+                    next_hypos.append(hypo)
+                for s, cont in self._get_complete_continuations(hypo):
+                    if hypo.score + s > self.min_score:
+                        next_hypos.append(cont.generate_expanded_hypo(self))
+            hypos = self._get_nbest_hypos(next_hypos)
         for hypo in hypos:
-            if hypo.get_last_word() in self.eos_ids:
+            if hypo.get_last_word() == utils.EOS_ID:
                 self.add_full_hypo(hypo.generate_full_hypothesis()) 
         if not self.full_hypos:
             logging.warn("No complete hypotheses found for %s" % src_sentence)

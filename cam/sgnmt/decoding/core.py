@@ -195,6 +195,7 @@ CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK = 4
 vocabulary. Results in a valid distribution if predictor scores are
 stochastic. """
 
+GNMT_ALPHA = 0.0
 
 class Heuristic(Observer):
     """A ``Heuristic`` instance can be used to estimate the future 
@@ -299,6 +300,10 @@ def breakdown2score_length_norm(working_score, score_breakdown):
     """
     score = sum([Decoder.combi_arithmetic_unnormalized(s) 
                         for s in score_breakdown])
+    if GNMT_ALPHA > 0.0:
+        length_penalty = np.power(((5. + float(len(score_breakdown))) / 6.), GNMT_ALPHA)
+    else: 
+        length_penalty = len(score_breakdown)
     return score / len(score_breakdown)
 
 
@@ -357,7 +362,6 @@ full hypothesis, i.e. only once per hypothesis
 """
 breakdown2score_full = breakdown2score_sum
 
-
 class Decoder(Observable):    
     """A ``Decoder`` instance represents a particular search strategy
     such as A*, beam search, greedy search etc. Decisions are made 
@@ -400,6 +404,7 @@ class Decoder(Observable):
         self.combi_predictor_method = Decoder.combi_arithmetic_unnormalized
         self.combine_posteriors = self._combine_posteriors_norm_none
         self.closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_NONE
+
         if decoder_args.closed_vocabulary_normalization == 'exact':
             self.closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_EXACT
             self.combine_posteriors = self._combine_posteriors_norm_exact

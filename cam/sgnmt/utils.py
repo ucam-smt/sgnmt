@@ -39,6 +39,7 @@ NEG_INF = float("-inf")
 INF = float("inf")
 
 
+
 def switch_to_tf_indexing():
     """Calling this method overrides the global definitions of the 
     reserved  word ids ``GO_ID``, ``EOS_ID``, and ``UNK_ID``

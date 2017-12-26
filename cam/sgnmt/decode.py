@@ -60,6 +60,7 @@ if args.log_sum == 'tropical':
 
 # Predictor combination schemes
 if args.combination_scheme == 'length_norm':
+    core.GNMT_ALPHA = args.gnmt_alpha
     if args.apply_combination_scheme_to_partial_hypos:
         core.breakdown2score_partial = core.breakdown2score_length_norm
     else:
