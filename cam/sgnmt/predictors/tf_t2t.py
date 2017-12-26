@@ -111,7 +111,7 @@ class _BaseTensor2TensorPredictor(Predictor):
                           % checkpoint_dir)
             raise IOError
         self._single_cpu_thread = single_cpu_thread
-        self._t2t_unk_id = t2t_unk_id
+        self._t2t_unk_id = utils.UNK_ID if t2t_unk_id is None else t2t_unk_id
         self._checkpoint_dir = checkpoint_dir
         _initialize_t2t(t2t_usr_dir)
 
@@ -220,69 +220,63 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
                                            checkpoint_dir, 
                                            t2t_unk_id, 
                                            single_cpu_thread)
+        if not model_name or not problem_name or not hparams_set_name:
+            logging.fatal(
+                "Please specify t2t_model, t2t_problem, and t2t_hparams_set!")
+            raise AttributeError
         self.consumed = []
         self.src_sentence = []
-        self.pop_id = pop_id 
+        try:
+            self.pop_id = int(pop_id) 
+        except ValueError:
+            logging.warn("t2t predictor only supports single POP IDs. "
+                         "Reset to -1")
+            self.pop_id = -1
         self.max_terminal_id = max_terminal_id 
+        self.src_vocab_size = src_vocab_size
+        self.trg_vocab_size = trg_vocab_size
         predictor_graph = tf.Graph()
         with predictor_graph.as_default() as g:
-            hparams = self._create_hparams(
-                src_vocab_size, trg_vocab_size, hparams_set_name, problem_name)
-            p_hparams = hparams.problems[0]
-            self._inputs_var = tf.placeholder(dtype=tf.int32, 
-                                              shape=[None], 
+            hparams = trainer_utils.create_hparams(hparams_set_name, None)
+            self._add_problem_hparams(
+                hparams, src_vocab_size, trg_vocab_size, problem_name)
+            translate_model = registry.model(model_name)(
+                hparams, tf.estimator.ModeKeys.PREDICT)
+            self._inputs_var = tf.placeholder(dtype=tf.int32, shape=[None],
                                               name="sgnmt_inputs")
-            self._targets_var = tf.placeholder(dtype=tf.int32, 
-                                               shape=[None], 
+            self._targets_var = tf.placeholder(dtype=tf.int32, shape=[None], 
                                                name="sgnmt_targets")
-            features = {"problem_choice": tf.constant(0),
-                        "input_space_id": tf.constant(p_hparams.input_space_id),
-                        "target_space_id": tf.constant(
-                            p_hparams.target_space_id),
-                        "inputs": expand_input_dims_for_t2t(self._inputs_var),
+            features = {"inputs": expand_input_dims_for_t2t(self._inputs_var), 
                         "targets": expand_input_dims_for_t2t(self._targets_var)}
-        
-            model = registry.model(model_name)(
-                hparams,
-                tf.estimator.ModeKeys.PREDICT,
-                hparams.problems[0],
-                0,
-                devices.data_parallelism(),
-                devices.ps_devices(all_workers=True))
-            sharded_logits, _ = model.model_fn(features)
-            self._log_probs = log_prob_from_logits(sharded_logits[0])
+            with translate_model._var_store.as_default():
+                translate_model.prepare_features_for_infer(features)
+                translate_model._fill_problem_hparams_features(features)
+                logits, _ = translate_model(features)
+                logits = tf.squeeze(logits, [0, 1, 2, 3])
+                self._log_probs = log_prob_from_logits(logits)
             self.mon_sess = self.create_session()
 
-    def _create_hparams(
-          self, src_vocab_size, trg_vocab_size, hparams_set_name, problem_name):
-        """Creates hparams object.
-        
+    def _add_problem_hparams(
+            self, hparams, src_vocab_size, trg_vocab_size, problem_name):
+        """Add problem hparams for the problems. 
+
         This method corresponds to create_hparams() in tensor2tensor's
         trainer_utils module, but replaces the feature encoders with
         DummyFeatureEncoder's.
-        
+
         Args:
+            hparams (Hparams): Model hyper parameters.
             src_vocab_size (int): Source vocabulary size.
             trg_vocab_size (int): Target vocabulary size.
-            hparams_set_name (string): T2T hparams set name.
             problem_name (string): T2T problem name.
         
         Returns:
             hparams object.
-        
+
         Raises:
             LookupError if the problem name is not in the registry or
             uses the old style problem_hparams.
         """
-        hparams = registry.hparams(hparams_set_name)()
-        problem = registry.problem(problem_name)
-        # The following hack is necessary to prevent the problem from creating
-        # the default TextEncoders, which would fail due to the lack of a
-        # vocabulary file.
-        problem._encoders = {
-            "inputs": DummyTextEncoder(vocab_size=src_vocab_size),
-            "targets": DummyTextEncoder(vocab_size=trg_vocab_size)
-        }
         try:
             hparams.add_hparam("max_terminal_id", self.max_terminal_id)
         except:
@@ -295,6 +289,11 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
             if hparams.closing_bracket_id != self.pop_id:
                 logging.warn("T2T closing_bracket_id does not match (%d!=%d)"
                              % (hparams.closing_bracket_id, self.pop_id))
+        problem = registry.problem(problem_name)
+        problem._encoders = {
+            "inputs": DummyTextEncoder(vocab_size=src_vocab_size),
+            "targets": DummyTextEncoder(vocab_size=trg_vocab_size)
+        }
         p_hparams = problem.get_hparams(hparams)
         hparams.problem_instances = [problem]
         hparams.problems = [p_hparams]
@@ -304,16 +303,19 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
         """Call the T2T model in self.mon_sess."""
         log_probs = self.mon_sess.run(self._log_probs,
             {self._inputs_var: self.src_sentence,
-             self._targets_var: self.consumed + [text_encoder.PAD_ID]})
-        log_probs_squeezed = log_probs[0, 0, 0, 0, :]
-        log_probs_squeezed[text_encoder.PAD_ID] = utils.NEG_INF
-        return log_probs_squeezed
+             self._targets_var: utils.oov_to_unk(
+                 self.consumed + [text_encoder.PAD_ID],
+                 self.trg_vocab_size)})
+        log_probs[text_encoder.PAD_ID] = utils.NEG_INF
+        return log_probs
     
     def initialize(self, src_sentence):
         """Set src_sentence, reset consumed."""
         self.consumed = []
-        self.src_sentence = src_sentence + [text_encoder.EOS_ID]
-    
+        self.src_sentence = utils.oov_to_unk(
+            src_sentence + [text_encoder.EOS_ID], 
+            self.src_vocab_size)
+   
     def consume(self, word):
         """Append ``word`` to the current history."""
         self.consumed.append(word)
@@ -349,6 +351,8 @@ class _BaseLayerbylayerPredictor(_BaseTensor2TensorPredictor):
     Decoding with this predictor will generate a sequence of tokens
     which can be split into segments at </l>. Each segment describes
     one layer of the generated tree with increasing depth.
+
+    TODO: Make compatible with T2T1.3+
     """
 
     def __init__(self,
@@ -410,7 +414,12 @@ class _BaseLayerbylayerPredictor(_BaseTensor2TensorPredictor):
         self.trg_vocab_size = trg_vocab_size
         self.max_terminal_id = max_terminal_id
         self.max_depth = max_depth
-        self.pop_id = pop_id if pop_id >= 0 else None
+        try:
+            self.pop_id = int(pop_id) if int(pop_id) >= 0 else None
+        except ValueError:
+            logging.warn("t2tlayerbylayer predictor only supports single POP IDs. "
+                         "Reset to None")
+            self.pop_id = None
         if terminal_list:
             self.terminal_list = [int(i) for i in terminal_list.split(",")]
         else:
