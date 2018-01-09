@@ -352,6 +352,7 @@ def get_parser():
                                  'multisegbeam',
                                  'syncbeam',
                                  'sepbeam',
+                                 'syntaxbeam',
                                  'dfs',
                                  'restarting',
                                  'bow',
@@ -378,6 +379,8 @@ def get_parser():
                         "* 'syncbeam': beam search which compares after "
                         "consuming a special synchronization symbol instead "
                         "of after each iteration.\n"
+                        "* 'syntaxbeam': beam search which ensures terminal "
+                        "symbol diversity.\n"
                         "* 'sepbeam': Associates predictors with hypos in "
                         "beam search and applies only one predictor instead "
                         "of all for hypo expansion.\n"

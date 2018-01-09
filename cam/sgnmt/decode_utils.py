@@ -36,6 +36,7 @@ from cam.sgnmt.decoding.heuristics import GreedyHeuristic, \
 from cam.sgnmt.decoding.multisegbeam import MultisegBeamDecoder
 from cam.sgnmt.decoding.restarting import RestartingDecoder
 from cam.sgnmt.decoding.sepbeam import SepBeamDecoder
+from cam.sgnmt.decoding.syntaxbeam import SyntaxBeamDecoder
 from cam.sgnmt.decoding.syncbeam import SyncBeamDecoder
 from cam.sgnmt.output import TextOutputHandler, \
                              NBestOutputHandler, \
@@ -422,21 +423,11 @@ def create_decoder(new_args):
                                       args.early_stopping,
                                       args.max_word_len)
     elif args.decoder == "syncbeam":
-        decoder = SyncBeamDecoder(args,
-                                  args.hypo_recombination,
-                                  args.beam,
-                                  args.pure_heuristic_scores,
-                                  args.decoder_diversity_factor,
-                                  args.early_stopping,
-                                  args.sync_symbol,
-                                  args.max_word_len)
+        decoder = SyncBeamDecoder(args)
     elif args.decoder == "sepbeam":
-        decoder = SepBeamDecoder(args,
-                                 args.hypo_recombination,
-                                 args.beam,
-                                 args.pure_heuristic_scores,
-                                 args.decoder_diversity_factor,
-                                 args.early_stopping)
+        decoder = SepBeamDecoder(args)
+    elif args.decoder == "syntaxbeam":
+        decoder = SyntaxBeamDecoder(args)
     elif args.decoder == "dfs":
         decoder = DFSDecoder(args)
     elif args.decoder == "restarting":
