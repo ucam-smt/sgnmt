@@ -31,16 +31,26 @@ def parse_args(parser):
         if not YAML_AVAILABLE:
             logging.fatal("Install PyYAML in order to use config files.")
             return args
-        data = yaml.load(args.config_file)
+        paths = args.config_file
         delattr(args, 'config_file')
         arg_dict = args.__dict__
+        for path in paths.split(","):
+            _load_config_file(arg_dict, path)
+    return args
+
+
+def _load_config_file(arg_dict, path):
+    with open(path.strip()) as f:
+        data = yaml.load(f)
         for key, value in data.items():
+            if key == "config_file":
+                for sub_path in value.split(","):
+                    _load_config_file(arg_dict, sub_path)
             if isinstance(value, list):
                 for v in value:
                     arg_dict[key].append(v)
             else:
                 arg_dict[key] = value
-    return args
 
 
 def parse_param_string(param):
@@ -280,8 +290,7 @@ def get_parser():
     group = parser.add_argument_group('General options')
     group.add_argument('--config_file', 
                         help="Configuration file in standard .ini format. NOTE:"
-                        " Configuration file overrides command line arguments",
-                        type=argparse.FileType(mode='r'))
+                        " Configuration file overrides command line arguments")
     group.add_argument("--verbosity", default="info",
                         choices=['debug', 'info', 'warn', 'error'],
                         help="Log level: debug,info,warn,error")
