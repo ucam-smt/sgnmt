@@ -18,6 +18,7 @@ import logging
 from cam.sgnmt import utils
 import numpy as np
 import codecs
+from collections import defaultdict
 
 
 class OutputHandler(object):
@@ -131,6 +132,69 @@ class NBestOutputHandler(OutputHandler):
                              hypo.total_score))
                     f.write("\n")
                 idx += 1
+
+
+class NgramOutputHandler(OutputHandler):
+    """This output handler extracts MBR-style ngram posteriors from the 
+    hypotheses returned by the decoder. The hypothesis scores are assumed to
+    be loglikelihoods, which we renormalize to make sure that we operate on a
+    valid distribution. The scores produced by the output handler are 
+    probabilities of an ngram being in the translation.
+    """
+    
+    def __init__(self, path, min_order, max_order, start_sen_id):
+        """Creates an ngram output handler.
+        
+        Args:
+            path (string):  Path to the ngram directory to create
+            min_order (int):  Minimum order of extracted ngrams
+            max_order (int):  Maximum order of extracted ngrams
+            start_sen_id (int):  ID of the first sentence
+        """
+        super(NgramOutputHandler, self).__init__()
+        self.path = path
+        self.min_order = min_order
+        self.max_order = max_order
+        self.start_sen_id = start_sen_id
+        self.file_pattern = path + "/%d.txt" 
+      
+    def write_hypos(self, all_hypos):
+        """Writes ngram files for each sentence in ``all_hypos``.
+        
+        Args:
+            all_hypos (list): list of nbest lists of hypotheses
+        
+        Raises:
+            OSError. If the directory could not be created
+            IOError. If something goes wrong while writing to the disk
+        """
+        try:
+            os.makedirs(self.path)
+        except OSError as exception:
+            if exception.errno != errno.EEXIST:
+                raise
+            else:
+                logging.warn(
+                       "Output ngram directory %s already exists." % self.path)
+        sen_idx = self.start_sen_id
+        for hypos in all_hypos:
+            sen_idx += 1
+            total = utils.log_sum([hypo.total_score for hypo in hypos])
+            normed_scores = [hypo.total_score - total for hypo in hypos]
+            ngrams = defaultdict(dict)
+            # Collect ngrams
+            for hypo_idx, hypo in enumerate(hypos):
+                sen_with_eos = hypo.trgt_sentence + [utils.EOS_ID]
+                for pos in xrange(1, len(sen_with_eos) + 1):
+                    hist = sen_with_eos[:pos]
+                    for order in xrange(self.min_order, self.max_order + 1):
+                        ngram = ' '.join(map(str, hist[-order:]))
+                        ngrams[ngram][hypo_idx] = True
+            with open(self.file_pattern % sen_idx, "w") as f:
+                for ngram, hypo_indices in ngrams.iteritems():
+                    ngram_score = np.exp(utils.log_sum(
+                       [normed_scores[hypo_idx] for hypo_idx in hypo_indices]))
+                    f.write("%s : %f\n" % (ngram, min(1.0, ngram_score)))
 
 
 class FSTOutputHandler(OutputHandler):

@@ -40,6 +40,7 @@ from cam.sgnmt.decoding.syntaxbeam import SyntaxBeamDecoder
 from cam.sgnmt.decoding.syncbeam import SyncBeamDecoder
 from cam.sgnmt.output import TextOutputHandler, \
                              NBestOutputHandler, \
+                             NgramOutputHandler, \
                              FSTOutputHandler, \
                              StandardFSTOutputHandler
 from cam.sgnmt.predictors.automata import FstPredictor, \
@@ -354,8 +355,8 @@ def add_predictors(decoder):
                                         p)
                 elif wrapper == "ngramize":
                     # ngramize always wraps bounded predictors
-                    p = NgramizePredictor(args.ngramize_min_order, 
-                                          args.ngramize_max_order,
+                    p = NgramizePredictor(args.min_ngram_order, 
+                                          args.max_ngram_order,
                                           args.max_len_factor, p)
                 elif wrapper == "unkvocab":
                     # unkvocab always wraps bounded predictors
@@ -582,6 +583,11 @@ def create_output_handlers():
             outputs.append(NBestOutputHandler(path, args.predictors.split(","),
                                               start_sen_id,
                                               trg_map))
+        elif name == "ngram":
+            outputs.append(NgramOutputHandler(path,
+                                              args.min_ngram_order,
+                                              args.max_ngram_order,
+                                              start_sen_id))
         elif name == "fst":
             outputs.append(FSTOutputHandler(path,
                                             start_sen_id,

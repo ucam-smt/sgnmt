@@ -746,9 +746,9 @@ class NgramizePredictor(Predictor):
         """
         super(NgramizePredictor, self).__init__()
         if max_order < 1:
-             raise AttributeError("ngramize_max_order must be positive.")
+             raise AttributeError("max_ngram_order must be positive.")
         if min_order > max_order:
-             raise AttributeError("ngramize_min_order greater than max_order.")
+             raise AttributeError("min_ngram_order greater than max_order.")
         self.slave_predictor = slave_predictor
         self.max_history_length = max_order - 1
         self.min_order = max(1, min_order)
