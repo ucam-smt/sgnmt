@@ -87,8 +87,8 @@ class ParsePredictor(Predictor):
                                                   self.normalize_scores)
         return parse_posterior
 
-    def is_best_terminal(self, posterior):
-        best_rule_id = utils.argmax(posterior)
+    def are_best_terminal(self, posterior):
+        best_rule_id = utils.argmax_n(posterior)
         rhs = self.rule_id_to_rhs[best_rule_id]
         if not rhs or rhs[0] in (utils.EOS_ID, utils.UNK_ID):
           return True
@@ -111,7 +111,7 @@ class ParsePredictor(Predictor):
         - combine the posteriors
         - 
         """
-        if self.is_best_terminal(posterior):
+        if self.are_best_terminal(posterior):
           return posterior
         if self.beam_size == 0:
           best_rule_id = utils.argmax(posterior)
@@ -178,17 +178,7 @@ class ParsePredictor(Predictor):
     def initialize_heuristic(self, src_sentence):
         """Creates a matrix of shortest distances between nodes. """
         self.distances = fst.shortestdistance(self.cur_fst, reverse=True)
-    
-    def estimate_future_cost(self, hypo):
-        """The FST predictor comes with its own heuristic function. We
-        use the shortest path in the fst as future cost estimator. """
-        if not self.cur_node:
-            return 0.0
-        last_word = hypo.trgt_sentence[-1]
-        for arc in self.cur_fst.arcs(self.cur_node):
-            if arc.olabel == last_word:
-                return w2f(self.distances[arc.nextstate])
-        return 0.0
+        
     
     def is_equal(self, state1, state2):
         """Returns true if the current node is the same """
@@ -216,8 +206,9 @@ class TokParsePredictor(Predictor):
     Unlike ParsePredictor, the grammar predicts tokens, not rules
     """
     
-    def __init__(self, grammar_path, nmt_predictor, word_out,
-                 normalize_scores=True, to_log=True, beam_size=4,
+    def __init__(self, grammar_path, nmt_predictor, word_out=True,
+                 normalize_scores=True, to_log=True, norm_alpha=1.0, 
+                 beam_size=1, max_internal_len=35, allow_early_eos=False,
                  consume_out_of_class=False):
         """Creates a new parse predictor.
         Args:
@@ -228,24 +219,31 @@ class TokParsePredictor(Predictor):
         self.nmt = nmt_predictor
         self.UNK_ID = 3
         self.weight_factor = -1.0 if to_log else 1.0
-        self.internal_alpha = 1.0
-        self.word_out = True#word_out
+        self.internal_alpha = norm_alpha
+        self.word_out = word_out
         self.use_weights = True
         self.normalize_scores = normalize_scores
         self.beam_size = beam_size
+        self.max_internal_len = max_internal_len
         self.add_bos_to_eos_score = False
         self.stack = []
+        self.check_n_best_terminal = False
         self.current_lhs = None
         self.current_rhs = []
+        self.allow_early_eos=allow_early_eos
         self.consume_ooc = consume_out_of_class
         self.prepare_grammar()
         self.tok_to_internal_state = {}
         
-    def norm_score(self, hypo):
-        length_penalty = (5.0 + hypo.beam_len) / 6
+
+    def norm_hypo_score(self, hypo):
+        hypo.norm_score = self.norm_score(hypo.score, hypo.beam_len)
+        
+    def norm_score(self, score, beam_len):
+        length_penalty = (5.0 + beam_len) / 6
         if self.internal_alpha != 1.0:
             length_penalty = pow(length_penalty, self.internal_alpha)
-        hypo.norm_score = hypo.score / length_penalty
+        return score / length_penalty
         
 
     def prepare_grammar(self):
@@ -260,6 +258,9 @@ class TokParsePredictor(Predictor):
             if 0 in following:
                 following.remove(0)
                 self.last_nt_in_rule[nt] = False
+            if self.allow_early_eos and self.UNK_ID in following:
+                self.lhs_to_can_follow[nt].add(utils.EOS_ID)
+        self.lhs_to_can_follow[utils.EOS_ID].add(self.UNK_ID)
                     
     def is_nt(self, word):
         if word in self.lhs_to_can_follow:
@@ -273,13 +274,21 @@ class TokParsePredictor(Predictor):
             return posterior[self.UNK_ID] 
         else:
             return utils.NEG_INF
-    
-    def is_best_terminal(self, posterior):
+
+    def are_best_terminal(self, posterior):
         # Return true if most probable token in posterior is a terminal or EOS token
-        best_rule_id = utils.argmax(posterior)
-        if best_rule_id == utils.EOS_ID:
-            return True
-        return not self.is_nt(best_rule_id)
+        if not self.check_n_best_terminal:
+            return self.is_terminal(utils.argmax(posterior))
+        best_rule_ids = utils.argmax_n(posterior, self.beam_size)
+        for idx in best_rule_ids:
+            if not self.is_terminal(idx):
+                return False
+        return True
+
+    def is_terminal(self, tok):
+        if self.is_nt(tok) and tok != utils.EOS_ID:
+            return False
+        return True
 
     def initialize(self, src_sentence):
         self.nmt.initialize(src_sentence)
@@ -314,13 +323,12 @@ class TokParsePredictor(Predictor):
         scores = self.finalize_posterior(scores, 
                                          self.use_weights,
                                          self.normalize_scores)
-
         if self.word_out and not predicting_next_word:
             scores = self.find_word(scores)
         return scores
     
     def find_word_greedy(self, posterior):
-        while not self.is_best_terminal(posterior):
+        while not self.are_best_terminal(posterior):
             best_rule_id = utils.argmax(posterior)
             self.consume(best_rule_id)
             posterior = self.predict_next(predicting_next_word=True)
@@ -332,30 +340,38 @@ class TokParsePredictor(Predictor):
                  if self.is_nt(tok)]
         best_hypo = InternalHypo(utils.NEG_INF, None, None)
         best_posterior = None
-        while hypos and hypos[0].score > best_hypo.score:
+        while hypos and hypos[0].norm_score > best_hypo.norm_score:
             next_hypos = []
             for hypo in hypos:
                 self.set_state(copy.deepcopy(hypo.predictor_state))
                 self.consume(hypo.word_to_consume)
                 new_post = self.predict_next(predicting_next_word=True)
+                top_tokens = utils.argmax_n(new_post, self.beam_size)
                 next_state = copy.deepcopy(self.get_state())
-                if self.is_best_terminal(new_post) and hypo.score > best_hypo.score:
+                new_norm_score = self.norm_score(new_post[top_tokens[0]] + hypo.score, hypo.beam_len + 1)
+                if self.are_best_terminal(new_post) and new_norm_score > best_hypo.norm_score:
+                    best_hypo = copy.deepcopy(hypo)
                     best_hypo.predictor_state = next_state
-                    best_hypo.score = hypo.score
+                    best_hypo.norm_score = new_norm_score
                     best_posterior = new_post
-                    self.norm_score(best_hypo)
                 else:
-                    for tok, score in new_post.items(): # slow but more exhaustive
+                    if hypo.beam_len == self.max_internal_len:
+                        logging.info('cutting off internal hypo - too long')
+                        continue
+                    for tok in top_tokens:
                         if self.is_nt(tok):
                             new_hypo = copy.deepcopy(hypo)
-                            new_hypo.extend(score, next_state, tok)
+                            new_hypo.extend(new_post[tok], next_state, tok)
                             next_hypos.append(new_hypo)
-            map(self.norm_score, next_hypos)
+            map(self.norm_hypo_score, next_hypos)
             next_hypos.sort(key=lambda h: -h.norm_score)
             hypos = next_hypos[:self.beam_size]
         self.set_state(best_hypo.predictor_state)
-        #for tok in best_posterior:
-        #    best_posterior[tok] += best_hypo.norm_score # include path score 
+        for tok in best_posterior.keys():
+            best_posterior[tok] = self.norm_score(best_hypo.score + best_posterior[tok], 
+                                                  best_hypo.beam_len + 1)
+            if self.is_nt(tok):
+                del best_posterior[tok]
         return best_posterior
 
 
@@ -368,12 +384,10 @@ class TokParsePredictor(Predictor):
         if self.beam_size <= 1:
             return self.find_word_greedy(posterior)
         else:
-          if self.is_best_terminal(posterior):
+          if self.are_best_terminal(posterior):
               return posterior
           else:
               return self.find_word_beam(posterior)
-
-
 
     def consume(self, word):
         """
@@ -426,4 +440,51 @@ class TokParsePredictor(Predictor):
         return state1 == state2
 
 
+class BpeParsePredictor(TokParsePredictor):
+    """                                                                         
+    Predict BPE units with separate internal rules. 
+    """
 
+    def __init__(self, grammar_path, bpe_rule_path, nmt_predictor, word_out=True,
+                 normalize_scores=True, to_log=True, norm_alpha=1.0,
+                 beam_size=1, max_internal_len=35, allow_early_eos=False,
+                 consume_out_of_class=False):
+        """Creates a new parse predictor.                                                                            
+        Args:                                                                                                        
+            grammar_path (string): Path to the grammar file                                                          
+        """
+        super(BpeParsePredictor, self).__init__(grammar_path,
+                                                nmt_predictor,
+                                                word_out,
+                                                normalize_scores,
+                                                to_log, norm_alpha,
+                                                beam_size,
+                                                max_internal_len,
+                                                allow_early_eos,
+                                                consume_out_of_class)
+        self.get_bpe_can_follow(bpe_rule_path)
+        
+    def get_bpe_can_follow(self, rule_path):
+        with open(rule_path) as f:
+            for line in f:
+                nt, following = line.split(' : ')
+                nt_tuple = tuple(map(int, nt.split(',')))
+                self.lhs_to_can_follow[nt_tuple] = set(
+                    [int(r) for r in following.strip().split()])
+
+    def update_stacks(self, word):
+        if self.is_nt(word):
+            self.current_rhs.append(word)
+            if self.last_nt_in_rule[word]:
+                self.replace_lhs()
+        else:
+            try:
+                internal_lhs = self.current_lhs + (word,)
+            except TypeError:
+                internal_lhs = (self.current_lhs, word)
+            logging.info('internal lhs: {}'.format(internal_lhs))
+            if internal_lhs in self.lhs_to_can_follow:
+                self.current_lhs = internal_lhs
+                logging.info('new current lhs: {}'.format(self.current_lhs))
+            else:
+                self.replace_lhs()

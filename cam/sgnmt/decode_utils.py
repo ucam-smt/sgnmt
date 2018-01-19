@@ -19,8 +19,7 @@ from cam.sgnmt.blocks.nmt import blocks_get_nmt_predictor, \
                                  blocks_get_nmt_vanilla_decoder, \
     blocks_get_default_nmt_config
 from cam.sgnmt.decoding import core
-from cam.sgnmt.predictors.parse import ParsePredictor, TokParsePredictor
-
+from cam.sgnmt.predictors.parse import ParsePredictor, TokParsePredictor, BpeParsePredictor
 from cam.sgnmt.decoding.astar import AstarDecoder
 from cam.sgnmt.decoding.beam import BeamDecoder
 from cam.sgnmt.decoding.bigramgreedy import BigramGreedyDecoder
@@ -347,13 +346,31 @@ def add_predictors(decoder):
 
                 elif wrapper == "parse":
                     if args.parse_tok_grammar:
-                        p = TokParsePredictor(args.parse_path,
-                                              p,
-                                              args.parse_word_out,
-                                              args.normalize_fst_weights,
-                                              to_log=args.fst_to_log,
-                                              beam_size=args.parse_beam,
-                                              consume_out_of_class=args.parse_consume_ooc)
+                        if args.parse_bpe_path:
+                            p = BpeParsePredictor(
+                                args.parse_path,
+                                args.parse_bpe_path,
+                                p,
+                                args.parse_word_out,
+                                args.normalize_fst_weights,
+                                to_log=args.fst_to_log,
+                                norm_alpha=args.parse_norm_alpha,
+                                beam_size=args.parse_beam,
+                                max_internal_len=args.parse_max_internal_len,
+                                allow_early_eos=args.parse_allow_early_eos,
+                                consume_out_of_class=args.parse_consume_ooc)
+                        else:
+                            p = TokParsePredictor(
+                                args.parse_path,
+                                p,
+                                args.parse_word_out,
+                                args.normalize_fst_weights,
+                                to_log=args.fst_to_log,
+                                norm_alpha=args.parse_norm_alpha,
+                                beam_size=args.parse_beam,
+                                max_internal_len=args.parse_max_internal_len,
+                                allow_early_eos=args.parse_allow_early_eos,
+                                consume_out_of_class=args.parse_consume_ooc)
                     else:
                         p = ParsePredictor(args.parse_path,
                                            p,

@@ -295,7 +295,7 @@ class FSTTokPredictor(Predictor):
     
     def is_equal(self, state1, state2):
         """Not implemented yet"""
-        return False
+        return state1==state2
     
 
 class Word2charPredictor(UnboundedVocabularyPredictor):

@@ -1136,10 +1136,17 @@ def get_parser():
                         help="Only required for parse predictor. Sets "
                         "the path to the grammar non-terminal map determining"
                         "permitted parses")
-    group.add_argument("--parse_word_out", default=False, type='bool',
+    group.add_argument("--parse_bpe_path", default=None,
+                        help="Internal can-follow syntax for subwords")
+    group.add_argument("--parse_word_out", default=True, type='bool',
                         help="Whether to output word tokens only from parse" 
-                        "predictor."
-                        "Default outputs all rules.")
+                        "predictor.")
+    group.add_argument("--parse_allow_early_eos", default=False, type='bool',
+                        help="Whether to let parse predictor output EOS instead of any terminal")
+    group.add_argument("--parse_norm_alpha", default=1.0, type=float,
+                        help="Normalizing alpha for internal beam search")
+    group.add_argument("--parse_max_internal_len", default=35, type=int,
+                        help="Max length of non-terminal sequences to consider")
     group.add_argument("--parse_beam", default=1, type=int,
                         help="Beam size when internally searching for words" 
                        "using parse predictor")
