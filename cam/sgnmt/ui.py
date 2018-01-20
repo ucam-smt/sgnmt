@@ -633,6 +633,8 @@ def get_parser():
                         "format with sparse tuple arcs.\n"
                         "* 'sfst': Translation lattices in OpenFST "
                         "format with standard arcs (i.e. combined scores).\n"
+                        "* 'timecsv': Generate CSV files with separate "
+                        "predictor scores for each time step.\n"
                         "* 'ngram': MBR-style n-gram posteriors.\n\n"
                         "The path to the output files can be specified with "
                         "--output_path")

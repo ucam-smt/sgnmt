@@ -41,6 +41,7 @@ from cam.sgnmt.decoding.syncbeam import SyncBeamDecoder
 from cam.sgnmt.output import TextOutputHandler, \
                              NBestOutputHandler, \
                              NgramOutputHandler, \
+                             TimeCSVOutputHandler, \
                              FSTOutputHandler, \
                              StandardFSTOutputHandler
 from cam.sgnmt.predictors.automata import FstPredictor, \
@@ -588,6 +589,10 @@ def create_output_handlers():
                                               args.min_ngram_order,
                                               args.max_ngram_order,
                                               start_sen_id))
+        elif name == "timecsv":
+            outputs.append(TimeCSVOutputHandler(path, 
+                                                args.predictors.split(","),
+                                                start_sen_id))
         elif name == "fst":
             outputs.append(FSTOutputHandler(path,
                                             start_sen_id,

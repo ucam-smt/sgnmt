@@ -21,6 +21,17 @@ import codecs
 from collections import defaultdict
 
 
+def _mkdir(path, name):
+    try:
+        os.makedirs(path)
+    except OSError as exception:
+        if exception.errno != errno.EEXIST:
+            raise
+        else:
+            logging.warn("Output %s directory '%s' already exists." 
+                         % (name, path))
+
+
 class OutputHandler(object):
     """Interface for output handlers. """
     
@@ -134,6 +145,73 @@ class NBestOutputHandler(OutputHandler):
                 idx += 1
 
 
+class TimeCSVOutputHandler(OutputHandler):
+    """Produces one CSV file for each sentence. The CSV files contain
+    the predictor score breakdown for each translation prefix length.
+    """
+    
+    def __init__(self, path, predictor_names, start_sen_id):
+        """Creates a Moses n-best list output handler.
+        
+        Args:
+            path (string):  Path to the n-best file to write
+            predictor_names: Names of the predictors whose scores
+                             should be included in the score breakdown
+                             in the n-best list
+            start_sen_id: ID of the first sentence
+        """
+        super(TimeCSVOutputHandler, self).__init__()
+        self.path = path
+        self.file_pattern = path + "/%d.csv" 
+        self.start_sen_id = start_sen_id
+        self.predictor_names = []
+        name_count = {}
+        for name in predictor_names:
+            if not name in name_count:
+                name_count[name] = 1
+                final_name = name
+            else:
+                name_count[name] += 1
+                final_name = "%s%d" % (name, name_count[name])
+            self.predictor_names.append(final_name)
+        
+    def write_hypos(self, all_hypos):
+        """Writes ngram files for each sentence in ``all_hypos``.
+        
+        Args:
+            all_hypos (list): list of nbest lists of hypotheses
+        
+        Raises:
+            OSError. If the directory could not be created
+            IOError. If something goes wrong while writing to the disk
+        """
+        _mkdir(self.path, "TimeCSV")
+        sen_idx = self.start_sen_id
+        n_predictors = len(self.predictor_names)
+        placeholder = "\t-" * n_predictors
+        for hypos in all_hypos:
+            sen_idx += 1
+            with open(self.file_pattern % sen_idx, "w") as f:
+                hypo_count = len(hypos)
+                # Headers
+                f.write("Time")
+                for i in xrange(hypo_count):
+                    f.write("".join(["\t%s-%d" % (n, i+1) 
+                                       for n in self.predictor_names]))
+                f.write("\n")
+                max_len = max([len(hypo.trgt_sentence) for hypo in hypos])
+                for pos in xrange(max_len+1):
+                    f.write(str(pos))
+                    for hypo in hypos:
+                        if pos >= len(hypo.score_breakdown):
+                            f.write(placeholder)
+                        else:
+                            for pred_idx in xrange(n_predictors):
+                                acc_pred_score = sum([s[pred_idx][0] for s in hypo.score_breakdown[:pos+1]])
+                                f.write("\t%f" % acc_pred_score)
+                    f.write("\n")
+
+
 class NgramOutputHandler(OutputHandler):
     """This output handler extracts MBR-style ngram posteriors from the 
     hypotheses returned by the decoder. The hypothesis scores are assumed to
@@ -168,14 +246,7 @@ class NgramOutputHandler(OutputHandler):
             OSError. If the directory could not be created
             IOError. If something goes wrong while writing to the disk
         """
-        try:
-            os.makedirs(self.path)
-        except OSError as exception:
-            if exception.errno != errno.EEXIST:
-                raise
-            else:
-                logging.warn(
-                       "Output ngram directory %s already exists." % self.path)
+        _mkdir(self.path, "ngram")
         sen_idx = self.start_sen_id
         for hypos in all_hypos:
             sen_idx += 1
@@ -184,9 +255,9 @@ class NgramOutputHandler(OutputHandler):
             ngrams = defaultdict(dict)
             # Collect ngrams
             for hypo_idx, hypo in enumerate(hypos):
-                sen_with_eos = hypo.trgt_sentence + [utils.EOS_ID]
-                for pos in xrange(1, len(sen_with_eos) + 1):
-                    hist = sen_with_eos[:pos]
+                sen_eos = [utils.GO_ID] + hypo.trgt_sentence + [utils.EOS_ID]
+                for pos in xrange(1, len(sen_eos) + 1):
+                    hist = sen_eos[:pos]
                     for order in xrange(self.min_order, self.max_order + 1):
                         ngram = ' '.join(map(str, hist[-order:]))
                         ngrams[ngram][hypo_idx] = True
@@ -248,14 +319,7 @@ class FSTOutputHandler(OutputHandler):
             OSError. If the directory could not be created
             IOError. If something goes wrong while writing to the disk
         """
-        try:
-            os.makedirs(self.path)
-        except OSError as exception:
-            if exception.errno != errno.EEXIST:
-                raise
-            else:
-                logging.warn(
-                        "Output FST directory %s already exists." % self.path)
+        _mkdir(self.path, "FST")
         fst_idx = self.start_sen_id
         for hypos in all_hypos:
             fst_idx += 1
@@ -324,14 +388,7 @@ class StandardFSTOutputHandler(OutputHandler):
             OSError. If the directory could not be created
             IOError. If something goes wrong while writing to the disk
         """
-        try:
-            os.makedirs(self.path)
-        except OSError as exception:
-            if exception.errno != errno.EEXIST:
-                raise
-            else:
-                logging.warn(
-                        "Output FST directory %s already exists." % self.path)
+        _mkdir(self.path, "FST")
         fst_idx = self.start_sen_id
         for hypos in all_hypos:
             fst_idx += 1
