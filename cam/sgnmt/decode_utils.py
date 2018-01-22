@@ -54,7 +54,8 @@ from cam.sgnmt.predictors.forced import ForcedPredictor, ForcedLstPredictor
 from cam.sgnmt.predictors.grammar import RuleXtractPredictor
 from cam.sgnmt.predictors.length import WordCountPredictor, NBLengthPredictor, \
     ExternalLengthPredictor, NgramCountPredictor, UnkCountPredictor, \
-    BracketPredictor, NgramizePredictor
+    NgramizePredictor
+from cam.sgnmt.predictors.structure import BracketPredictor, OSMPredictor
 from cam.sgnmt.predictors.misc import UnboundedAltsrcPredictor, AltsrcPredictor
 from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
                                             UnboundedIdxmapPredictor, \
@@ -227,6 +228,8 @@ def add_predictors(decoder):
                                      args.syntax_pop_id,
                                      max_depth=args.syntax_max_depth,
                                      extlength_path=args.extlength_path)
+            elif pred == "osm":
+                p = OSMPredictor()
             elif pred == "fst":
                 p = FstPredictor(_get_override_args("fst_path"),
                                  args.use_fst_weights,
