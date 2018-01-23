@@ -233,7 +233,7 @@ class NBLengthPredictor(Predictor):
 
 
 class WordCountPredictor(Predictor):
-    """This predictor adds the number of words as feature. """
+    """This predictor adds the (negative) number of words as feature. """
     
     def __init__(self, word = -1):
         """Creates a new word count predictor instance.
@@ -588,126 +588,6 @@ class UnkCountPredictor(Predictor):
         """Returns true if the state is the same"""
         return state1 == state2
 
-
-class BracketPredictor(UnboundedVocabularyPredictor):
-    """This predictor constrains the output to well-formed bracket
-    expressions. It also allows to specify the number of terminals with
-    an external length distribution file.
-    """
-    
-    def __init__(self, max_terminal_id, closing_bracket_id, max_depth=-1, 
-                 extlength_path=""):
-        """Creates a new bracket predictor.
-        
-        Args:
-            max_terminal_id (int): All IDs greater than this are 
-                brackets
-            closing_bracket_id (string): All brackets except these ones are 
-                opening. Comma-separated list of integers.
-            max_depth (int): If positive, restrict the maximum depth
-            extlength_path (string): If this is set, restrict the 
-                number of terminals to the distribution specified in
-                the referenced file. Terminals can be implicit: We
-                count a single terminal between each adjacent opening
-                and closing bracket.
-        """
-        super(BracketPredictor, self).__init__()
-        self.max_terminal_id = max_terminal_id
-        try:
-            self.closing_bracket_ids = map(int, closing_bracket_id.split(","))
-        except:
-            self.closing_bracket_ids = [int(closing_bracket_id)]
-        self.max_depth = max_depth if max_depth >= 0 else 1000000
-        if extlength_path:
-            self.length_scores = load_external_lengths(extlength_path)
-        else:
-            self.length_scores = None
-            self.max_length = 1000000
-    
-    def initialize(self, src_sentence):
-        """Sets the current depth to 0.
-        
-        Args:
-            src_sentence (list): Not used
-        """
-        self.cur_depth = 0
-        self.ends_with_opening = True
-        self.n_terminals = 0
-        if self.length_scores:
-            self.cur_length_scores = self.length_scores[self.current_sen_id]
-            self.max_length = max(self.cur_length_scores)
-
-    def _no_closing_bracket(self):
-        return {i: utils.NEG_INF for i in self.closing_bracket_ids}
-    
-    def predict_next(self, words):
-        """If the maximum depth is reached, exclude all opening
-        brackets. If history is not balanced, exclude EOS. If the
-        current depth is zero, exclude closing brackets.
-        
-        Args:
-            words (list): Set of words to score
-        Returns:
-            dict.
-        """
-        if self.cur_depth == 0:
-            # Balanced: Score EOS with extlengths, supress closing bracket
-            if self.ends_with_opening:  # Initial predict next call
-                ret = self._no_closing_bracket()
-                ret[utils.EOS_ID] = utils.NEG_INF
-                return ret
-            return {utils.EOS_ID: self.cur_length_scores.get(
-                        self.n_terminals, utils.NEG_INF) 
-                       if self.length_scores else 0.0}
-        # Unbalanced: do not allow EOS
-        ret = {utils.EOS_ID: utils.NEG_INF}
-        if (self.cur_depth >= self.max_depth 
-                or self.n_terminals >= self.max_length):
-            # Do not allow opening brackets
-            ret.update({w: utils.NEG_INF for w in words 
-                if (w > self.max_terminal_id 
-                    and not w in self.closing_bracket_ids)})
-        if (self.length_scores 
-                and self.cur_depth == 1 
-                and self.n_terminals > 0 
-                and not self.n_terminals in self.cur_length_scores):
-            # Do not allow to go back to depth 0 with wrong number of terminals
-            ret.update(self._no_closing_bracket())
-        return ret
-        
-    def get_unk_probability(self, posterior):
-        """Always returns 0.0"""
-        if self.cur_depth == 0 and not self.ends_with_opening:
-            return utils.NEG_INF 
-        return 0.0
-    
-    def consume(self, word):
-        """Updates current depth and the number of consumed terminals."""
-        if word in self.closing_bracket_ids:
-            if self.ends_with_opening:
-                self.n_terminals += 1
-            self.cur_depth -= 1
-            self.ends_with_opening = False
-        elif word > self.max_terminal_id:
-            self.cur_depth += 1
-            self.ends_with_opening = True
-    
-    def get_state(self):
-        """Returns the current depth and number of consumed terminals"""
-        return self.cur_depth, self.n_terminals, self.ends_with_opening
-    
-    def set_state(self, state):
-        """Sets the current depth and number of consumed terminals"""
-        self.cur_depth, self.n_terminals, self.ends_with_opening = state
-
-    def reset(self):
-        """Empty."""
-        pass
-    
-    def is_equal(self, state1, state2):
-        """Trivial implementation"""
-        return state1 == state2
-
     
 class NgramizePredictor(Predictor):
     """This wrapper extracts n-gram posteriors from a predictor which
@@ -746,9 +626,9 @@ class NgramizePredictor(Predictor):
         """
         super(NgramizePredictor, self).__init__()
         if max_order < 1:
-             raise AttributeError("ngramize_max_order must be positive.")
+             raise AttributeError("max_ngram_order must be positive.")
         if min_order > max_order:
-             raise AttributeError("ngramize_min_order greater than max_order.")
+             raise AttributeError("min_ngram_order greater than max_order.")
         self.slave_predictor = slave_predictor
         self.max_history_length = max_order - 1
         self.min_order = max(1, min_order)

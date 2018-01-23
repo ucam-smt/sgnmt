@@ -15,55 +15,19 @@ class SyncBeamDecoder(BeamDecoder):
     synchronization symbol.
     """
     
-    def __init__(self,
-                 decoder_args,
-                 hypo_recombination,
-                 beam_size,
-                 pure_heuristic_scores = False, 
-                 diversity_factor = -1.0,
-                 early_stopping = True,
-                 sync_symb = -1,
-                 max_word_len = 25):
+    def __init__(self, decoder_args):
         """Creates a new beam decoder instance with explicit
-        synchronization symbol.
+        synchronization symbol. In addition to the constructor of
+        `BeamDecoder`, the following values are fetched from 
+        `decoder_args`:
         
-        Args:
-            decoder_args (object): Decoder configuration passed through
-                                   from the configuration API.
-            hypo_recombination (bool): Activates hypo recombination 
-            beam_size (int): Absolute beam size. A beam of 12 means
-                             that we keep track of 12 active hypothesis
-            pure_heuristic_scores (bool): Hypotheses to keep in the beam
-                                          are normally selected 
-                                          according the sum of partial
-                                          hypo score and future cost
-                                          estimates. If set to true, 
-                                          partial hypo scores are 
-                                          ignored.
-            diversity_factor (float): If this is set to a positive 
-                                      value we add diversity promoting
-                                      penalization terms to the partial
-                                      hypothesis scores following Li
-                                      and Jurafsky, 2016
-            early_stopping (bool): If true, we stop when the best
-                                   scoring hypothesis ends with </S>.
-                                   If false, we stop when all hypotheses
-                                   end with </S>. Enable if you are
-                                   only interested in the single best
-                                   decoding result. If you want to 
-                                   create full 12-best lists, disable
             sync_symb (int): Synchronization symbol. If negative, fetch
                              '</w>' from ``utils.trg_cmap`` 
             max_word_len (int): Maximum length of a single word
         """
-        super(SyncBeamDecoder, self).__init__(decoder_args,
-                                              hypo_recombination,
-                                              beam_size,
-                                              pure_heuristic_scores, 
-                                              diversity_factor,
-                                              early_stopping)
-        self.sync_symb = sync_symb
-        self.max_word_len = max_word_len
+        super(SyncBeamDecoder, self).__init__(decoder_args)
+        self.sync_symb = decoder_args.sync_symbol
+        self.max_word_len = decoder_args.max_word_len
     
     def _is_closed(self, hypo):
         """Returns true if hypo ends with </S> or </W>"""

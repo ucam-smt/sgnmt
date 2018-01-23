@@ -31,16 +31,26 @@ def parse_args(parser):
         if not YAML_AVAILABLE:
             logging.fatal("Install PyYAML in order to use config files.")
             return args
-        data = yaml.load(args.config_file)
+        paths = args.config_file
         delattr(args, 'config_file')
         arg_dict = args.__dict__
+        for path in paths.split(","):
+            _load_config_file(arg_dict, path)
+    return args
+
+
+def _load_config_file(arg_dict, path):
+    with open(path.strip()) as f:
+        data = yaml.load(f)
         for key, value in data.items():
+            if key == "config_file":
+                for sub_path in value.split(","):
+                    _load_config_file(arg_dict, sub_path)
             if isinstance(value, list):
                 for v in value:
                     arg_dict[key].append(v)
             else:
                 arg_dict[key] = value
-    return args
 
 
 def parse_param_string(param):
@@ -281,8 +291,7 @@ def get_parser():
     group = parser.add_argument_group('General options')
     group.add_argument('--config_file', 
                         help="Configuration file in standard .ini format. NOTE:"
-                        " Configuration file overrides command line arguments",
-                        type=argparse.FileType(mode='r'))
+                        " Configuration file overrides command line arguments")
     group.add_argument("--verbosity", default="info",
                         choices=['debug', 'info', 'warn', 'error'],
                         help="Log level: debug,info,warn,error")
@@ -353,6 +362,7 @@ def get_parser():
                                  'multisegbeam',
                                  'syncbeam',
                                  'sepbeam',
+                                 'syntaxbeam',
                                  'dfs',
                                  'restarting',
                                  'bow',
@@ -379,6 +389,8 @@ def get_parser():
                         "* 'syncbeam': beam search which compares after "
                         "consuming a special synchronization symbol instead "
                         "of after each iteration.\n"
+                        "* 'syntaxbeam': beam search which ensures terminal "
+                        "symbol diversity.\n"
                         "* 'sepbeam': Associates predictors with hypos in "
                         "beam search and applies only one predictor instead "
                         "of all for hypo expansion.\n"
@@ -621,7 +633,10 @@ def get_parser():
                         "* 'fst': Translation lattices in OpenFST "
                         "format with sparse tuple arcs.\n"
                         "* 'sfst': Translation lattices in OpenFST "
-                        "format with standard arcs (i.e. combined scores).\n\n"
+                        "format with standard arcs (i.e. combined scores).\n"
+                        "* 'timecsv': Generate CSV files with separate "
+                        "predictor scores for each time step.\n"
+                        "* 'ngram': MBR-style n-gram posteriors.\n\n"
                         "The path to the output files can be specified with "
                         "--output_path")
     group.add_argument("--remove_eos", default=True, type='bool',
@@ -681,8 +696,10 @@ def get_parser():
                         "layerbylayer_terminal_strategy, syntax_max_depth, "
                         "pred_src_vocab_size, pred_trg_vocab_size\n"
                         "* 'bracket': Well-formed bracketing.\n"
-                        "         Options: syntax_max_terminal_id, "
+                        "             Options: syntax_max_terminal_id, "
                         "syntax_pop_id, syntax_max_depth, extlength_path\n"
+                        "* 'osm': Well-formed operation sequences.\n"
+                        "         Options: None\n"
                         "* 'srilm': n-gram language model.\n"
                         "          Options: srilm_path, srilm_order\n"
                         "* 'nplm': neural n-gram language model (NPLM).\n"
@@ -760,8 +777,8 @@ def get_parser():
                         "skipvocab_stop_size\n"
                         "* 'ngramize': Extracts n-gram posterior from "
                         "predictors without token-level history.\n"
-                        "               Options: ngramize_min_order, "
-                        "ngramize_max_order, max_len_factor\n"
+                        "               Options: min_ngram_order, "
+                        "max_ngram_order, max_len_factor\n"
                         "\n"
                         "Note that you can use multiple instances of the same "
                         "predictor. For example, 'nmt,nmt,nmt' can be used "
@@ -987,10 +1004,12 @@ def get_parser():
     group.add_argument("--ngramc_order", default=0, type=int,
                        help="If positive, count only ngrams of the specified "
                        "Order. Otherwise, count all ngrams")
-    group.add_argument("--ngramize_min_order", default=1, type=int,
-                       help="Minimum ngram order for ngramize wrapper")
-    group.add_argument("--ngramize_max_order", default=4, type=int,
-                       help="Maximum ngram order for ngramize wrapper")
+    group.add_argument("--min_ngram_order", default=1, type=int,
+                       help="Minimum ngram order for ngramize wrapper and "
+                       "ngram output format")
+    group.add_argument("--max_ngram_order", default=4, type=int,
+                       help="Maximum ngram order for ngramize wrapper amd "
+                       "ngram output format")
     group.add_argument("--ngramc_discount_factor", default=-1.0, type=float,
                        help="If this is non-negative, discount ngram counts "
                        "by this factor each time the ngram is consumed")

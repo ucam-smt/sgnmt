@@ -37,9 +37,12 @@ from cam.sgnmt.decoding.heuristics import GreedyHeuristic, \
 from cam.sgnmt.decoding.multisegbeam import MultisegBeamDecoder
 from cam.sgnmt.decoding.restarting import RestartingDecoder
 from cam.sgnmt.decoding.sepbeam import SepBeamDecoder
+from cam.sgnmt.decoding.syntaxbeam import SyntaxBeamDecoder
 from cam.sgnmt.decoding.syncbeam import SyncBeamDecoder
 from cam.sgnmt.output import TextOutputHandler, \
                              NBestOutputHandler, \
+                             NgramOutputHandler, \
+                             TimeCSVOutputHandler, \
                              FSTOutputHandler, \
                              StandardFSTOutputHandler
 from cam.sgnmt.predictors.automata import FstPredictor, \
@@ -52,7 +55,8 @@ from cam.sgnmt.predictors.forced import ForcedPredictor, ForcedLstPredictor
 from cam.sgnmt.predictors.grammar import RuleXtractPredictor
 from cam.sgnmt.predictors.length import WordCountPredictor, NBLengthPredictor, \
     ExternalLengthPredictor, NgramCountPredictor, UnkCountPredictor, \
-    BracketPredictor, NgramizePredictor
+    NgramizePredictor
+from cam.sgnmt.predictors.structure import BracketPredictor, OSMPredictor
 from cam.sgnmt.predictors.misc import UnboundedAltsrcPredictor, AltsrcPredictor
 from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
                                             UnboundedIdxmapPredictor, \
@@ -239,6 +243,8 @@ def add_predictors(decoder):
                                      args.syntax_pop_id,
                                      max_depth=args.syntax_max_depth,
                                      extlength_path=args.extlength_path)
+            elif pred == "osm":
+                p = OSMPredictor()
             elif pred == "fst":
                 p = FstPredictor(_get_override_args("fst_path"),
                                  args.use_fst_weights,
@@ -406,8 +412,8 @@ def add_predictors(decoder):
                                         p)
                 elif wrapper == "ngramize":
                     # ngramize always wraps bounded predictors
-                    p = NgramizePredictor(args.ngramize_min_order, 
-                                          args.ngramize_max_order,
+                    p = NgramizePredictor(args.min_ngram_order, 
+                                          args.max_ngram_order,
                                           args.max_len_factor, p)
                 elif wrapper == "unkvocab":
                     # unkvocab always wraps bounded predictors
@@ -475,21 +481,11 @@ def create_decoder(new_args):
                                       args.early_stopping,
                                       args.max_word_len)
     elif args.decoder == "syncbeam":
-        decoder = SyncBeamDecoder(args,
-                                  args.hypo_recombination,
-                                  args.beam,
-                                  args.pure_heuristic_scores,
-                                  args.decoder_diversity_factor,
-                                  args.early_stopping,
-                                  args.sync_symbol,
-                                  args.max_word_len)
+        decoder = SyncBeamDecoder(args)
     elif args.decoder == "sepbeam":
-        decoder = SepBeamDecoder(args,
-                                 args.hypo_recombination,
-                                 args.beam,
-                                 args.pure_heuristic_scores,
-                                 args.decoder_diversity_factor,
-                                 args.early_stopping)
+        decoder = SepBeamDecoder(args)
+    elif args.decoder == "syntaxbeam":
+        decoder = SyntaxBeamDecoder(args)
     elif args.decoder == "dfs":
         decoder = DFSDecoder(args)
     elif args.decoder == "restarting":
@@ -644,6 +640,15 @@ def create_output_handlers():
             outputs.append(NBestOutputHandler(path, args.predictors.split(","),
                                               start_sen_id,
                                               trg_map))
+        elif name == "ngram":
+            outputs.append(NgramOutputHandler(path,
+                                              args.min_ngram_order,
+                                              args.max_ngram_order,
+                                              start_sen_id))
+        elif name == "timecsv":
+            outputs.append(TimeCSVOutputHandler(path, 
+                                                args.predictors.split(","),
+                                                start_sen_id))
         elif name == "fst":
             outputs.append(FSTOutputHandler(path,
                                             start_sen_id,
