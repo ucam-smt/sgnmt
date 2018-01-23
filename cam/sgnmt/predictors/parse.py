@@ -448,7 +448,7 @@ class BpeParsePredictor(TokParsePredictor):
     def __init__(self, grammar_path, bpe_rule_path, nmt_predictor, word_out=True,
                  normalize_scores=True, to_log=True, norm_alpha=1.0,
                  beam_size=1, max_internal_len=35, allow_early_eos=False,
-                 consume_out_of_class=False):
+                 consume_out_of_class=False, eow_ids=None, terminal_restrict=True, terminal_ids=None, internal_only_restrict=False):
         """Creates a new parse predictor.                                                                            
         Args:                                                                                                        
             grammar_path (string): Path to the grammar file                                                          
@@ -462,29 +462,82 @@ class BpeParsePredictor(TokParsePredictor):
                                                 max_internal_len,
                                                 allow_early_eos,
                                                 consume_out_of_class)
+        self.internal_only_restrict = internal_only_restrict
+        self.terminal_restrict = terminal_restrict
+        self.eow_ids = self.get_eow_ids(eow_ids)
+        self.all_terminals = self.get_all_terminals(terminal_ids)
         self.get_bpe_can_follow(bpe_rule_path)
         
+    def get_eow_ids(self, eow_ids):
+        eows = set()
+        if eow_ids:
+            with open(eow_ids) as f:
+                for line in f:
+                    eows.add(int(line.strip()))
+        return eows
+        
+    def get_all_terminals(self, terminal_ids):
+        all_terminals = set([utils.EOS_ID])
+        if terminal_ids:
+            with open(terminal_ids) as f:
+                for line in f:
+                    all_terminals.add(int(line.strip()))
+            if not self.terminal_restrict:
+                for terminal in all_terminals:
+                    self.lhs_to_can_follow[terminal] = all_terminals
+        return all_terminals
+
     def get_bpe_can_follow(self, rule_path):
         with open(rule_path) as f:
             for line in f:
                 nt, following = line.split(' : ')
                 nt_tuple = tuple(map(int, nt.split(',')))
-                self.lhs_to_can_follow[nt_tuple] = set(
-                    [int(r) for r in following.strip().split()])
-
+                following = set([int(r) for r in following.strip().split()])
+                self.lhs_to_can_follow[nt_tuple] = following
+                
     def update_stacks(self, word):
+        logging.info('consumed {}'.format(word))
         if self.is_nt(word):
             self.current_rhs.append(word)
             if self.last_nt_in_rule[word]:
                 self.replace_lhs()
         else:
-            try:
-                internal_lhs = self.current_lhs + (word,)
-            except TypeError:
-                internal_lhs = (self.current_lhs, word)
-            logging.info('internal lhs: {}'.format(internal_lhs))
-            if internal_lhs in self.lhs_to_can_follow:
+            if self.terminal_restrict:
+                try:
+                    internal_lhs = self.current_lhs + (word,)
+                except TypeError:
+                    internal_lhs = (self.current_lhs, word)
+            else:
+                internal_lhs = word
+            if not self.terminal_restrict and word in self.eow_ids:
+                self.replace_lhs()
+            elif not self.terminal_restrict or internal_lhs in self.lhs_to_can_follow:
                 self.current_lhs = internal_lhs
-                logging.info('new current lhs: {}'.format(self.current_lhs))
             else:
                 self.replace_lhs()
+
+    def is_nt(self, word):
+        if word in self.all_terminals:
+            return False
+        return True
+
+    def predict_next(self, predicting_next_word=False):
+        """predict next tokens as permitted by 
+        the current stack and the grammar
+        """
+        nmt_posterior = self.nmt.predict_next()
+        outgoing_rules = self.lhs_to_can_follow[self.current_lhs]
+        scores = {rule_id: nmt_posterior[rule_id] for rule_id in outgoing_rules}
+        if self.internal_only_restrict and self.are_best_terminal(scores):
+            outgoing_rules = self.all_terminals
+            scores = {rule_id: nmt_posterior[rule_id] for rule_id in outgoing_rules}
+        logging.info('outgoing: {}'.format(len(scores)))
+
+        if utils.EOS_ID in scores and self.add_bos_to_eos_score:
+            scores[utils.EOS_ID] += self.bos_score
+        scores = self.finalize_posterior(scores, 
+                                         self.use_weights,
+                                         self.normalize_scores)
+        if self.word_out and not predicting_next_word:
+            scores = self.find_word(scores)
+        return scores

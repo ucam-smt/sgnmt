@@ -1156,6 +1156,14 @@ def get_parser():
     group.add_argument("--parse_tok_grammar", default=True, type='bool',
                         help="Whether to use a token-based grammar."
                         "Default uses token-based.")
+    group.add_argument("--parse_terminal_restrict", default=True, type='bool',
+                        help="Whether to restrict inside terminals.")
+    group.add_argument("--parse_internal_only", default=False, type='bool',
+                        help="Whether to restrict only non-terminals.")
+    group.add_argument("--parse_eow_ids", default=None,
+                        help="ids for end-of-word tokens")
+    group.add_argument("--parse_terminal_ids", default=None,
+                        help="ids for terminal tokens")
 
     group.add_argument("--rtn_path", default="rtn/",
                         help="Only required for rtn predictor. Sets "

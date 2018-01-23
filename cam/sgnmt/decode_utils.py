@@ -358,7 +358,11 @@ def add_predictors(decoder):
                                 beam_size=args.parse_beam,
                                 max_internal_len=args.parse_max_internal_len,
                                 allow_early_eos=args.parse_allow_early_eos,
-                                consume_out_of_class=args.parse_consume_ooc)
+                                consume_out_of_class=args.parse_consume_ooc,
+                                terminal_restrict=args.parse_terminal_restrict,
+                                internal_only_restrict=args.parse_internal_only,
+                                eow_ids=args.parse_eow_ids,
+                                terminal_ids=args.parse_terminal_ids)
                         else:
                             p = TokParsePredictor(
                                 args.parse_path,
