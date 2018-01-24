@@ -59,15 +59,11 @@ if args.log_sum == 'tropical':
 
 # Predictor combination schemes
 if args.combination_scheme == 'length_norm':
-    if args.apply_combination_scheme_to_partial_hypos:
-        core.breakdown2score_partial = core.breakdown2score_length_norm
-    else:
-        core.breakdown2score_full = core.breakdown2score_length_norm
+    core.breakdown2score_full = core.breakdown2score_length_norm
+if args.combination_scheme == 'bayesian_loglin':
+    core.breakdown2score_full = core.breakdown2score_bayesian_loglin
 if args.combination_scheme == 'bayesian':
-    if args.apply_combination_scheme_to_partial_hypos:
-        core.breakdown2score_partial = core.breakdown2score_bayesian
-    else:
-        core.breakdown2score_full = core.breakdown2score_bayesian  
+    core.breakdown2score_full = core.breakdown2score_bayesian  
 
 
 def _update_decoder(decoder, key, val):

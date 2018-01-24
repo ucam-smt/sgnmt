@@ -97,7 +97,7 @@ class BeamDecoder(Decoder):
         if not hypo.word_to_consume is None: # Consume if cheap expand
             self.consume(hypo.word_to_consume)
             hypo.word_to_consume = None
-        posterior,score_breakdown = self.apply_predictors()
+        posterior, score_breakdown = self.apply_predictors()
         hypo.predictor_states = self.get_predictor_states()
         top = utils.argmax_n(posterior, self.beam_size)
         return [hypo.cheap_expand(

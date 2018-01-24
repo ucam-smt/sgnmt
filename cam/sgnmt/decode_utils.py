@@ -38,6 +38,7 @@ from cam.sgnmt.decoding.restarting import RestartingDecoder
 from cam.sgnmt.decoding.sepbeam import SepBeamDecoder
 from cam.sgnmt.decoding.syntaxbeam import SyntaxBeamDecoder
 from cam.sgnmt.decoding.syncbeam import SyncBeamDecoder
+from cam.sgnmt.decoding.combibeam import CombiBeamDecoder
 from cam.sgnmt.output import TextOutputHandler, \
                              NBestOutputHandler, \
                              NgramOutputHandler, \
@@ -433,6 +434,8 @@ def create_decoder(new_args):
         decoder = SepBeamDecoder(args)
     elif args.decoder == "syntaxbeam":
         decoder = SyntaxBeamDecoder(args)
+    elif args.decoder == "combibeam":
+        decoder = CombiBeamDecoder(args)
     elif args.decoder == "dfs":
         decoder = DFSDecoder(args)
     elif args.decoder == "restarting":
@@ -716,12 +719,10 @@ def do_decode(decoder,
                         hypo.trgt_sentence = hypo.trgt_sentence[:-1]
             if args.nbest > 0:
                 hypos = hypos[:args.nbest]
-            if (args.combination_scheme != 'sum' 
-                    and not args.apply_combination_scheme_to_partial_hypos):
+            if args.combination_scheme != 'sum': 
                 for hypo in hypos:
                     hypo.total_score = core.breakdown2score_full(
-                                                        hypo.total_score,
-                                                        hypo.score_breakdown)
+                            hypo.total_score, hypo.score_breakdown, full=True)
                 hypos.sort(key=lambda hypo: hypo.total_score, reverse=True)
             if utils.trg_cmap:
                 hypos = [h.convert_to_char_level(utils.trg_cmap) for h in hypos]

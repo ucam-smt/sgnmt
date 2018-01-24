@@ -362,6 +362,7 @@ def get_parser():
                                  'syncbeam',
                                  'sepbeam',
                                  'syntaxbeam',
+                                 'combibeam',
                                  'dfs',
                                  'restarting',
                                  'bow',
@@ -393,6 +394,8 @@ def get_parser():
                         "* 'sepbeam': Associates predictors with hypos in "
                         "beam search and applies only one predictor instead "
                         "of all for hypo expansion.\n"
+                        "* 'combibeam': Applies combination_scheme at each "
+                        "time step.\n"
                         "* 'bow': Restarting decoder optimized for bag-of-words "
                         "problems.\n"
                         "* 'flip': This decoder works only for bag problems. "
@@ -812,7 +815,8 @@ def get_parser():
                         "* 'reduced': Normalize to vocabulary defined by the "
                         "open vocabulary predictors at each time step.")
     group.add_argument("--combination_scheme", default="sum",
-                        choices=['sum', 'length_norm', 'bayesian'],
+                        choices=['sum', 'length_norm', 'bayesian', 
+                          'bayesian_loglin'],
                         help="This parameter controls how the combined "
                         "hypothesis score is calculated from the predictor "
                         "scores and weights.\n\n"
@@ -822,13 +826,9 @@ def get_parser():
                         "hypotheses.\n"
                         "* 'bayesian': Apply the Bayesian LM interpolation "
                         "scheme from Allauzen and Riley to interpolate the "
-                        "predictor scores")
-    group.add_argument("--apply_combination_scheme_to_partial_hypos", 
-                        default=False, type='bool',
-                        help="If true, apply the combination scheme specified "
-                        "with --combination_scheme after each node expansion. "
-                        "If false, apply it only to complete hypotheses at "
-                        "the end of decoding")
+                        "predictor scores\n"
+                        "* 'bayesian_loglin': Like bayesian, but retain "
+                        "loglinear framework.")
     group.add_argument("--pred_src_vocab_size", default=30000, type=int,
                         help="Predictor source vocabulary size. Used by the "
                         "bow, bowsearch, t2t, nizza, unkc predictors.")

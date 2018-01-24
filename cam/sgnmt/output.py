@@ -188,7 +188,7 @@ class TimeCSVOutputHandler(OutputHandler):
         _mkdir(self.path, "TimeCSV")
         sen_idx = self.start_sen_id
         n_predictors = len(self.predictor_names)
-        placeholder = "\t-" * n_predictors
+        placeholder = "\t-" * (n_predictors*2)
         for hypos in all_hypos:
             sen_idx += 1
             with open(self.file_pattern % sen_idx, "w") as f:
@@ -197,6 +197,8 @@ class TimeCSVOutputHandler(OutputHandler):
                 f.write("Time")
                 for i in xrange(hypo_count):
                     f.write("".join(["\t%s-%d" % (n, i+1) 
+                                       for n in self.predictor_names]))
+                    f.write("".join(["\t%s-%d_weight" % (n, i+1) 
                                        for n in self.predictor_names]))
                 f.write("\n")
                 max_len = max([len(hypo.trgt_sentence) for hypo in hypos])
@@ -209,6 +211,8 @@ class TimeCSVOutputHandler(OutputHandler):
                             for pred_idx in xrange(n_predictors):
                                 acc_pred_score = sum([s[pred_idx][0] for s in hypo.score_breakdown[:pos+1]])
                                 f.write("\t%f" % acc_pred_score)
+                            for pred_idx in xrange(n_predictors):
+                                f.write("\t%f" % hypo.score_breakdown[pos][pred_idx][1])
                     f.write("\n")
 
 
