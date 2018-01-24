@@ -1,5 +1,5 @@
 """Implementation of beam search which applies combination_sheme at
-each timestep.
+each time step.
 """
 
 from cam.sgnmt import utils

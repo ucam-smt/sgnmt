@@ -1,7 +1,8 @@
-"""Contains all the basic interfaces and abstract classes for decoding.
-This is mainly ``Predictor`` and ``Decoder``. Functionality should be
-implemented mainly in the ``predictors`` package for predictors and in
-the ``decoding.decoder`` module for decoders.
+"""Contains all the basic interfaces and abstract classes for decoders.
+The ``Decoder`` class provides common functionality for all decoders.
+The ``Hypothesis`` class represents complete hypotheses, which are 
+returned by decoders. ``PartialHypothesis`` is a helper class which can
+be used by predictors to represent translation prefixes.
 """
 
 from abc import abstractmethod

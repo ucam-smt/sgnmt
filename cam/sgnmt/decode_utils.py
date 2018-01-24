@@ -447,23 +447,11 @@ def create_decoder(new_args):
                                     args.stochastic_decoder,
                                     args.decode_always_single_step)
     elif args.decoder == "bow":
-        decoder = BOWDecoder(args,
-                             args.hypo_recombination,
-                             args.max_node_expansions,
-                             args.stochastic_decoder,
-                             args.early_stopping,
-                             args.decode_always_single_step)
+        decoder = BOWDecoder(args)
     elif args.decoder == "flip":
-        decoder = FlipDecoder(args,
-                              args.trg_test,
-                              args.max_node_expansions,
-                              args.early_stopping,
-                              args.flip_strategy)
+        decoder = FlipDecoder(args)
     elif args.decoder == "bigramgreedy":
-        decoder = BigramGreedyDecoder(args,
-                                      args.trg_test,
-                                      args.max_node_expansions,
-                                      args.early_stopping)
+        decoder = BigramGreedyDecoder(args)
     elif args.decoder == "bucket":
         decoder = BucketDecoder(args,
                                 args.hypo_recombination,

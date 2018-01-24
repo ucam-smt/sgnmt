@@ -4,11 +4,8 @@ balanced bracket expressions, and the OSM predictor prevents any sequence
 of operations which cannot be compiled to a string.
 """
 
-import logging
-
 from cam.sgnmt import utils
-from cam.sgnmt.predictors.core import Predictor, UnboundedVocabularyPredictor
-import numpy as np
+from cam.sgnmt.predictors.core import UnboundedVocabularyPredictor
 
 OSM_EOP_ID = 4
 OSM_GAP_ID = 5
