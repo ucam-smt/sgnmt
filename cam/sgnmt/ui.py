@@ -956,7 +956,7 @@ def get_parser():
                        "nizza checkpoint directory. Same as "
                        "--model_dir in nizza_trainer.")
     group.add_argument("--lexnizza_shortlist_strategies", 
-                       default="top20,prob0.5",
+                       default="top5,prob0.5",
                        help="Comma-separated list of strategies to extract "
                        "a short list of likely translations from lexical "
                        "Model1 scores. Strategies are combined using the "
