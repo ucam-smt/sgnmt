@@ -5,6 +5,8 @@ https://github.com/fstahlberg/nizza
 
 import logging
 import os
+import numpy as np
+from scipy.misc import logsumexp
 
 from cam.sgnmt import utils
 from cam.sgnmt.predictors.core import Predictor
@@ -20,10 +22,11 @@ except ImportError:
     pass # Deal with it in decode.py
 
 
-class NizzaPredictor(Predictor):
-    """This predictor uses Nizza alignment models to derive a posterior over
-    the target vocabulary for the next position. It mainly relies on the
-    predict_next_word() implementation of Nizza models.
+
+class BaseNizzaPredictor(Predictor):
+    """Common functionality for Nizza based predictors. This includes 
+    loading checkpoints, creating sessions, and creating computation 
+    graphs.
     """
 
     def __init__(self, src_vocab_size, trg_vocab_size, model_name, 
@@ -49,7 +52,7 @@ class NizzaPredictor(Predictor):
         Raises:
             IOError if checkpoint file not found.
         """
-        super(NizzaPredictor, self).__init__()
+        super(BaseNizzaPredictor, self).__init__()
         if not os.path.isfile("%s/checkpoint" % checkpoint_dir):
             logging.fatal("Checkpoint file %s/checkpoint not found!" 
                           % checkpoint_dir)
@@ -57,8 +60,6 @@ class NizzaPredictor(Predictor):
         self._single_cpu_thread = single_cpu_thread
         self._checkpoint_dir = checkpoint_dir
         self._nizza_unk_id = nizza_unk_id
-        self.consumed = []
-        self.src_sentence = []
         predictor_graph = tf.Graph()
         with predictor_graph.as_default() as g:
             hparams = registry.get_registered_hparams_set(hparams_set_name)
@@ -74,9 +75,9 @@ class NizzaPredictor(Predictor):
             features = {"inputs": tf.expand_dims(self._inputs_var, 0), 
                         "targets": tf.expand_dims(self._targets_var, 0)}
             mode = tf.estimator.ModeKeys.PREDICT
-            precomputed = model.precompute(features, mode, hparams)
+            self.precomputed = model.precompute(features, mode, hparams)
             self.log_probs = tf.squeeze(
-                model.predict_next_word(features, hparams, precomputed), 0)
+                model.predict_next_word(features, hparams, self.precomputed), 0)
             self.mon_sess = self.create_session()
 
     def _session_config(self):
@@ -114,6 +115,13 @@ class NizzaPredictor(Predictor):
             return utils.NEG_INF
         return posterior[self._nizza_unk_id]
 
+
+class NizzaPredictor(BaseNizzaPredictor):
+    """This predictor uses Nizza alignment models to derive a posterior over
+    the target vocabulary for the next position. It mainly relies on the
+    predict_next_word() implementation of Nizza models.
+    """
+
     def predict_next(self):
         """Call the T2T model in self.mon_sess."""
         log_probs = self.mon_sess.run(self.log_probs,
@@ -139,11 +147,121 @@ class NizzaPredictor(Predictor):
         """The predictor state is the complete history."""
         self.consumed = state
 
-    def reset(self):
-        """Empty method. """
-        pass
-
     def is_equal(self, state1, state2):
         """Returns true if the history is the same """
         return state1 == state2
+
+
+class LexNizzaPredictor(BaseNizzaPredictor):
+    """This predictor is only compatible to Model1-like Nizza models
+    which return lexical translation probabilities in precompute(). The
+    predictor keeps a list of the same length as the source sentence
+    and initializes it with zeros. At each timestep it updates this list
+    by the lexical scores Model1 assigned to the last consumed token.
+    The predictor score aims to bring up all entries in the list, and 
+    thus serves as a coverage mechanism over the source sentence.
+    """
+
+    def __init__(self, src_vocab_size, trg_vocab_size, model_name, 
+                 hparams_set_name, checkpoint_dir, single_cpu_thread,
+                 alpha, beta, shortlist_strategies,
+                 nizza_unk_id=None):
+        """Initializes a nizza predictor.
+
+        Args:
+            src_vocab_size (int): Source vocabulary size (called inputs_vocab_size
+                in nizza)
+            trg_vocab_size (int): Target vocabulary size (called targets_vocab_size
+                in nizza)
+            model_name (string): Name of the nizza model
+            hparams_set_name (string): Name of the nizza hyper-parameter set
+            checkpoint_dir (string): Path to the Nizza checkpoint directory. The 
+                                     predictor will load the top most checkpoint in 
+                                     the `checkpoints` file.
+            single_cpu_thread (bool): If true, prevent tensorflow from
+                                      doing multithreading.
+            alpha (float): Score for each matching word
+            beta (float): Penalty for each uncovered word at the end
+            shortlist_strategies (string): Comma-separated list of shortlist
+                strategies.
+            nizza_unk_id (int): If set, use this as UNK id. Otherwise, the
+                nizza is assumed to have no UNKs
+
+        Raises:
+            IOError if checkpoint file not found.
+        """
+        super(LexNizzaPredictor, self).__init__(
+                src_vocab_size, trg_vocab_size, model_name, hparams_set_name, 
+                checkpoint_dir, single_cpu_thread, nizza_unk_id=nizza_unk_id)
+        self.alpha = alpha
+        self.beta = beta
+        self.shortlist_strategies = utils.split_comma(shortlist_strategies)
+
+    def predict_next(self):
+        """Predict record scores."""
+        if self.coverage in self.score_cache:
+            return self.score_cache[self.coverage]
+        scores = np.zeros(self.trg_vocab_size)
+        n_uncovered = 0.0
+        for src_pos, is_covered in enumerate(self.coverage):
+            if is_covered == "0":
+                n_uncovered += 1.0
+                for w in self.short_lists[src_pos]:
+                    scores[w] = self.alpha
+        scores[utils.EOS_ID] = -n_uncovered * self.beta
+        self.score_cache[self.coverage] = scores
+        return scores
+    
+    def initialize(self, src_sentence):
+        """Set src_sentence, reset consumed."""
+        lex_logits = self.mon_sess.run(self.precomputed,
+            {self._inputs_var: src_sentence})
+        self.trg_vocab_size = lex_logits.shape[2]
+        src_len = len(src_sentence)
+        self.coverage = "0" * src_len
+        self.score_cache = {}
+        self.short_lists = []
+        for src_pos in xrange(src_len):
+            self.short_lists.append(
+                self._create_short_list(lex_logits[0, src_pos, :]))
+        logging.debug("Short list sizes: %s" % ", ".join([
+                str(len(l)) for l in self.short_lists]))
+    
+    def consume(self, word):
+        """Update coverage."""
+        new_coverage = []
+        for src_pos, is_covered in enumerate(self.coverage):
+            if is_covered == "0" and word in self.short_lists[src_pos]:
+                is_covered = "1"
+            new_coverage.append(is_covered)
+        self.coverage = "".join(new_coverage)
+
+    def _create_short_list(self, logits):
+        """Creates a set of tokens which are likely translations."""
+        words = set()
+        for strat in self.shortlist_strategies:
+            if strat[:3] == "top":
+                n = int(strat[3:])
+                words.update(utils.argmax_n(logits, n))
+            elif strat[:4] == "prob":
+                p = float(strat[4:])
+                unnorm_probs = np.exp(logits)
+                threshold = np.sum(unnorm_probs) * p
+                acc = 0.0
+                for word in np.argsort(logits)[::-1]:
+                    acc += unnorm_probs[word]
+                    words.add(word)
+                    if acc >= threshold:
+                        break
+            else:
+                raise AttributeError("Unknown shortlist strategy '%s'" % strat)
+        return words
+    
+    def get_state(self):
+        """The predictor state is the coverage vector."""
+        return self.coverage
+    
+    def set_state(self, state):
+        """The predictor state is the coverage vector."""
+        self.coverage = state
 

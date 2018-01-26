@@ -683,6 +683,11 @@ def get_parser():
                         "           Options: nizza_model, nizza_hparams_set, "
                         "nizza_checkpoint_dir, pred_src_vocab_size, "
                         "pred_trg_vocab_size\n"
+                        "* 'lexnizza': Uses Nizza lexical scores for checking "
+                        "the source word coverage.\n"
+                        "           Options: nizza_model, nizza_hparams_set, "
+                        "nizza_checkpoint_dir, pred_src_vocab_size, "
+                        "pred_trg_vocab_size\n"
                         "* 'bfslayerbylayer': Layerbylayer models (BFS).\n"
                         "                  Options: t2t_usr_dir, t2t_model, "
                         "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
@@ -883,7 +888,8 @@ def get_parser():
     group.add_argument("--gnmt_beta", default=0.0, type=float,
                        help="If this is greater than zero, add a coverage "
                        "penalization term following Google's NMT (Wu et al., "
-                       "2016) to the NMT score.")
+                       "2016) to the NMT score. Only works for the Blocks "
+                       "NMT predictor.")
     group.add_argument("--layerbylayer_terminal_strategy", default="force", 
                         choices=['none', 'force', 'skip'],
                         help="Strategy for dealing with terminals as parents "
@@ -949,6 +955,19 @@ def get_parser():
                        help="Available for the nizza predictor. Path to the "
                        "nizza checkpoint directory. Same as "
                        "--model_dir in nizza_trainer.")
+    group.add_argument("--lexnizza_shortlist_strategies", 
+                       default="top20,prob0.5",
+                       help="Comma-separated list of strategies to extract "
+                       "a short list of likely translations from lexical "
+                       "Model1 scores. Strategies are combined using the "
+                       "union operation. Available strategies:\n"
+                       "* top<N>: Select the top N words.\n"
+                       "* prob<p>: Select the top words such that their "
+                       " combined probability mass is greater than p.")
+    group.add_argument("--lexnizza_alpha", default=1.0, type=float,
+                       help="Score of each word which matches a short list.")
+    group.add_argument("--lexnizza_beta", default=3.0, type=float,
+                       help="Penalty for each uncovered word at the end.")
 
     # Length predictors
     group = parser.add_argument_group('Length predictor options')

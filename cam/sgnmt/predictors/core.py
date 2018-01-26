@@ -91,15 +91,16 @@ class Predictor(Observer):
         """
         raise NotImplementedError
     
-    @abstractmethod
     def reset(self):
         """Reset the predictor state to the initial configuration. This
         is required when a new set of sentences is to be decoded, e.g.
         to reset the sentence counter in the fst predictor to load the
         correct lattice. This function is NOT called each time before
         decoding a single sentence. See ``initialize()`` for this.
+        
+        The default implementation is an empty method.
         """
-        raise NotImplementedError
+        pass
     
     def estimate_future_cost(self, hypo):
         """Predictors can implement their own look-ahead cost functions.

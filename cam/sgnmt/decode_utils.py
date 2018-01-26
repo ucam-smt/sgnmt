@@ -65,7 +65,7 @@ from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
 from cam.sgnmt.predictors.ngram import SRILMPredictor
 from cam.sgnmt.predictors.tf_t2t import T2TPredictor, T2TBFSLayerbylayerPredictor, \
                                         T2TDFSLayerbylayerPredictor
-from cam.sgnmt.predictors.tf_nizza import NizzaPredictor
+from cam.sgnmt.predictors.tf_nizza import NizzaPredictor, LexNizzaPredictor
 from cam.sgnmt.predictors.tokenization import Word2charPredictor, FSTTokPredictor
 from cam.sgnmt.tf.interface import tf_get_nmt_predictor, tf_get_nmt_vanilla_decoder, \
     tf_get_rnnlm_predictor, tf_get_default_nmt_config, tf_get_rnnlm_prefix
@@ -129,13 +129,13 @@ def add_predictors(decoder):
             This method will add predictors to this instance with
             ``add_predictor()``
     """
-    preds = args.predictors.split(",")
+    preds = utils.split_comma(args.predictors)
     if not preds:
         logging.fatal("Require at least one predictor! See the --predictors "
                       "argument for more information.")
     weights = None
     if args.predictor_weights:
-        weights = args.predictor_weights.strip().split(",")
+        weights = utils.split_comma(args.predictor_weights)
         if len(preds) != len(weights):
             logging.fatal("Specified %d predictors, but %d weights. Please "
                       "revise the --predictors and --predictor_weights "
@@ -144,7 +144,7 @@ def add_predictors(decoder):
     
     pred_weight = 1.0
     try:
-        for idx,pred in enumerate(preds): # Add predictors one by one
+        for idx, pred in enumerate(preds): # Add predictors one by one
             wrappers = []
             if '_' in pred: 
                 # Handle weights when we have wrapper predictors
@@ -182,6 +182,17 @@ def add_predictors(decoder):
                                    _get_override_args("nizza_hparams_set"),
                                    _get_override_args("nizza_checkpoint_dir"),
                                    single_cpu_thread=args.single_cpu_thread)
+            elif pred == "lexnizza":
+                p = LexNizzaPredictor(_get_override_args("pred_src_vocab_size"),
+                                      _get_override_args("pred_trg_vocab_size"),
+                                      _get_override_args("nizza_model"),
+                                      _get_override_args("nizza_hparams_set"),
+                                      _get_override_args("nizza_checkpoint_dir"),
+                                      single_cpu_thread=args.single_cpu_thread,
+                                      alpha=args.lexnizza_alpha,
+                                      beta=args.lexnizza_beta,
+                                      shortlist_strategies=
+                                          args.lexnizza_shortlist_strategies)
             elif pred == "t2t":
                 p = T2TPredictor(_get_override_args("pred_src_vocab_size"),
                                  _get_override_args("pred_trg_vocab_size"),
@@ -528,9 +539,9 @@ def add_heuristics(decoder):
         h_predictors = decoder.predictors
     else:
         h_predictors = [decoder.predictors[int(idx)]
-                            for idx in args.heuristic_predictors.split(",")]
+                       for idx in utils.split_comma(args.heuristic_predictors)]
     decoder.set_heuristic_predictors(h_predictors)
-    for name in args.heuristics.split(","):
+    for name in utils.split_comma(args.heuristics):
         if name == 'greedy':
             decoder.add_heuristic(GreedyHeuristic(args,
                                                   args.cache_heuristic_estimates))
@@ -567,7 +578,7 @@ def create_output_handlers():
     if args.range:
         idx,_ = args.range.split(":")
         start_sen_id = int(idx)-1 # -1 because --range indices start with 1
-    for name in args.outputs.split(","):
+    for name in utils.split_comma(args.outputs):
         if '%s' in args.output_path:
             path = args.output_path % name
         else:
@@ -575,7 +586,8 @@ def create_output_handlers():
         if name == "text":
             outputs.append(TextOutputHandler(path, trg_map))
         elif name == "nbest":
-            outputs.append(NBestOutputHandler(path, args.predictors.split(","),
+            outputs.append(NBestOutputHandler(path, 
+                                              utils.split_comma(args.predictors),
                                               start_sen_id,
                                               trg_map))
         elif name == "ngram":
@@ -585,7 +597,7 @@ def create_output_handlers():
                                               start_sen_id))
         elif name == "timecsv":
             outputs.append(TimeCSVOutputHandler(path, 
-                                                args.predictors.split(","),
+                                                utils.split_comma(args.predictors),
                                                 start_sen_id))
         elif name == "fst":
             outputs.append(FSTOutputHandler(path,
@@ -737,6 +749,12 @@ def do_decode(decoder,
                           "Stack trace: %s" % (sen_idx+1, 
                                                e,
                                                traceback.format_exc()))
+        except AttributeError as e:
+            logging.fatal("Attribute error at sentence id %d: %s. This often "
+                          "indicates an error in the predictor configuration "
+                          "which could not be detected in initialisation. "
+                          "Stack trace: %s" 
+                          % (sen_idx+1, e, traceback.format_exc()))
         except Exception as e:
             logging.error("An unexpected %s error has occurred at sentence id "
                           "%d: %s, Stack trace: %s" % (sys.exc_info()[0],
