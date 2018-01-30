@@ -97,13 +97,12 @@ class BeamDecoder(Decoder):
         if not hypo.word_to_consume is None: # Consume if cheap expand
             self.consume(hypo.word_to_consume)
             hypo.word_to_consume = None
-        posterior, score_breakdown = self.apply_predictors()
+        posterior, score_breakdown = self.apply_predictors(self.beam_size)
         hypo.predictor_states = self.get_predictor_states()
-        top = utils.argmax_n(posterior, self.beam_size)
         return [hypo.cheap_expand(
-                            trgt_word,
-                            posterior[trgt_word],
-                            score_breakdown[trgt_word]) for trgt_word in top]
+                        trgt_word,
+                        posterior[trgt_word],
+                        score_breakdown[trgt_word]) for trgt_word in posterior]
     
     def _filter_equal_hypos(self, hypos, scores):
         """Apply hypo recombination to the hypotheses in ``hypos``.

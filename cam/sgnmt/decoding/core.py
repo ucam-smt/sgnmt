@@ -358,7 +358,6 @@ def breakdown2score_bayesian(working_score, score_breakdown, full=False):
         for pos in score_breakdown[:-1]:
             for k, (p, _) in enumerate(pos):
                 alphas[k] += p
-        #print(alphas)
         alpha_part = utils.log_sum(alphas)
         scores = [alphas[k] - alpha_part + p 
                 for k, (p, w) in enumerate(score_breakdown[-1])]
@@ -560,6 +559,8 @@ class Decoder(Observable):
                 else:
                     max_arr_length = max(max_arr_length, len(posterior))
             if max_arr_length:
+                if all(all(el < max_arr_length for el in k) for k in key_sets):
+                    return xrange(max_arr_length)
                 key_sets.append(xrange(max_arr_length))
             if len(key_sets) == 1:
                 return key_sets[0]
@@ -601,9 +602,12 @@ class Decoder(Observable):
                 unrestricted.append(posterior)
         return restricted, unrestricted
     
-    def apply_predictors(self):
+    def apply_predictors(self, top_n=0):
         """Get the distribution over the next word by combining the
         predictor scores.
+
+        Args:
+            top_n (int): If positive, return only the best n words.
         
         Returns:
             combined,score_breakdown: Two dicts. ``combined`` maps 
@@ -632,17 +636,23 @@ class Decoder(Observable):
                 bounded_idx += 1
             posteriors.append(posterior)
             unk_probs.append(p.get_unk_probability(posterior))
-        ret = self.combine_posteriors(non_zero_words, posteriors, unk_probs)
+        ret = self.combine_posteriors(
+            non_zero_words, posteriors, unk_probs, top_n)
         if not self.allow_unk_in_output and utils.UNK_ID in ret[0]:
             del ret[0][utils.UNK_ID]
             del ret[1][utils.UNK_ID]
+        if top_n > 0 and len(ret[0]) > top_n:
+            top = utils.argmax_n(ret[0], top_n)
+            ret = ({w: ret[0][w] for w in top},
+                   {w: ret[1][w] for w in top})
         self.notify_observers(ret, message_type = MESSAGE_TYPE_POSTERIOR)
         return ret
     
     def _combine_posteriors_norm_none(self,
-                                      non_zero_words,
+                                       non_zero_words,
                                       posteriors,
-                                      unk_probs):
+                                      unk_probs,
+                                      top_n=0):
         """Combine predictor posteriors according the normalization
         scheme ``CLOSED_VOCAB_SCORE_NORM_NONE``. For more information
         on closed vocabulary predictor score normalization see the 
@@ -654,10 +664,29 @@ class Decoder(Observable):
                         with ``predict_next()``
             unk_probs: UNK probabilities of the predictors, calculated
                        with ``get_unk_probability``
+            top_n (int): If positive, return only top n words
         
         Returns:
             combined,score_breakdown: like in ``apply_predictors()``
         """
+        if isinstance(non_zero_words, xrange) and top_n > 0:
+            n_words = len(non_zero_words)
+            scaled_posteriors = []
+            for posterior, unk_prob, (_, weight) in zip(
+                          posteriors, unk_probs, self.predictors):
+                if isinstance(posterior, dict):
+                    arr = np.full(n_words, unk_prob)
+                    for word, score in posterior.iteritems():
+                        arr[word] = score
+                    scaled_posteriors.append(arr * weight)
+                else:
+                    n_unks = n_words - len(posterior)
+                    if n_unks:
+                        posterior = np.concatenate((
+                               posterior, np.full(n_unks, unk_prob)))
+                    scaled_posteriors.append(posterior * weight)
+            combined_scores = np.sum(scaled_posteriors, axis=0)
+            non_zero_words = utils.argmax_n(combined_scores, top_n)
         combined = {}
         score_breakdown = {}
         for trgt_word in non_zero_words:
@@ -672,7 +701,8 @@ class Decoder(Observable):
     def _combine_posteriors_norm_rescale_unk(self,
                                              non_zero_words,
                                              posteriors,
-                                             unk_probs):
+                                             unk_probs,
+                                             top_n=0):
         """Combine predictor posteriors according the normalization
         scheme ``CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK``. For more 
         information on closed vocabulary predictor score normalization 
@@ -684,6 +714,7 @@ class Decoder(Observable):
                         with ``predict_next()``
             unk_probs: UNK probabilities of the predictors, calculated
                        with ``get_unk_probability``
+            top_n (int): If positive, return only top n words
         
         Returns:
             combined,score_breakdown: like in ``apply_predictors()``
@@ -699,13 +730,15 @@ class Decoder(Observable):
         return self._combine_posteriors_norm_none(
                           non_zero_words,
                           posteriors,
-                          [unk_probs[idx] - np.log(max(1.0, unk_counts[idx])) 
-                               for idx in xrange(n_predictors)])
+                          [unk_probs[idx] - np.log(max(1.0, unk_counts[idx]))
+                               for idx in xrange(n_predictors)],
+                          top_n)
     
     def _combine_posteriors_norm_exact(self,
                                        non_zero_words,
                                        posteriors,
-                                       unk_probs):
+                                       unk_probs,
+                                       top_n=0):
         """Combine predictor posteriors according the normalization
         scheme ``CLOSED_VOCAB_SCORE_NORM_EXACT``. For more information
         on closed vocabulary predictor score normalization see the 
@@ -717,6 +750,7 @@ class Decoder(Observable):
                         with ``predict_next()``
             unk_probs: UNK probabilities of the predictors, calculated
                        with ``get_unk_probability``
+            top_n (int): Not implemented!
         
         Returns:
             combined,score_breakdown: like in ``apply_predictors()``
@@ -745,7 +779,8 @@ class Decoder(Observable):
     def _combine_posteriors_norm_reduced(self,
                                          non_zero_words,
                                          posteriors,
-                                         unk_probs):
+                                         unk_probs,
+                                         top_n=0):
         """Combine predictor posteriors according the normalization
         scheme ``CLOSED_VOCAB_SCORE_NORM_REDUCED``. For more information
         on closed vocabulary predictor score normalization see the 
@@ -757,6 +792,7 @@ class Decoder(Observable):
                         with ``predict_next()``
             unk_probs: UNK probabilities of the predictors, calculated
                        with ``get_unk_probability``
+            top_n (int): Not implemented!
         
         Returns:
             combined,score_breakdown: like in ``apply_predictors()``
