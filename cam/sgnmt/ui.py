@@ -967,9 +967,9 @@ def get_parser():
                        "* top<N>: Select the top N words.\n"
                        "* prob<p>: Select the top words such that their "
                        " combined probability mass is greater than p.")
-    group.add_argument("--lexnizza_alpha", default=1.0, type=float,
+    group.add_argument("--lexnizza_alpha", default=0.0, type=float,
                        help="Score of each word which matches a short list.")
-    group.add_argument("--lexnizza_beta", default=3.0, type=float,
+    group.add_argument("--lexnizza_beta", default=1.0, type=float,
                        help="Penalty for each uncovered word at the end.")
 
     # Length predictors
