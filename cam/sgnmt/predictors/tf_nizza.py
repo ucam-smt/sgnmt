@@ -194,11 +194,22 @@ class LexNizzaPredictor(BaseNizzaPredictor):
                 src_vocab_size, trg_vocab_size, model_name, hparams_set_name, 
                 checkpoint_dir, single_cpu_thread, nizza_unk_id=nizza_unk_id)
         self.alpha = alpha
+        self.alpha_is_zero = alpha == 0.0
         self.beta = beta
         self.shortlist_strategies = utils.split_comma(shortlist_strategies)
 
+    def get_unk_probability(self, posterior):
+        if self.alpha_is_zero:
+            return 0.0 
+        if self._nizza_unk_id is None:
+            return utils.NEG_INF
+        return posterior[self._nizza_unk_id]
+
     def predict_next(self):
         """Predict record scores."""
+        if self.alpha_is_zero:
+            n_uncovered = self.coverage.count("0")
+            return {utils.EOS_ID: -float(n_uncovered) * self.beta}
         uncovered_scores = [self.short_list_scores[src_pos]
              for src_pos, is_covered in enumerate(self.coverage)
              if is_covered == "0"]
@@ -220,10 +231,11 @@ class LexNizzaPredictor(BaseNizzaPredictor):
         for src_pos in xrange(src_len):
             shortlist = self._create_short_list(lex_logits[0, src_pos, :])
             self.short_lists.append(shortlist)
-            scores = np.zeros(self.trg_vocab_size)
-            for w in shortlist:
-                scores[w] = self.alpha
-            self.short_list_scores.append(scores)
+            if not self.alpha_is_zero:
+                scores = np.zeros(self.trg_vocab_size)
+                for w in shortlist:
+                    scores[w] = self.alpha
+                self.short_list_scores.append(scores)
         logging.debug("Short list sizes: %s" % ", ".join([
                 str(len(l)) for l in self.short_lists]))
     
