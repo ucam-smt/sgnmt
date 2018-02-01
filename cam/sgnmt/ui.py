@@ -903,6 +903,9 @@ def get_parser():
                        help="Maximum depth of generated trees. After this "
                        "depth is reached, only terminals and POP are allowed "
                        "on the next layer.")
+    parser.add_argument("--syntax_use_max_depth",  default=False, action="store_true",
+                        help="syntax decoding to use max depth option")
+
     group.add_argument("--syntax_root_id", default=-1, type=int,
                        help="Must be set for the layerbylayer predictor. ID "
                        "of the initial target root label.")
@@ -914,6 +917,11 @@ def get_parser():
     group.add_argument("--syntax_max_terminal_id", default=30003,
                        type=int,
                        help="All token IDs larger than this are considered to "
+                       "be non-terminal symbols except the ones specified by "
+                       "--syntax_terminal_list")
+    group.add_argument("--syntax_min_terminal_id", default=0,
+                       type=int,
+                       help="All token IDs smaller than this are considered to "
                        "be non-terminal symbols except the ones specified by "
                        "--syntax_terminal_list")
     group.add_argument("--syntax_terminal_list", default="",
@@ -994,6 +1002,10 @@ def get_parser():
     group.add_argument("--wc_word", default=-1, type=int,
                        help="If negative, the wc predictor counts all "
                        "words. Otherwise, count only the specific word")
+    group.add_argument("--wc_nonterminal_penalty", default=False, 
+                       action='store_true', help="if true, "
+                       "use syntax_[max|min]_terminal_id to apply penalty to all non-terminals")
+
     group.add_argument("--ngramc_path", default="ngramc/%d.txt",
                         help="Only required for ngramc predictor. The ngramc "
                         "predictor counts the number of ngrams and multiplies "

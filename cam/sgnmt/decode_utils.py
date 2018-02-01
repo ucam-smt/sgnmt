@@ -306,7 +306,11 @@ def add_predictors(decoder):
                                            _get_override_args("rnnlm_config"),
                                            tf_get_rnnlm_prefix())
             elif pred == "wc":
-                p = WordCountPredictor(args.wc_word)
+                p = WordCountPredictor(args.wc_word,
+                                       args.wc_nonterminal_penalty,
+                                       args.syntax_min_terminal_id,
+                                       args.syntax_max_terminal_id,
+                                       args.pred_trg_vocab_size)
             elif pred == "ngramc":
                 p = NgramCountPredictor(_get_override_args("ngramc_path"),
                                         _get_override_args("ngramc_order"),

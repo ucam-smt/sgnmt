@@ -235,16 +235,31 @@ class NBLengthPredictor(Predictor):
 class WordCountPredictor(Predictor):
     """This predictor adds the (negative) number of words as feature. """
     
-    def __init__(self, word = -1):
+    def __init__(self, word = -1, nonterminal_penalty=False,
+                 min_terminal_id=0, max_terminal_id=30003, vocab_size=30003):
         """Creates a new word count predictor instance.
         
         Args:
             word (int): If this is non-negative we count only the
                         number of the specified word. If its
                         negative, count all words
+            nonterminal_penalty (bool): If true, apply penalty only to tokens in a range 
+                                        (the range *outside* min/max terminal id)
+            min_terminal_id: lower bound of tokens *not* to penalize, if nonterminal_penalty selected
+            max_terminal_id: upper bound of tokens *not* to penalize, if nonterminal_penalty selected
+            vocab_size: upper bound of tokens, used to find nonterminal range
+
         """
         super(WordCountPredictor, self).__init__()
-        if word < 0:
+        if nonterminal_penalty:
+            min_nt_range = range(0, min_terminal_id)
+            max_nt_range = range(max_terminal_id + 1, vocab_size)
+            nts = min_nt_range + max_nt_range
+            self.posterior = {nt: -1.0 for nt in nts}
+            self.posterior[utils.EOS_ID] = 0.0
+            self.posterior[utils.UNK_ID] = 0.0
+            self.unk_prob = 0.0
+        elif word < 0:
             self.posterior = {utils.EOS_ID : 0.0}
             self.unk_prob = -1.0
         else:

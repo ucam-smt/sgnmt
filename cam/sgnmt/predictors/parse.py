@@ -496,7 +496,6 @@ class BpeParsePredictor(TokParsePredictor):
                 self.lhs_to_can_follow[nt_tuple] = following
                 
     def update_stacks(self, word):
-        logging.info('consumed {}'.format(word))
         if self.is_nt(word):
             self.current_rhs.append(word)
             if self.last_nt_in_rule[word]:
@@ -531,7 +530,6 @@ class BpeParsePredictor(TokParsePredictor):
         if self.internal_only_restrict and self.are_best_terminal(scores):
             outgoing_rules = self.all_terminals
             scores = {rule_id: nmt_posterior[rule_id] for rule_id in outgoing_rules}
-        logging.info('outgoing: {}'.format(len(scores)))
 
         if utils.EOS_ID in scores and self.add_bos_to_eos_score:
             scores[utils.EOS_ID] += self.bos_score
