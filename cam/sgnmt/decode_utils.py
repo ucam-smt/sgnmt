@@ -37,6 +37,7 @@ from cam.sgnmt.decoding.multisegbeam import MultisegBeamDecoder
 from cam.sgnmt.decoding.restarting import RestartingDecoder
 from cam.sgnmt.decoding.sepbeam import SepBeamDecoder
 from cam.sgnmt.decoding.syntaxbeam import SyntaxBeamDecoder
+from cam.sgnmt.decoding.mbrbeam import MBRBeamDecoder
 from cam.sgnmt.decoding.syncbeam import SyncBeamDecoder
 from cam.sgnmt.decoding.combibeam import CombiBeamDecoder
 from cam.sgnmt.output import TextOutputHandler, \
@@ -444,6 +445,8 @@ def create_decoder(new_args):
                                       args.max_word_len)
     elif args.decoder == "syncbeam":
         decoder = SyncBeamDecoder(args)
+    elif args.decoder == "mbrbeam":
+        decoder = MBRBeamDecoder(args)
     elif args.decoder == "sepbeam":
         decoder = SepBeamDecoder(args)
     elif args.decoder == "syntaxbeam":

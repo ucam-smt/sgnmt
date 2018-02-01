@@ -361,6 +361,7 @@ def get_parser():
                                  'multisegbeam',
                                  'syncbeam',
                                  'sepbeam',
+                                 'mbrbeam',
                                  'syntaxbeam',
                                  'combibeam',
                                  'dfs',
@@ -391,6 +392,8 @@ def get_parser():
                         "of after each iteration.\n"
                         "* 'syntaxbeam': beam search which ensures terminal "
                         "symbol diversity.\n"
+                        "* 'mbrbeam': Uses an MBR-based criterion to select "
+                        "the next hypotheses at each time step.\n"
                         "* 'sepbeam': Associates predictors with hypos in "
                         "beam search and applies only one predictor instead "
                         "of all for hypo expansion.\n"

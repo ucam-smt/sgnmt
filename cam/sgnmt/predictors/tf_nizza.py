@@ -268,6 +268,18 @@ class LexNizzaPredictor(BaseNizzaPredictor):
             else:
                 raise AttributeError("Unknown shortlist strategy '%s'" % strat)
         return words
+
+    def estimate_future_cost(self, hypo):
+        """We use the number of uncovered words times beta as heuristic
+        estimate.
+        """
+        if hypo.trgt_sentence[:-1] == [utils.EOS_ID]:
+            return 0.0
+        n_uncovered = 0
+        for short_list in self.short_lists:
+            if not any(w in hypo.trgt_sentence for w in short_list):
+                n_uncovered += 1
+        return -float(n_uncovered) * self.beta * 0.1
     
     def get_state(self):
         """The predictor state is the coverage vector."""
