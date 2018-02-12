@@ -372,12 +372,13 @@ def add_predictors(decoder):
                       "predictors could not be read: %s" % e)
         decoder.remove_predictors()
     except AttributeError as e:
-        logging.fatal("Invalid arguments for one of the predictors: %s" % e)
+        logging.fatal("Invalid argument for one of the predictors: %s" % e)
         decoder.remove_predictors()
     except NameError as e:
         logging.fatal("Could not find external library: %s. Please make sure "
                       "that your PYTHONPATH and LD_LIBRARY_PATH contains all "
-                      "paths required for the predictors." % e)
+                      "paths required for the predictors. Stack trace: %s" % 
+                      (e, traceback.format_exc()))
         decoder.remove_predictors()
     except ValueError as e:
         logging.fatal("A number format error occurred while configuring the "
@@ -646,7 +647,7 @@ def do_decode(decoder,
                                translate (e.g. '1 123 432 2')
     """
     if not decoder.has_predictors():
-        logging.fatal("Decoding cancelled because of an error in the "
+        logging.fatal("Terminated due to an error in the "
                       "predictor configuration.")
         return
     all_hypos = []

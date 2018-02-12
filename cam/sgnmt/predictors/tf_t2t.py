@@ -14,6 +14,7 @@ sequence models.
 
 import logging
 import os
+import sys
 
 from cam.sgnmt import utils
 from cam.sgnmt.predictors.core import Predictor
@@ -138,11 +139,19 @@ class _BaseTensor2TensorPredictor(Predictor):
 
     def create_session(self):
         """Creates a MonitoredSession for this predictor."""
-        checkpoint_path = saver.latest_checkpoint(self._checkpoint_dir)
-        return training.MonitoredSession(
-            session_creator=training.ChiefSessionCreator(
-                checkpoint_filename_with_path=checkpoint_path,
-                config=self._session_config()))
+        try:
+            checkpoint_path = saver.latest_checkpoint(self._checkpoint_dir)
+            return training.MonitoredSession(
+                session_creator=training.ChiefSessionCreator(
+                    checkpoint_filename_with_path=checkpoint_path,
+                    config=self._session_config()))
+        except tf.errors.NotFoundError as e:
+            logging.fatal("Could not find all variables of the computation "
+                "graph in the T2T checkpoint file. This means that the "
+                "checkpoint does not correspond to the model specified in "
+                "SGNMT. Please double-check pred_src_vocab_size, "
+                "pred_trg_vocab_size, and all the t2t_* parameters.")
+            raise AttributeError("Could not initialize TF session.")
 
     def get_unk_probability(self, posterior):
         """Fetch posterior[t2t_unk_id] or return NEG_INF if None."""

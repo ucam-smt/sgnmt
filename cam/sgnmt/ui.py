@@ -318,6 +318,9 @@ def get_parser():
                         "* 't2t': unk: 3, <s>: 2, </s>: 1.")
     group.add_argument("--legacy_indexing", default=False, type='bool',
                         help="DEPRECATED: Use --indexing_scheme=tf instead")
+    group.add_argument("--ignore_sanity_checks", default=False, type='bool',
+                       help="SGNMT terminates when a sanity check fails by "
+                       "default. Set this to true to ignore sanity checks.")
     group.add_argument("--input_method", default="file",
                         choices=['dummy', 'file', 'shell', 'stdin'],
                         help="This parameter controls how the input to SGNMT "
@@ -1338,16 +1341,26 @@ def validate_args(args):
                 pass # Deal with it later
         
     # Some common pitfalls
+    sanity_check_failed = False
     if args.input_method == 'dummy' and args.max_len_factor < 10:
         logging.warn("You are using the dummy input method but a low value "
                      "for max_len_factor (%d). This means that decoding will "
                      "not consider hypotheses longer than %d tokens. Consider "
                      "increasing max_len_factor to the length longest relevant"
                      " hypothesis" % (args.max_len_factor, args.max_len_factor))
+        sanity_check_failed = True
     if (args.decoder == "beam" and args.combination_scheme == "length_norm"
                                and args.early_stopping):
         logging.warn("You are using beam search with length normalization but "
                      "with early stopping. All hypotheses found with beam "
                      "search with early stopping have the same length. You "
                      "might want to disable early stopping.")
+        sanity_check_failed = True
+    if "t2t" in args.predictors and args.indexing_scheme != "t2t":
+        logging.warn("You are using the t2t predictor, but indexing_scheme "
+                     "is not set to t2t.")
+        sanity_check_failed = True
+    if sanity_check_failed and not args.ignore_sanity_checks:
+        raise AttributeError("Sanity check failed (see warnings). If you want "
+            "to proceed despite these warnings, use --ignore_sanity_checks.")
 

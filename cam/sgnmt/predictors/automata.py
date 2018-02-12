@@ -116,8 +116,10 @@ class FstPredictor(Predictor):
         if self.cur_node is None:
             logging.warn("The lattice for sentence %d does not contain any "
                          "valid path. Please double-check that the lattice "
-                         "is not empty and that paths start with the begin-of-"
-                         "sentence symbol." % (self.current_sen_id+1))
+                         "is not empty and that paths the begin-of-"
+                         "sentence symbol %d. If you are using a different "
+                         "begin-of-sentence symbol, double-check --indexing_"
+                         "scheme." % (self.current_sen_id+1, utils.GO_ID))
     
     def consume(self, word):
         """Updates the current node by following the arc labelled with
