@@ -78,7 +78,7 @@ class BaseNizzaPredictor(Predictor):
             self.precomputed = model.precompute(features, mode, hparams)
             self.log_probs = tf.squeeze(
                 model.predict_next_word(features, hparams, self.precomputed), 0)
-            self.mon_sess = self.create_session()
+            self.mon_sess = self.create_session(self._checkpoint_dir)
 
     def _session_config(self):
         """Creates the session config with t2t default parameters."""
@@ -101,9 +101,9 @@ class BaseNizzaPredictor(Predictor):
                 log_device_placement=False)
         return config
 
-    def create_session(self):
+    def create_session(self, checkpoint_dir):
         """Creates a MonitoredSession for this predictor."""
-        checkpoint_path = saver.latest_checkpoint(self._checkpoint_dir)
+        checkpoint_path = saver.latest_checkpoint(checkpoint_dir)
         return training.MonitoredSession(
             session_creator=training.ChiefSessionCreator(
                 checkpoint_filename_with_path=checkpoint_path,
@@ -165,6 +165,10 @@ class LexNizzaPredictor(BaseNizzaPredictor):
     def __init__(self, src_vocab_size, trg_vocab_size, model_name, 
                  hparams_set_name, checkpoint_dir, single_cpu_thread,
                  alpha, beta, shortlist_strategies,
+                 trg2src_model_name="", trg2src_hparams_set_name="",
+                 trg2src_checkpoint_dir="",
+                 max_shortlist_length=0,
+                 min_id=0,
                  nizza_unk_id=None):
         """Initializes a nizza predictor.
 
@@ -184,6 +188,18 @@ class LexNizzaPredictor(BaseNizzaPredictor):
             beta (float): Penalty for each uncovered word at the end
             shortlist_strategies (string): Comma-separated list of shortlist
                 strategies.
+            trg2src_model_name (string): Name of the target2source nizza model
+            trg2src_hparams_set_name (string): Name of the nizza hyper-parameter set
+                                     for the target2source model
+            trg2src_checkpoint_dir (string): Path to the Nizza checkpoint directory
+                                     for the target2source model. The 
+                                     predictor will load the top most checkpoint in 
+                                     the `checkpoints` file.
+            max_shortlist_length (int): If a shortlist exceeds this limit,
+                initialize the initial coverage with 1 at this position. If
+                zero, do not apply any limit
+            min_id (int): Do not use IDs below this threshold (filters out most
+                frequent words).
             nizza_unk_id (int): If set, use this as UNK id. Otherwise, the
                 nizza is assumed to have no UNKs
 
@@ -197,6 +213,34 @@ class LexNizzaPredictor(BaseNizzaPredictor):
         self.alpha_is_zero = alpha == 0.0
         self.beta = beta
         self.shortlist_strategies = utils.split_comma(shortlist_strategies)
+        self.max_shortlist_length = max_shortlist_length
+        self.min_id = min_id
+        if trg2src_checkpoint_dir:
+            self.use_trg2src = True
+            predictor_graph = tf.Graph()
+            with predictor_graph.as_default() as g:
+                hparams = registry.get_registered_hparams_set(trg2src_hparams_set_name)
+                hparams.add_hparam("inputs_vocab_size", trg_vocab_size)
+                hparams.add_hparam("targets_vocab_size", src_vocab_size)
+                run_config = tf.contrib.learn.RunConfig()
+                run_config = run_config.replace(model_dir=trg2src_checkpoint_dir)
+                model = registry.get_registered_model(trg2src_model_name, hparams, run_config)
+                features = {"inputs": tf.expand_dims(tf.range(trg_vocab_size), 0)}
+                mode = tf.estimator.ModeKeys.PREDICT
+                trg2src_lex_logits = model.precompute(features, mode, hparams)
+                # Precompute trg2src partitions
+                partitions = tf.reduce_logsumexp(trg2src_lex_logits, axis=-1)
+                self._trg2src_src_words_var = tf.placeholder(dtype=tf.int32, shape=[None],
+                                                  name="sgnmt_trg2src_src_words")
+                # trg2src_lex_logits has shape [1, trg_vocab_size, src_vocab_size]
+                self.trg2src_logits = tf.gather(tf.transpose(trg2src_lex_logits[0, :, :]), self._trg2src_src_words_var)
+                # trg2src_logits has shape [len(src_words), trg_vocab_size]
+                self.trg2src_mon_sess = self.create_session(trg2src_checkpoint_dir)
+                logging.debug("Precomputing lexnizza trg2src partitions...")
+                self.trg2src_partitions = self.trg2src_mon_sess.run(partitions)
+        else:
+            self.use_trg2src = False
+            logging.warn("No target-to-source model specified for lexnizza.")
 
     def get_unk_probability(self, posterior):
         if self.alpha_is_zero:
@@ -221,24 +265,48 @@ class LexNizzaPredictor(BaseNizzaPredictor):
     
     def initialize(self, src_sentence):
         """Set src_sentence, reset consumed."""
-        lex_logits = self.mon_sess.run(self.precomputed,
-            {self._inputs_var: src_sentence})
-        self.trg_vocab_size = lex_logits.shape[2]
-        src_len = len(src_sentence)
-        self.coverage = "0" * src_len
+        self.filt_src_sentence = [w for w in src_sentence if w >= self.min_id]
+        scores = self.mon_sess.run(self.precomputed,
+            {self._inputs_var: self.filt_src_sentence})
+        scores = scores[0, :, :]
+        # scores has shape [src_sentence_len, trg_vocab_size]
+        self.trg_vocab_size = scores.shape[1]
+        if self.use_trg2src:
+            trg2src_logits = self.trg2src_mon_sess.run(self.trg2src_logits,
+                {self._trg2src_src_words_var: self.filt_src_sentence})
+            src2trg_logits = scores
+            src2trg_partitions = logsumexp(src2trg_logits, axis=1, keepdims=True)
+            trg2src_logprobs = trg2src_logits - self.trg2src_partitions
+            src2trg_logprobs = src2trg_logits - src2trg_partitions
+            scores = src2trg_logprobs + trg2src_logprobs
+        src_len = len(self.filt_src_sentence)
+        is_covered = []
         self.short_lists = []
         self.short_list_scores = []
         for src_pos in xrange(src_len):
-            shortlist = self._create_short_list(lex_logits[0, src_pos, :])
+            shortlist = self._create_short_list(scores[src_pos, :])
+            if (self.max_shortlist_length > 0 
+                      and len(shortlist) > self.max_shortlist_length):
+                is_covered.append("1")
+                shortlist = set([])
+            else:
+                is_covered.append("0")
             self.short_lists.append(shortlist)
             if not self.alpha_is_zero:
-                scores = np.zeros(self.trg_vocab_size)
+                alpha_scores = np.zeros(self.trg_vocab_size)
                 for w in shortlist:
-                    scores[w] = self.alpha
-                self.short_list_scores.append(scores)
+                    alpha_scores[w] = self.alpha
+                self.short_list_scores.append(alpha_scores)
+        self.coverage = "".join(is_covered)
         logging.debug("Short list sizes: %s" % ", ".join([
                 str(len(l)) for l in self.short_lists]))
-    
+        logging.debug("Initial coverage: %s" % self.coverage)
+        #print("SHORT LISTS")
+        #for w, l in zip(self.filt_src_sentence, self.short_lists):
+        #    print("\n\n%d" % w)
+        #    if len(l) < 40:
+        #        print(" ".join(map(str, l)))
+              
     def consume(self, word):
         """Update coverage."""
         new_coverage = []
@@ -247,26 +315,35 @@ class LexNizzaPredictor(BaseNizzaPredictor):
                 is_covered = "1"
             new_coverage.append(is_covered)
         self.coverage = "".join(new_coverage)
+        #logging.debug("Partial: %s" % " ".join([str(self.filt_src_sentence[idx])  for idx, c in enumerate(self.coverage) if c == "1"]))
+        #logging.debug(self.coverage)
 
     def _create_short_list(self, logits):
         """Creates a set of tokens which are likely translations."""
         words = set()
+        filt_logits = logits[self.min_id:]
         for strat in self.shortlist_strategies:
             if strat[:3] == "top":
                 n = int(strat[3:])
-                words.update(utils.argmax_n(logits, n))
+                words.update(utils.argmax_n(filt_logits, n))
             elif strat[:4] == "prob":
                 p = float(strat[4:])
-                unnorm_probs = np.exp(logits)
+                unnorm_probs = np.exp(filt_logits)
                 threshold = np.sum(unnorm_probs) * p
                 acc = 0.0
-                for word in np.argsort(logits)[::-1]:
+                for word in np.argsort(filt_logits)[::-1]:
                     acc += unnorm_probs[word]
                     words.add(word)
                     if acc >= threshold:
                         break
             else:
                 raise AttributeError("Unknown shortlist strategy '%s'" % strat)
+        if self.min_id:
+            words = set(w+self.min_id for w in words)
+        try:
+            words.remove(utils.EOS_ID)
+        except KeyError:
+            pass
         return words
 
     def estimate_future_cost(self, hypo):

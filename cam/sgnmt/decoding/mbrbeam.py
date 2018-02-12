@@ -11,7 +11,13 @@ from cam.sgnmt.decoding.core import PartialHypothesis
 
 
 class MBRBeamDecoder(BeamDecoder):
-    """TODO"""
+    """The MBR-based beam decoder does not select the n most likely
+    hypotheses in each timestep. Instead, it tries to find a subset
+    with n elements which maximizes the expected maximum BLEU of one
+    of the selected hypos. In other words, we optimize the oracle
+    BLEU of the n-best list at each time step, where the n-best list
+    consists of the active hypotheses in the beam.
+    """
     
     def __init__(self, decoder_args):
         """Creates a new MBR beam decoder instance. We explicitly
@@ -19,8 +25,9 @@ class MBRBeamDecoder(BeamDecoder):
         supported by the MBR-based beam decoder. The MBR-based
         decoder fetches the following fields from ``decoder_args``:
 
-          min_ngram_prder (int): Minimum n-gram oder
-          max_ngram_prder (int): Maximum n-gram oder
+          min_ngram_order (int): Minimum n-gram order
+          max_ngram_order (int): Maximum n-gram order
+          mbrbeam_smooth_factor (float): Smoothing factor for evidence space
 
         Args:
             decoder_args (object): Decoder configuration passed through
@@ -31,6 +38,7 @@ class MBRBeamDecoder(BeamDecoder):
             decoder_args.early_stopping = False
         self.min_order = decoder_args.min_ngram_order
         self.max_order = decoder_args.max_ngram_order
+        self.smooth_factor = decoder_args.mbrbeam_smooth_factor
         super(MBRBeamDecoder, self).__init__(decoder_args)
 
     def _compute_bleu(self, hyp_ngrams, ref_ngrams, hyp_length, ref_length):
@@ -65,7 +73,10 @@ class MBRBeamDecoder(BeamDecoder):
         Return:
             list. List with hypotheses.
         """
-        probs = np.exp(scores - utils.log_sum(scores))
+        #probs = np.exp(scores - utils.log_sum(scores))
+        probs = (1.0 - self.smooth_factor) * np.exp(
+            scores - utils.log_sum(scores)) \
+            + self.smooth_factor / float(len(scores))
         lengths = [len(hypo.trgt_sentence) for hypo in hypos]
         logging.debug("%d candidates min_length=%d max_length=%d" % 
             (len(lengths), min(lengths), max(lengths)))
@@ -86,9 +97,11 @@ class MBRBeamDecoder(BeamDecoder):
         next_hypos = []
         for _ in xrange(min(self.beam_size, len(hypos))):
             idx = np.argmax(np.sum(exp_bleus, axis=1))
+            bleu = np.sum(exp_bleus[idx])
             logging.debug("Selected (score=%f prob=%f expected_bleu=%f): %s"
-                    % (scores[idx], probs[idx], np.sum(exp_bleus[idx]), 
+                    % (scores[idx], probs[idx], bleu, 
                        hypos[idx].trgt_sentence))
+            hypos[idx].bleu = bleu
             next_hypos.append(hypos[idx])
             gained_bleus = exp_bleus[idx]
             for update_idx in xrange(len(exp_bleus)):
@@ -119,6 +132,7 @@ class MBRBeamDecoder(BeamDecoder):
                     next_scores.append(next_score)
             hypos = self._get_next_hypos_mbr(next_hypos, next_scores)
         for hypo in hypos:
+            hypo.score = -hypo.bleu
             if hypo.get_last_word() == utils.EOS_ID:
                 self.add_full_hypo(hypo.generate_full_hypothesis()) 
         if not self.full_hypos:

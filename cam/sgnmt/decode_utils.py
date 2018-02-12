@@ -65,8 +65,7 @@ from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
                                             UnkvocabPredictor, \
                                             SkipvocabPredictor
 from cam.sgnmt.predictors.ngram import SRILMPredictor
-from cam.sgnmt.predictors.tf_t2t import T2TPredictor, T2TBFSLayerbylayerPredictor, \
-                                        T2TDFSLayerbylayerPredictor
+from cam.sgnmt.predictors.tf_t2t import T2TPredictor
 from cam.sgnmt.predictors.tf_nizza import NizzaPredictor, LexNizzaPredictor
 from cam.sgnmt.predictors.tokenization import Word2charPredictor, FSTTokPredictor
 from cam.sgnmt.tf.interface import tf_get_nmt_predictor, tf_get_nmt_vanilla_decoder, \
@@ -193,8 +192,17 @@ def add_predictors(decoder):
                                       single_cpu_thread=args.single_cpu_thread,
                                       alpha=args.lexnizza_alpha,
                                       beta=args.lexnizza_beta,
+                                      trg2src_model_name=
+                                          args.lexnizza_trg2src_model, 
+                                      trg2src_hparams_set_name=
+                                          args.lexnizza_trg2src_hparams_set,
+                                      trg2src_checkpoint_dir=
+                                          args.lexnizza_trg2src_checkpoint_dir,
                                       shortlist_strategies=
-                                          args.lexnizza_shortlist_strategies)
+                                          args.lexnizza_shortlist_strategies,
+                                      max_shortlist_length=
+                                          args.lexnizza_max_shortlist_length,
+                                      min_id=args.lexnizza_min_id)
             elif pred == "t2t":
                 p = T2TPredictor(_get_override_args("pred_src_vocab_size"),
                                  _get_override_args("pred_trg_vocab_size"),
@@ -206,37 +214,6 @@ def add_predictors(decoder):
                                  single_cpu_thread=args.single_cpu_thread,
                                  max_terminal_id=args.syntax_max_terminal_id,
                                  pop_id=args.syntax_pop_id)
-            elif pred == "bfslayerbylayer":
-                p = T2TBFSLayerbylayerPredictor(
-                         _get_override_args("pred_src_vocab_size"),
-                         _get_override_args("pred_trg_vocab_size"),
-                         _get_override_args("t2t_model"),
-                         _get_override_args("t2t_problem"),
-                         _get_override_args("t2t_hparams_set"),
-                         args.t2t_usr_dir,
-                         _get_override_args("t2t_checkpoint_dir"),
-                         single_cpu_thread=args.single_cpu_thread,
-                         max_terminal_id=args.syntax_max_terminal_id,
-                         pop_id=args.syntax_pop_id,
-                         root_id=args.syntax_root_id,
-                         terminal_list=args.syntax_terminal_list,
-                         max_depth=args.syntax_max_depth,
-                         terminal_strategy=args.layerbylayer_terminal_strategy)
-            elif pred == "dfslayerbylayer":
-                p = T2TDFSLayerbylayerPredictor(
-                         _get_override_args("pred_src_vocab_size"),
-                         _get_override_args("pred_trg_vocab_size"),
-                         _get_override_args("t2t_model"),
-                         _get_override_args("t2t_problem"),
-                         _get_override_args("t2t_hparams_set"),
-                         args.t2t_usr_dir,
-                         _get_override_args("t2t_checkpoint_dir"),
-                         single_cpu_thread=args.single_cpu_thread,
-                         max_terminal_id=args.syntax_max_terminal_id,
-                         pop_id=args.syntax_pop_id,
-                         root_id=args.syntax_root_id,
-                         terminal_list=args.syntax_terminal_list,
-                         max_depth=args.syntax_max_depth)
             elif pred == "bracket":
                 p = BracketPredictor(args.syntax_max_terminal_id,
                                      args.syntax_pop_id,

@@ -608,6 +608,10 @@ def get_parser():
     group.add_argument("--max_word_len", default=25, type=int,
                        help="Maximum length of a single word. Only applicable "
                        "to the decoders multisegbeam and syncbeam.")
+    group.add_argument("--mbrbeam_smooth_factor", default=0.01, type=float,
+                       help="If positive, apply mix the evidence space "
+                       "distribution with the uniform distribution using "
+                       "this factor")
 
     ## Output options
     group = parser.add_argument_group('Output options')
@@ -690,21 +694,11 @@ def get_parser():
                         "the source word coverage.\n"
                         "           Options: nizza_model, nizza_hparams_set, "
                         "nizza_checkpoint_dir, pred_src_vocab_size, "
-                        "pred_trg_vocab_size\n"
-                        "* 'bfslayerbylayer': Layerbylayer models (BFS).\n"
-                        "                  Options: t2t_usr_dir, t2t_model, "
-                        "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
-                        "syntax_root_id, syntax_max_terminal_id, "
-                        "syntax_terminal_list, syntax_pop_id,"
-                        "layerbylayer_terminal_strategy, syntax_max_depth, "
-                        "pred_src_vocab_size, pred_trg_vocab_size\n"
-                        "* 'dfslayerbylayer': Layerbylayer models (DFS).\n"
-                        "                  Options: t2t_usr_dir, t2t_model, "
-                        "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
-                        "syntax_root_id, syntax_max_terminal_id, "
-                        "syntax_terminal_list, syntax_pop_id,"
-                        "layerbylayer_terminal_strategy, syntax_max_depth, "
-                        "pred_src_vocab_size, pred_trg_vocab_size\n"
+                        "pred_trg_vocab_size, lexnizza_alpha, lexnizza_beta, "
+                        "lexnizza_shortlist_strategies, "
+                        "lexnizza_max_shortlist_length, lexnizza_trg2src_model, "
+                        "lexnizza_trg2src_hparams_set, lexnizza_trg2src_"
+                        "checkpoint_dir, lexnizza_min_id\n"
                         "* 'bracket': Well-formed bracketing.\n"
                         "             Options: syntax_max_terminal_id, "
                         "syntax_pop_id, syntax_max_depth, extlength_path\n"
@@ -896,16 +890,6 @@ def get_parser():
                        "penalization term following Google's NMT (Wu et al., "
                        "2016) to the NMT score. Only works for the Blocks "
                        "NMT predictor.")
-    group.add_argument("--layerbylayer_terminal_strategy", default="force", 
-                        choices=['none', 'force', 'skip'],
-                        help="Strategy for dealing with terminals as parents "
-                        "in layerbylayer predictors with POP attention.\n"
-                        "'none': Treat terminal parents like any other token\n"
-                        "'force': Force the output to the terminal parent "
-                        "label.\n"
-                        "'skip': Like 'force', but with log(1)=0 scores. This "
-                        "is usually faster, and must be used if the model is "
-                        "trained with use_loss_mask.")
     group.add_argument("--syntax_max_depth", default=30, type=int,
                        help="Maximum depth of generated trees. After this "
                        "depth is reached, only terminals and POP are allowed "
@@ -961,8 +945,19 @@ def get_parser():
                        help="Available for the nizza predictor. Path to the "
                        "nizza checkpoint directory. Same as "
                        "--model_dir in nizza_trainer.")
+    group.add_argument("--lexnizza_trg2src_model", default="model1",
+                       help="Available for the lexnizza predictor. Name of "
+                       "the target-to-source nizza model.")
+    group.add_argument("--lexnizza_trg2src_hparams_set",
+                       default="model1_default",
+                       help="Available for the lexnizza predictor. Name of "
+                       "the target-to-source nizza hparams set.")
+    group.add_argument("--lexnizza_trg2src_checkpoint_dir", default="",
+                       help="Available for the lexnizza predictor. Path to "
+                       "the target-to-source nizza checkpoint directory. Same "
+                       "as --model_dir in nizza_trainer.")
     group.add_argument("--lexnizza_shortlist_strategies", 
-                       default="top5,prob0.5",
+                       default="top10",
                        help="Comma-separated list of strategies to extract "
                        "a short list of likely translations from lexical "
                        "Model1 scores. Strategies are combined using the "
@@ -974,6 +969,13 @@ def get_parser():
                        help="Score of each word which matches a short list.")
     group.add_argument("--lexnizza_beta", default=1.0, type=float,
                        help="Penalty for each uncovered word at the end.")
+    group.add_argument("--lexnizza_max_shortlist_length", default=0, type=int,
+                        help="If positive and a shortlist is longer than this "
+                        "limit, initialize the coverage vector at this "
+                        "position with 1")
+    group.add_argument("--lexnizza_min_id", default=0, type=int,
+                        help="Word IDs lower than this are not considered by "
+                        "lexnizza. Can be used to filter out frequent words.")
 
     # Length predictors
     group = parser.add_argument_group('Length predictor options')
