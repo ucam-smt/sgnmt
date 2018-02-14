@@ -1,13 +1,11 @@
 """This beam search uses an MBR-based criterion at each time step."""
 
 
-import copy
 import logging
 import numpy as np
 
 from cam.sgnmt import utils
 from cam.sgnmt.decoding.beam import BeamDecoder
-from cam.sgnmt.decoding.core import PartialHypothesis
 
 
 class MBRBeamDecoder(BeamDecoder):

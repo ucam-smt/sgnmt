@@ -7,7 +7,6 @@ import numpy as np
 
 from cam.sgnmt import utils
 from cam.sgnmt.decoding.beam import BeamDecoder
-from cam.sgnmt.decoding.core import PartialHypothesis
 
 
 class SyntaxBeamDecoder(BeamDecoder):

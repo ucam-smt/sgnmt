@@ -17,14 +17,12 @@ The script supports most of the command-line arguments of
 """
 
 import logging
-import os
 import sys
 import traceback
 
-from cam.sgnmt import utils
 from cam.sgnmt.decoding import core
 from cam.sgnmt import decode_utils
-from cam.sgnmt.ui import get_args, get_parser
+from cam.sgnmt.ui import get_args
 
 # Load configuration from command line arguments or configuration file
 args = get_args()

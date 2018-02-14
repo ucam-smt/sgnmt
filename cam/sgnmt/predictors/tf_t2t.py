@@ -14,7 +14,6 @@ sequence models.
 
 import logging
 import os
-import sys
 
 from cam.sgnmt import utils
 from cam.sgnmt.predictors.core import Predictor
