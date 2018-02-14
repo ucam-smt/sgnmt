@@ -26,6 +26,8 @@ if sys.version_info < (3, 0):
     sys.stderr = codecs.getwriter('UTF-8')(sys.stderr)
     sys.stdout = codecs.getwriter('UTF-8')(sys.stdout)
     sys.stdin = codecs.getreader('UTF-8')(sys.stdin)
+else:
+    logging.warn("SGNMT is tested with Python 2.7, but you are using Python 3")
 
 # Load configuration from command line arguments or configuration file
 args = get_args()

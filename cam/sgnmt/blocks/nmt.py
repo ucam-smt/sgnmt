@@ -1,6 +1,7 @@
 """This module is the interface to the blocks NMT implementation.
 """
 
+import argparse
 import logging
 import os
 import re
@@ -32,6 +33,11 @@ def _add_sparse_feat_maps_to_config(nmt_config):
                                         nmt_config['dec_embed'],
                                         nmt_config['trg_sparse_feat_map'])
     return new_config
+
+
+def str2bool(v):
+    """For making the ``ArgumentParser`` understand boolean values"""
+    return v.lower() in ("yes", "true", "t", "1")
 
 
 def blocks_get_nmt_predictor(args, nmt_path, nmt_config):
@@ -428,3 +434,198 @@ def get_nmt_model_path(nmt_model_selector, nmt_config):
                   "the --nmt_model_selector parameter." % nmt_model_selector)
 
 
+def get_blocks_train_parser():
+    """Get the parser object for NMT training configuration. """
+    parser = argparse.ArgumentParser()
+    parser.register('type','bool',str2bool)
+    parser.add_argument("--bokeh",  default=False, action="store_true",
+                        help="Use bokeh server for plotting")
+    parser.add_argument("--reshuffle",  default=False, action="store_true",
+                        help="Reshuffle before each epoch")
+    parser.add_argument("--slim_iteration_state",  default=False, action="store_true",
+                        help="Per default the iteration state stores the data "
+                        "stream and the main loop epoch iterator. Enabling "
+                        "this option only stores the epoch iterator. This "
+                        "results in a much smaller iteration state, but the "
+                        "data stream is reset after reloading. Normally, you "
+                        "can use slim iteration states if your data stream "
+                        "does reshuffling")
+    parser.add_argument("--reset_epoch",  default=False, action="store_true",
+                        help="Set epoch_started in main loop status to false. "
+                        "Sometimes required if you change training parameters "
+                        "such as --mono_data_integration")
+    parser.add_argument("--mono_data_integration", default="none",
+                        choices=['none'],
+                        help="This parameter specifies how to use "
+                        "monolingual data. Currently, we only support "
+                        "using the target data.\n\n"
+                        "* 'none': Do not use monolingual data\n")
+    parser.add_argument("--loss", default="default",
+                        choices=['default', 'gleu'],
+                        help="Training loss function.\n\n"
+                        "* 'default': Standard loss function: squared error "
+                        "with target feature maps, else cross entropy\n"
+                        "* 'gleu': Reinforcement learning objective function "
+                        "as proposed by Wu et al., 2016 (Googles NMT)")
+    parser.add_argument("--add_mono_dummy_data", default=True, type='bool',
+                        help="If the method specified with mono_data_"
+                        "integration uses monolingual data, it usually "
+                        "combines synthetic and dummy source sentences. Set "
+                        "this to false to disable dummy source sentences.")
+    parser.add_argument("--backtrans_nmt_config",  default="",
+                        help="A string describing the configuration of the "
+                        "back-translating NMT system. Syntax is equal to nmt_"
+                        "config2 in decode.py: Comma separated list of name-"
+                        "value pairs, where name is one of the NMT "
+                        "configuration parameters. E.g. saveto=train.back,"
+                        "src_vocab_size=50000,trg_vocab_size=50000")
+    parser.add_argument("--backtrans_reload_frequency", default=0, type=int,
+                        help="The back-translating NMT model is reloaded every"
+                        " n updates. This is useful if the back-translating "
+                        "NMT system is currently trained by itself with the "
+                        "same policy. This enables us to train two NMT "
+                        "systems in opposite translation directions and "
+                        "benefit from gains in the other system immediately. "
+                        "Set to 0 to disable reloading")
+    parser.add_argument("--backtrans_store", default=True, type='bool',
+                        help="Write the back-translated sentences to the "
+                        "file system.")
+    parser.add_argument("--backtrans_max_same_word", default=0.3, type=float,
+                        help="Used for sanity check of the backtranslation. "
+                        "If the most frequent word in the backtranslated "
+                        "sentence has relative frequency higher than this, "
+                         "discard this sentence pair")
+    parser.add_argument("--learning_rate", default=0.002, type=float,
+                        help="Learning rate for AdaGrad and Adam")
+    parser.add_argument("--prune_every", default=-1, type=int,
+                        help="Prune model every n iterations. Pruning is " 
+                        "disabled if this is < 1")
+    parser.add_argument("--prune_reset_every", default=-1, type=int,
+                        help="Reset pruning statistics every n iterations. If " 
+                        "set to -1, use --prune_every")
+    parser.add_argument("--prune_n_steps", default=10, type=int,
+                        help="Number of pruning steps until the target layer "
+                        "sizes should be reached")
+    parser.add_argument("--prune_layers",  
+                        default="encfwdgru:1000,encbwdgru:1000,decgru:1000",
+                        help="A comma separated list of <layer>:<size> pairs. "
+                        "<layer> is one of 'encfwdgru', 'encbwdgru', 'decgru',"
+                        " 'decmaxout' which should be shrunk to <size> during "
+                        "training. Pruned neurons are marked by setting all "
+                        "in- and output connection to zero.")
+    parser.add_argument("--prune_layout_path",  
+                        default="prune.layout",
+                        help="Points to a file which defines which weight "
+                        "matrices are connected to which prunable layers. The "
+                        "rows/columns of these matrices are set to zero for "
+                        "all removed neurons. The format of this file is \n"
+                        "<layer> <in|out> <mat_name> <dim> <start-idx>=0.0\n"
+                        "<layer> is one of the layer names specified via "
+                        "--prune_layers. Set <start-idx> to 0.5 to add an "
+                        "offset of half the matrix dimension to the indices.")
+    parser.add_argument("--sampling_freq", default=13, type=int,
+                        help="NOT USED, just to prevent old code from breaking")
+    parser.add_argument("--hook_samples", default=0, type=int,
+                        help="NOT USED, just to prevent old code from breaking")
+    blocks_add_nmt_config(parser)
+    return parser
+
+
+def get_blocks_align_parser():
+    """Get the parser object for NMT alignment configuration. """
+    parser = argparse.ArgumentParser()
+    parser.register('type','bool',str2bool)
+    
+    parser.add_argument("--iterations", default=50, type=int,
+                        help="Number of optimization iterations for each token")
+    parser.add_argument("--nmt_model_selector", default="bleu",
+                        choices=['params', 'bleu', 'time'],
+                        help="NMT training normally creates several files in "
+                        "the ./train/ directory from which we can load the NMT"
+                        " model. Possible options:\n\n"
+                        "* 'params': Load parameters from params.npz. This is "
+                        "usually the most recent model.\n"
+                        "* 'bleu': Load from the best_bleu_params_* file with "
+                        "the best BLEU score.\n"
+                        "* 'time': Load from the most recent "
+                        "best_bleu_params_* file.")
+    parser.add_argument("--alignment_model", default="nam",
+                        choices=['nam', 'nmt'],
+                        help="Defines the alignment model.\n\n"
+                        "* 'nam': Neural alignment model. Similar to NMT but "
+                        "trains the alignment weights explicitly for each "
+                        "sentence pair instead of using the NMT attention "
+                        "model.\n"
+                        "* 'nmt': Standard NMT attention model following "
+                        "Bahdanau et. al., 2015.")
+    parser.add_argument("--output_path", default="sgnmt-out.%s",
+                        help="Path to the output files generated by SGNMT. You "
+                        "can use the placeholder %%s for the format specifier.")
+    parser.add_argument("--outputs", default="",
+                        help="Comma separated list of output formats: \n\n"
+                        "* 'csv': Plain text file with alignment matrix\n"
+                        "* 'npy': Alignment matrices in numpy's npy format\n"
+                        "* 'align': Usual (Pharaoh) alignment format.\n")
+    
+    blocks_add_nmt_config(parser)
+    return parser
+
+
+def get_blocks_batch_decode_parser():
+    """Get the parser object for NMT batch decoding. """
+    parser = argparse.ArgumentParser()
+    parser.register('type','bool',str2bool)
+    
+    parser.add_argument("--src_test", default="test_en",
+                        help="Path to source test set. This is expected to be "
+                        "a plain text file with one source sentence in each "
+                        "line. Words need to be indexed, i.e. use word IDs "
+                        "instead of their string representations.")
+    parser.add_argument("--range", default="",
+                         help="Defines the range of sentences to be processed. "
+                         "Syntax is equal to HiFSTs printstrings and lmerts "
+                         "idxrange parameter: <start-idx>:<end-idx> (both "
+                         "inclusive, start with 1). E.g. 2:5 means: skip the "
+                         "first sentence, process next 4 sentences")
+    parser.add_argument("--enc_max_words", default=5000, type=int,
+                        help="Maximum number of words in an encoder batch. "
+                        "These batches compute source side annotations. "
+                        "Encoder batches are clustered by source sentence "
+                        "length, so smaller batches are possible.")
+    parser.add_argument("--min_jobs", default=2, type=int,
+                        help="The CPU scheduler starts to construct small "
+                        "jobs when the total number of jobs in the pipelines "
+                        "is below this threshold. This prevents the computation "
+                        "thread from being idle, at the cost of smaller " 
+                        "batches")
+    parser.add_argument("--max_tasks_per_job", default=450, type=int,
+                        help="The maximum number of tasks in a single decoder "
+                        "batch. Larger batches can exploit GPU parallelism "
+                        "more efficiently, but limit the flexibility of the "
+                        "CPU scheduler")
+    parser.add_argument("--max_tasks_per_state_update_job", default=100, type=int,
+                        help="Maximum number of tasks in a state update batch. "
+                        "Larger batches are more efficient to compute on the "
+                        "GPU, but delaying state updates for too long may "
+                        "lead to smaller forward pass jobs.")
+    parser.add_argument("--max_rows_per_job", default=20, type=int,
+                        help="Maximum number of entries in a forward pass "
+                        "batch. Note that each task in the batch gets at least "
+                        "one entry, so this parameters applies only if there "
+                        "are less than this threshold tasks left.")
+    parser.add_argument("--min_tasks_per_bucket", default=100, type=int,
+                        help="Minimum number of tasks in a bucket. Large "
+                        "buckets give the CPU scheduler more flexibility, "
+                        "but more padding may be required on the source "
+                        "side, leading to more wasted computation.")
+    parser.add_argument("--min_bucket_tolerance", default=8, type=int,
+                        help="Minimum padding width in a bucket. Increasing "
+                        "this leads to larger buckets and more flexible "
+                        "scheduling and larger batches, but potentially "
+                        "more wasteful state update computation due to "
+                        "padding.")
+    parser.add_argument("--beam", default=5, type=int,
+                        help="Size of the beam.")
+    
+    blocks_add_nmt_config(parser)
+    return parser
