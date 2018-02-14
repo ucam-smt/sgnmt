@@ -101,7 +101,7 @@ def get_parser():
                         "idxrange parameter: <start-idx>:<end-idx> (both "
                         "inclusive, start with 1). E.g. 2:5 means: skip the "
                         "first sentence, process next 4 sentences")
-    group.add_argument("--src_test", default="test_en",
+    group.add_argument("--src_test", default="",
                         help="Path to source test set. This is expected to be "
                         "a plain text file with one source sentence in each "
                         "line. Words need to be indexed, i.e. use word IDs "
