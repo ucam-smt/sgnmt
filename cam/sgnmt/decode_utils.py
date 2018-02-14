@@ -9,6 +9,7 @@ to learn how to use this module.
 """
 
 import logging
+import codecs
 import sys
 import time
 import traceback
@@ -74,8 +75,60 @@ from cam.sgnmt.tf.interface import tf_get_nmt_predictor, tf_get_nmt_vanilla_deco
 
 args = None
 """This variable is set to the global configuration when 
-create_decoder() is called.
+base_init().
 """
+
+def base_init(new_args):
+    """This function should be called before accessing any other
+    function in this module. It initializes the `args` variable on 
+    which all the create_* factory functions rely on as configuration
+    object, and it sets up global function pointers and variables for
+    basic things like the indexing scheme, logging verbosity, etc.
+
+    Args:
+        new_args: Configuration object from the argument parser.
+    """
+    global args
+    args = new_args
+    # UTF-8 support
+    if sys.version_info < (3, 0):
+        sys.stderr = codecs.getwriter('UTF-8')(sys.stderr)
+        sys.stdout = codecs.getwriter('UTF-8')(sys.stdout)
+        sys.stdin = codecs.getreader('UTF-8')(sys.stdin)
+    else:
+        logging.warn("SGNMT is tested with Python 2.7, but you are using "
+                     "Python 3. Expect the unexpected or switch to 2.7.")
+    # Set up logger
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s')
+    logging.getLogger().setLevel(logging.INFO)
+    if args.verbosity == 'debug':
+        logging.getLogger().setLevel(logging.DEBUG)
+    elif args.verbosity == 'info':
+        logging.getLogger().setLevel(logging.INFO)
+    elif args.verbosity == 'warn':
+        logging.getLogger().setLevel(logging.WARN)
+    elif args.verbosity == 'error':
+        logging.getLogger().setLevel(logging.ERROR)
+    # Set reserved word IDs
+    if args.indexing_scheme == 'blocks':
+        utils.switch_to_blocks_indexing()
+    elif args.indexing_scheme == 'tf':
+        utils.switch_to_tf_indexing()
+    elif args.indexing_scheme == 't2t':
+        utils.switch_to_t2t_indexing()
+    # Log summation (how to compute log(exp(l1)+exp(l2)) for log values l1,l2)
+    if args.log_sum == 'tropical':
+        utils.log_sum = utils.log_sum_tropical_semiring
+    # Predictor combination schemes
+    if args.combination_scheme == 'length_norm':
+        core.breakdown2score_full = core.breakdown2score_length_norm
+    if args.combination_scheme == 'bayesian_loglin':
+        core.breakdown2score_full = core.breakdown2score_bayesian_loglin
+    if args.combination_scheme == 'bayesian':
+        core.breakdown2score_full = core.breakdown2score_bayesian  
+    ui.validate_args(args)
+
 
 _override_args_cnts = {}
 def _get_override_args(field):
@@ -365,8 +418,8 @@ def add_predictors(decoder):
                     decoder.remove_predictors()
                     return
             decoder.add_predictor(pred, p, pred_weight)
-            logging.info("Added predictor {} with weight {}".format(pred, 
-                                                                    pred_weight))
+            logging.info("Initialized predictor {} (weight: {})".format(
+                             pred, pred_weight))
     except IOError as e:
         logging.fatal("One of the files required for setting up the "
                       "predictors could not be read: %s" % e)
@@ -394,21 +447,16 @@ def add_predictors(decoder):
         decoder.remove_predictors()
 
 
-def create_decoder(new_args):
+def create_decoder():
     """Creates the ``Decoder`` instance. This specifies the search 
     strategy used to traverse the space spanned by the predictors. This
     method relies on the global ``args`` variable.
     
     TODO: Refactor to avoid long argument lists
     
-    Args:
-        new_args: Command line arguments
-    
     Returns:
         Decoder. Instance of the search strategy
     """
-    global args
-    args = new_args
     # Create decoder instance and add predictors
     if args.decoder == "greedy":
         decoder = GreedyDecoder(args)
@@ -597,7 +645,7 @@ def create_output_handlers():
     return outputs
 
 
-def _get_sentence_indices(range_param, src_sentences):
+def get_sentence_indices(range_param, src_sentences):
     """Helper method for ``do_decode`` which returns the indices of the
     sentence to decode
     
@@ -656,7 +704,7 @@ def do_decode(decoder,
         text_output_handler.open_file()
     start_time = time.time()
     logging.info("Start time: %s" % start_time)
-    for sen_idx in _get_sentence_indices(args.range, src_sentences):
+    for sen_idx in get_sentence_indices(args.range, src_sentences):
         try:
             if src_sentences is False:
                 src = "0"

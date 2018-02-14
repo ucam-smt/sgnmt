@@ -10,62 +10,19 @@ visit the tutorial home page:
 http://ucam-smt.github.io/tutorial/sgnmt 
 """
 
-import codecs
 import logging
 import os
 import sys
+import codecs
 
 from cam.sgnmt import utils
 from cam.sgnmt.decoding import core
 from cam.sgnmt import decode_utils
-from cam.sgnmt.ui import get_args, get_parser, validate_args
-
-
-# UTF-8 support
-if sys.version_info < (3, 0):
-    sys.stderr = codecs.getwriter('UTF-8')(sys.stderr)
-    sys.stdout = codecs.getwriter('UTF-8')(sys.stdout)
-    sys.stdin = codecs.getreader('UTF-8')(sys.stdin)
-else:
-    logging.warn("SGNMT is tested with Python 2.7, but you are using Python 3")
+from cam.sgnmt.ui import get_args, get_parser
 
 # Load configuration from command line arguments or configuration file
 args = get_args()
-
-# Set up logger
-logger = logging.getLogger(__name__)
-logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s')
-logging.getLogger().setLevel(logging.INFO)
-if args.verbosity == 'debug':
-    logging.getLogger().setLevel(logging.DEBUG)
-elif args.verbosity == 'info':
-    logging.getLogger().setLevel(logging.INFO)
-elif args.verbosity == 'warn':
-    logging.getLogger().setLevel(logging.WARN)
-elif args.verbosity == 'error':
-    logging.getLogger().setLevel(logging.ERROR)
-
-validate_args(args)
-
-# Set reserved word IDs
-if args.indexing_scheme == 'blocks':
-    utils.switch_to_blocks_indexing()
-elif args.indexing_scheme == 'tf':
-    utils.switch_to_tf_indexing()
-elif args.indexing_scheme == 't2t':
-    utils.switch_to_t2t_indexing()
-    
-# Log summation (how to compute log(exp(l1)+exp(l2)) for log values l1,l2)
-if args.log_sum == 'tropical':
-    utils.log_sum = utils.log_sum_tropical_semiring
-
-# Predictor combination schemes
-if args.combination_scheme == 'length_norm':
-    core.breakdown2score_full = core.breakdown2score_length_norm
-if args.combination_scheme == 'bayesian_loglin':
-    core.breakdown2score_full = core.breakdown2score_bayesian_loglin
-if args.combination_scheme == 'bayesian':
-    core.breakdown2score_full = core.breakdown2score_bayesian  
+decode_utils.base_init(args)
 
 
 def _update_decoder(decoder, key, val):
@@ -156,7 +113,7 @@ def _print_shell_help():
 utils.load_src_wmap(args.src_wmap)
 utils.load_trg_wmap(args.trg_wmap)
 utils.load_trg_cmap(args.trg_cmap)
-decoder = decode_utils.create_decoder(args)
+decoder = decode_utils.create_decoder()
 outputs = decode_utils.create_output_handlers()
 
 if args.input_method == 'file':
