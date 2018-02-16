@@ -152,10 +152,6 @@ def get_parser():
     
     ## Decoding options
     group = parser.add_argument_group('Decoding options')
-    group.add_argument("--beam", default=12, type=int,
-                        help="Size of beam. Only used if --decoder is set to "
-                        "'beam' or 'astar'. For 'astar' it limits the capacity"
-                        " of the queue. Use --beam 0 for unlimited capacity.")
     group.add_argument("--decoder", default="beam",
                         choices=['greedy',
                                  'beam',
@@ -220,6 +216,15 @@ def get_parser():
                         "when you do pure NMT decoding as this is usually "
                         "faster then using a single nmt predictor as the "
                         "search can be parallelized on the GPU.")
+    group.add_argument("--beam", default=12, type=int,
+                        help="Size of beam. Only used if --decoder is set to "
+                        "'beam' or 'astar'. For 'astar' it limits the capacity"
+                        " of the queue. Use --beam 0 for unlimited capacity.")
+    group.add_argument("--sub_beam", default=0, type=int,
+                        help="This denotes the maximum number of children of "
+                        "a partial hypothesis in beam-like decoders. If zero, "
+                        "this is set to --beam to reproduce standard beam "
+                        "search.")
     group.add_argument("--hypo_recombination", default=False, type='bool',
                         help="Activates hypothesis recombination. Has to be "
                         "supported by the decoder. Applicable to beam, "

@@ -22,6 +22,8 @@ class BeamDecoder(Decoder):
             hypo_recombination (bool): Activates hypo recombination 
             beam (int): Absolute beam size. A beam of 12 means
                         that we keep track of 12 active hypotheses
+            sub_beam (int): Number of children per hypothesis. Set to
+                            beam size if zero.
             pure_heuristic_scores (bool): Hypotheses to keep in the beam
                                           are normally selected 
                                           according the sum of partial
@@ -53,6 +55,9 @@ class BeamDecoder(Decoder):
             logging.fatal("Diversity promoting beam search is not implemented "
                           "yet")
         self.beam_size = decoder_args.beam
+        self.sub_beam_size = decoder_args.sub_beam
+        if self.sub_beam_size <= 0:
+            self.sub_beam_size = decoder_args.beam
         self.hypo_recombination = decoder_args.hypo_recombination
         self.maintain_best_scores = False
         if decoder_args.early_stopping:
@@ -97,7 +102,7 @@ class BeamDecoder(Decoder):
         if not hypo.word_to_consume is None: # Consume if cheap expand
             self.consume(hypo.word_to_consume)
             hypo.word_to_consume = None
-        posterior, score_breakdown = self.apply_predictors(self.beam_size)
+        posterior, score_breakdown = self.apply_predictors(self.sub_beam_size)
         hypo.predictor_states = self.get_predictor_states()
         return [hypo.cheap_expand(
                         trgt_word,
