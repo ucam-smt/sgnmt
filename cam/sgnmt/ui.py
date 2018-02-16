@@ -447,6 +447,10 @@ def get_parser():
                         "* 'timecsv': Generate CSV files with separate "
                         "predictor scores for each time step.\n"
                         "* 'ngram': MBR-style n-gram posteriors.\n\n"
+                        "For extract_scores_along_reference.py, select "
+                        "one of the following output formats:\n"
+                        "* 'json': Dump data in pretty JSON format.\n"
+                        "* 'pickle': Dump data as binary pickle.\n"
                         "The path to the output files can be specified with "
                         "--output_path")
     group.add_argument("--remove_eos", default=True, type='bool',
@@ -847,7 +851,7 @@ def get_parser():
 
     # Forced predictors
     group = parser.add_argument_group('Forced decoding predictor options')
-    group.add_argument("--trg_test", default="test_fr",
+    group.add_argument("--trg_test", default="",
                         help="Path to target test set (with integer tokens). "
                         "This is only required for the predictors 'forced' "
                         "and 'forcedlst'. For 'forcedlst' this needs to point "
