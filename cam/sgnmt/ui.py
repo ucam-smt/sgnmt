@@ -418,6 +418,21 @@ def get_parser():
                        help="If positive, apply mix the evidence space "
                        "distribution with the uniform distribution using "
                        "this factor")
+    group.add_argument("--mbrbeam_selection_strategy", default="bleu",
+                        choices=['bleu','oracle_bleu'],
+                        help="Defines the hypo selection strategy for mbrbeam."
+                        " See the mbrbeam docstring for more information.\n"
+                        "'bleu': Select the n best hypotheses with the best "
+                        "expected BLEU.\n"
+                        "'oracle_bleu': Optimize the expected oracle BLEU "
+                        "score of the n-best list.")
+    group.add_argument("--mbrbeam_evidence_strategy", default="maxent",
+                        choices=['maxent','renorm'],
+                        help="Defines the way the evidence space is estimated "
+                        "for mbrbeam. See the mbrbeam docstring for more.\n"
+                        "'maxent': Maximum entropy criterion on n-gram probs.\n"
+                        "'renorm': Only use renormalized scores of the hypos "
+                        "which are currently in the beam.")
 
     ## Output options
     group = parser.add_argument_group('Output options')

@@ -1,8 +1,9 @@
 """This module adds support for sparse input or output features. In
 standard NMT we normally use a one-hot-representation, and input and
-output layers are lookup tables (embedding matrices). SGNMT supports
-explicit definition of word representations as sparse features, in 
-which more than one neuron can be activated at a time.
+output layers are lookup tables (embedding matrices). The Blocks
+NMT implementation in SGNMT supports explicit definition of word 
+representations as sparse features, in which more than one neuron can 
+be activated at a time.
 """
 
 from abc import abstractmethod
