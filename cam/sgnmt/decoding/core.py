@@ -10,10 +10,13 @@ import copy
 
 from cam.sgnmt import utils
 from cam.sgnmt.predictors.core import UnboundedVocabularyPredictor
+from cam.sgnmt.decoding.interpolation import FixedInterpolationStrategy, \
+                                             MoEInterpolationStrategy
 from cam.sgnmt.utils import Observable, Observer, MESSAGE_TYPE_DEFAULT, \
     MESSAGE_TYPE_POSTERIOR, MESSAGE_TYPE_FULL_HYPO, NEG_INF
 import numpy as np
 import logging
+
 
 class Hypothesis:
     """Complete translation hypotheses are represented by an instance
@@ -255,151 +258,6 @@ class Heuristic(Observer):
         pass
     
 
-def breakdown2score_sum(working_score, score_breakdown, full=False):
-    """Implements the combination scheme 'sum' by always returning
-    ``working_score``. This function is designed to be assigned to
-    the globals ``breakdown2score_partial`` or ``breakdown2score_full``
-    
-    Args:
-        working_score (float): Working combined score, which is the 
-                               weighted sum of the scores in
-                               ``score_breakdown``
-        score_breakdown (list): Breakdown of the combined score into
-                                predictor scores (not used).
-        full (bool): If True, reevaluate all time steps. If False,
-                     assume that this function has been called in the
-                      previous time step (not used).
-    
-    Returns:
-        float. Returns ``working_score``
-    """
-    return working_score
-
-
-def breakdown2score_length_norm(working_score, score_breakdown, full=False):
-    """Implements the combination scheme 'length_norm' by normalizing
-    the sum of the predictor scores by the length of the current 
-    sequence (i.e. the length of ``score_breakdown``. This function is
-    designed to be assigned to the globals ``breakdown2score_partial``
-    or ``breakdown2score_full``. 
-    TODO could make more efficient use of ``working_score``
-    
-    Args:
-        working_score (float): Working combined score, which is the 
-                               weighted sum of the scores in
-                               ``score_breakdown``. Not used.
-        score_breakdown (list): Breakdown of the combined score into
-                                predictor scores
-        full (bool): If True, reevaluate all time steps. If False,
-                     assume that this function has been called in the
-                      previous time step (not used).
-    
-    Returns:
-        float. Returns a length normalized ``working_score``
-    """
-    score = sum([Decoder.combi_arithmetic_unnormalized(s) 
-                        for s in score_breakdown])
-    return score / len(score_breakdown)
-
-
-def breakdown2score_bayesian(working_score, score_breakdown, full=False):
-    """This realizes score combination following the Bayesian LM 
-    interpolation scheme from (Allauzen and Riley, 2011)
-    
-      Bayesian Language Model Interpolation for Mobile Speech Input
-    
-    By setting K=T we define the predictor weights according the score
-    the predictors give to the current partial hypothesis. The initial
-    predictor weights are used as priors. This function is designed to 
-    be assigned to the globals ``breakdown2score_partial`` or 
-    ``breakdown2score_full``. 
-    TODO could make more efficient use of ``working_score``
-    
-    Args:
-        working_score (float): Working combined score, which is the 
-                               weighted sum of the scores in
-                               ``score_breakdown``. Not used.
-        score_breakdown (list): Breakdown of the combined score into
-                                predictor scores
-        full (bool): If True, reevaluate all time steps. If False,
-                     assume that this function has been called in the
-                      previous time step.
-    
-    Returns:
-        float. Bayesian interpolated predictor scores
-    """
-    if not score_breakdown or working_score == NEG_INF:
-        return working_score
-    if full:
-        acc = []
-        alphas = [] # list of all alpha_i,k
-        # Write priors to alphas
-        for (p, w) in score_breakdown[0]:
-            alphas.append(np.log(w))
-        for pos in score_breakdown: # for each position in the hypothesis
-            for k, (p, w) in enumerate(pos): 
-                alphas[k] += p
-            alpha_part = utils.log_sum(alphas)
-            scores = [alphas[k] - alpha_part + p 
-                    for k, (p, w) in enumerate(pos)]
-            acc.append(utils.log_sum(scores)) 
-        return sum(acc)
-    else: # Incremental: Alphas are in predictor weights
-        if len(score_breakdown) == 1:
-            scores = [np.log(w) + p for p, w in score_breakdown[0]]
-            return utils.log_sum(scores)
-        priors = [s[1] for s in score_breakdown[0]]
-        last_score = sum([w * s[0] 
-                          for w, s in zip(priors, score_breakdown[-1])])
-        working_score -= last_score
-        # Now, working score does not include the last time step anymore
-        # Compute updated alphas
-        alphas = [np.log(p) for p in priors]
-        for pos in score_breakdown[:-1]:
-            for k, (p, _) in enumerate(pos):
-                alphas[k] += p
-        alpha_part = utils.log_sum(alphas)
-        scores = [alphas[k] - alpha_part + p 
-                for k, (p, w) in enumerate(score_breakdown[-1])]
-        updated_breakdown = [(p, np.exp(alphas[k] - alpha_part))
-                for k, (p, w) in enumerate(score_breakdown[-1])]
-        score_breakdown[-1] = updated_breakdown
-        working_score += utils.log_sum(scores)
-        return working_score
-
-
-def breakdown2score_bayesian_loglin(working_score, score_breakdown, full=False):
-    """Like bayesian combination scheme, but uses loglinear model
-    combination rather than linear interpolation weights
-   
-    TODO: Implement incremental version of it, write weights into breakdowns.
-    """
-    if not score_breakdown:
-        return working_score
-    acc = []
-    prev_alphas = [] # list of all alpha_i,k
-    # Write priors to alphas
-    for (p, w) in score_breakdown[0]:
-        prev_alphas.append(np.log(w))
-    for pos in score_breakdown: # for each position in the hypothesis
-        alphas = []
-        sub_acc = []
-        # for each predictor (p: p_k(w_i|h_i), w: prior p(k))
-        for k, (p, w) in enumerate(pos): 
-            alpha = prev_alphas[k] + p
-            alphas.append(alpha)
-            sub_acc.append(p + alpha)
-        acc.append(utils.log_sum(sub_acc) - utils.log_sum(alphas))
-        prev_alphas = alphas
-    return sum(acc)
-
-
-"""The function breakdown2score_full is called at each generation of a 
-full hypothesis, i.e. only once per hypothesis
-"""
-breakdown2score_full = breakdown2score_sum
-
-
 class Decoder(Observable):    
     """A ``Decoder`` instance represents a particular search strategy
     such as A*, beam search, greedy search etc. Decisions are made 
@@ -460,6 +318,22 @@ class Decoder(Observable):
             with open(decoder_args.score_lower_bounds_file) as f:
                 for line in f:
                     self.lower_bounds.append(float(line.strip()))
+        self.interpolation_strategies = []
+        if decoder_args.interpolation_strategy:
+            strat_names = decoder_args.interpolation_strategy.split(',')
+            for name in set(strat_names):
+                pred_indices = [idx for idx, strat in enumerate(strat_names) 
+                                    if strat == name]
+                if name == 'fixed':
+                    strat = FixedInterpolationStrategy()
+                elif name == 'moe':
+                    strat = MoEInterpolationStrategy(len(pred_indices), 
+                                                     decoder_args)
+                else:
+                    logging.error("Unknown interpolation strategy '%s'. "
+                                  "Ignoring..." % name)
+                    continue
+                self.interpolation_strategies.append((strat, pred_indices))
     
     def add_predictor(self, name, predictor, weight=1.0):
         """Adds a predictor to the decoder. This means that this 
@@ -601,6 +475,32 @@ class Decoder(Observable):
             else:
                 unrestricted.append(posterior)
         return restricted, unrestricted
+
+    def _apply_interpolation_strategy(
+            self, pred_weights, non_zero_words, posteriors, unk_probs):
+        """Applies the interpolation strategies to find the predictor 
+        weights for this apply_predictors() call.
+    
+        Args:
+            pred_weights (list): a prior predictor weights
+            non_zero_words (set): All words with positive probability
+            posteriors: Predictor posterior distributions calculated
+                        with ``predict_next()``
+            unk_probs: UNK probabilities of the predictors, calculated
+                       with ``get_unk_probability``
+
+        Returns:
+          A list of predictor weights.
+        """
+        for strat, pred_indices in self.interpolation_strategies:
+            new_pred_weights = strat.find_weights(
+                    [pred_weights[idx] for idx in pred_indices],
+                    non_zero_words,
+                    [posteriors[idx] for idx in pred_indices],
+                    [unk_probs[idx] for idx in pred_indices])
+            for idx, weight in zip(pred_indices, new_pred_weights):
+                pred_weights[idx] = weight
+        return pred_weights
     
     def apply_predictors(self, top_n=0):
         """Get the distribution over the next word by combining the
@@ -627,8 +527,9 @@ class Decoder(Observable):
         # Add unbounded predictors and unk probabilities
         posteriors = []
         unk_probs = []
+        pred_weights = []
         bounded_idx = 0
-        for (p, _) in self.predictors:
+        for (p, w) in self.predictors:
             if isinstance(p, UnboundedVocabularyPredictor):
                 posterior = p.predict_next(non_zero_words)
             else: # Take it from the bounded_* variables
@@ -636,6 +537,9 @@ class Decoder(Observable):
                 bounded_idx += 1
             posteriors.append(posterior)
             unk_probs.append(p.get_unk_probability(posterior))
+            pred_weights.append(w)
+        pred_weights = self._apply_interpolation_strategy(
+                pred_weights, non_zero_words, posteriors, unk_probs)
         ret = self.combine_posteriors(
             non_zero_words, posteriors, unk_probs, top_n)
         if not self.allow_unk_in_output and utils.UNK_ID in ret[0]:
@@ -649,7 +553,7 @@ class Decoder(Observable):
         return ret
     
     def _combine_posteriors_norm_none(self,
-                                       non_zero_words,
+                                      non_zero_words,
                                       posteriors,
                                       unk_probs,
                                       top_n=0):

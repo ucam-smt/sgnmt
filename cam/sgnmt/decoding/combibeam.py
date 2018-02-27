@@ -4,7 +4,7 @@ each time step.
 
 from cam.sgnmt import utils
 from cam.sgnmt.decoding.beam import BeamDecoder
-from cam.sgnmt.decoding import core
+from cam.sgnmt.decoding import combination
 import copy
 import logging
 
@@ -27,15 +27,17 @@ class CombiBeamDecoder(BeamDecoder):
         """
         super(CombiBeamDecoder, self).__init__(decoder_args)
         if decoder_args.combination_scheme == 'length_norm':
-            self.breakdown2score = core.breakdown2score_length_norm
+            self.breakdown2score = combination.breakdown2score_length_norm
         if decoder_args.combination_scheme == 'bayesian_loglin':
-            self.breakdown2score = core.breakdown2score_bayesian_loglin
+            self.breakdown2score = combination.breakdown2score_bayesian_loglin
         if decoder_args.combination_scheme == 'bayesian':
-            self.breakdown2score = core.breakdown2score_bayesian
+            self.breakdown2score = combination.breakdown2score_bayesian
         if decoder_args.combination_scheme == 'sum':
-            self.breakdown2score = core.breakdown2score_sum
-            logging.warn("Using the sum combination strategy has no effect "
-                          "under the combibeam decoder.")
+            self.breakdown2score = combination.breakdown2score_sum
+        if decoder_args.combination_scheme in ['sum', 'length_norm']:
+            logging.warn("Using the %s combination strategy has no effect "
+                         "under the combibeam decoder."
+                         % decoder_args.combination_scheme)
         self.maintain_best_scores = False
 
     def _expand_hypo(self, hypo):

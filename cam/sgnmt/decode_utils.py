@@ -19,7 +19,7 @@ from cam.sgnmt import utils
 from cam.sgnmt.blocks.nmt import blocks_get_nmt_predictor, \
                                  blocks_get_nmt_vanilla_decoder, \
     blocks_get_default_nmt_config
-from cam.sgnmt.decoding import core
+from cam.sgnmt.decoding import combination
 from cam.sgnmt.decoding.astar import AstarDecoder
 from cam.sgnmt.decoding.beam import BeamDecoder
 from cam.sgnmt.decoding.bigramgreedy import BigramGreedyDecoder
@@ -120,13 +120,6 @@ def base_init(new_args):
     # Log summation (how to compute log(exp(l1)+exp(l2)) for log values l1,l2)
     if args.log_sum == 'tropical':
         utils.log_sum = utils.log_sum_tropical_semiring
-    # Predictor combination schemes
-    if args.combination_scheme == 'length_norm':
-        core.breakdown2score_full = core.breakdown2score_length_norm
-    if args.combination_scheme == 'bayesian_loglin':
-        core.breakdown2score_full = core.breakdown2score_bayesian_loglin
-    if args.combination_scheme == 'bayesian':
-        core.breakdown2score_full = core.breakdown2score_bayesian  
     ui.validate_args(args)
 
 
@@ -681,10 +674,49 @@ def get_sentence_indices(range_param, src_sentences):
 
 
 def _get_text_output_handler(output_handlers):
+    """Returns the text output handler if in output_handlers, or None."""
     for output_handler in output_handlers:
         if isinstance(output_handler, TextOutputHandler):
             return output_handler
     return None
+
+
+def _postprocess_complete_hypos(hypos):
+    """This function applies the following operations on the list of
+    complete hypotheses returned by the Decoder:
+
+      - </s> removal
+      - Apply --nbest parameter if necessary
+      - Applies combination_scheme on full hypotheses, reorder list
+
+    Args:
+      hypos (list): List of complete hypotheses
+
+    Returns:
+      list. Postprocessed hypotheses.
+    """
+    if args.remove_eos:
+        for hypo in hypos:
+            if (hypo.trgt_sentence 
+                    and hypo.trgt_sentence[-1] == utils.EOS_ID):
+                hypo.trgt_sentence = hypo.trgt_sentence[:-1]
+    if args.nbest > 0:
+        hypos = hypos[:args.nbest]
+    if args.combination_scheme != 'sum': 
+        if args.combination_scheme == 'length_norm':
+            breakdown_fn = combination.breakdown2score_length_norm
+        elif args.combination_scheme == 'bayesian_loglin':
+            breakdown_fn = combination.breakdown2score_bayesian_loglin
+        elif args.combination_scheme == 'bayesian':
+            breakdown_fn = combination.breakdown2score_bayesian  
+        else:
+            logging.warn("Unknown combination scheme '%s'" 
+                         % args.combination_scheme)
+        for hypo in hypos:
+            hypo.total_score = breakdown_fn(
+                    hypo.total_score, hypo.score_breakdown, full=True)
+        hypos.sort(key=lambda hypo: hypo.total_score, reverse=True)
+    return hypos
 
 
 def do_decode(decoder, 
@@ -752,18 +784,7 @@ def do_decode(decoder,
                 if text_output_handler:
                     text_output_handler.write_empty_line()
                 continue
-            if args.remove_eos:
-                for hypo in hypos:
-                    if (hypo.trgt_sentence 
-                            and hypo.trgt_sentence[-1] == utils.EOS_ID):
-                        hypo.trgt_sentence = hypo.trgt_sentence[:-1]
-            if args.nbest > 0:
-                hypos = hypos[:args.nbest]
-            if args.combination_scheme != 'sum': 
-                for hypo in hypos:
-                    hypo.total_score = core.breakdown2score_full(
-                            hypo.total_score, hypo.score_breakdown, full=True)
-                hypos.sort(key=lambda hypo: hypo.total_score, reverse=True)
+            hypos = _postprocess_complete_hypos(hypos)
             if utils.trg_cmap:
                 hypos = [h.convert_to_char_level(utils.trg_cmap) for h in hypos]
             logging.info("Decoded (ID: %d): %s" % (

@@ -625,7 +625,21 @@ def get_parser():
                         "--predictor_weights bla-weight_fst-weight,nmt-weight,"
                         " e.g. '--predictor_weights 0.1_0.3,0.6'. Default "
                         "(empty string) means that each predictor gets "
-                        "assigned the weight 1.")
+                        "assigned the weight 1. You may specify a single "
+                        "weight for wrapped predictors (e.g. 0.3,0.6) if the "
+                        "wrapper is unweighted.")
+    group.add_argument("--interpolation_strategy", default="",
+                        help="This parameter specifies how the predictor "
+                        "weights are used.\n"
+                        "'fixed': Predictor weights do not change.\n"
+                        "'moe': Use a Mixture of Experts gating network "
+                        "to decide predictor weights at each time step. See "
+                        "the sgnmt_moe project on how to train it.\n"
+                        "Interpolation strategies can be specified for each "
+                        "predictor separately, e.g. 'fixed,moe,fixed,moe,moe' "
+                        "means that a MoE network with output dimensionality "
+                        "3 will decide for the 2nd, 4th, and 5th predictors, "
+                        "and the rest keep their weight from predictor_weights.")
     group.add_argument("--closed_vocabulary_normalization", default="none",
                         choices=['none', 'exact', 'reduced', 'rescale_unk'],
                         help="This parameter specifies the way closed "
