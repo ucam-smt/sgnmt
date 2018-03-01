@@ -22,7 +22,6 @@ except ImportError:
     pass # Deal with it in decode.py
 
 
-
 class BaseNizzaPredictor(Predictor):
     """Common functionality for Nizza based predictors. This includes 
     loading checkpoints, creating sessions, and creating computation 

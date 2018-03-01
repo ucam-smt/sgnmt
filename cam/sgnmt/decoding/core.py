@@ -541,7 +541,7 @@ class Decoder(Observable):
         pred_weights = self._apply_interpolation_strategy(
                 pred_weights, non_zero_words, posteriors, unk_probs)
         ret = self.combine_posteriors(
-            non_zero_words, posteriors, unk_probs, top_n)
+            non_zero_words, posteriors, unk_probs, pred_weights, top_n)
         if not self.allow_unk_in_output and utils.UNK_ID in ret[0]:
             del ret[0][utils.UNK_ID]
             del ret[1][utils.UNK_ID]
@@ -556,6 +556,7 @@ class Decoder(Observable):
                                       non_zero_words,
                                       posteriors,
                                       unk_probs,
+                                      pred_weights,
                                       top_n=0):
         """Combine predictor posteriors according the normalization
         scheme ``CLOSED_VOCAB_SCORE_NORM_NONE``. For more information
@@ -568,6 +569,7 @@ class Decoder(Observable):
                         with ``predict_next()``
             unk_probs: UNK probabilities of the predictors, calculated
                        with ``get_unk_probability``
+            pred_weights (list): Predictor weights
             top_n (int): If positive, return only top n words
         
         Returns:
@@ -576,8 +578,8 @@ class Decoder(Observable):
         if isinstance(non_zero_words, xrange) and top_n > 0:
             n_words = len(non_zero_words)
             scaled_posteriors = []
-            for posterior, unk_prob, (_, weight) in zip(
-                          posteriors, unk_probs, self.predictors):
+            for posterior, unk_prob, weight in zip(
+                          posteriors, unk_probs, pred_weights):
                 if isinstance(posterior, dict):
                     arr = np.full(n_words, unk_prob)
                     for word, score in posterior.iteritems():
@@ -596,7 +598,7 @@ class Decoder(Observable):
         for trgt_word in non_zero_words:
             preds = [(utils.common_get(posteriors[idx],
                                        trgt_word, unk_probs[idx]), w)
-                        for idx, (_,w) in enumerate(self.predictors)]
+                        for idx, w in enumerate(pred_weights)]
             combined[trgt_word] = self.combi_predictor_method(preds) 
             score_breakdown[trgt_word] = preds
         return combined, score_breakdown
@@ -606,6 +608,7 @@ class Decoder(Observable):
                                              non_zero_words,
                                              posteriors,
                                              unk_probs,
+                                             pred_weights,
                                              top_n=0):
         """Combine predictor posteriors according the normalization
         scheme ``CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK``. For more 
@@ -618,6 +621,7 @@ class Decoder(Observable):
                         with ``predict_next()``
             unk_probs: UNK probabilities of the predictors, calculated
                        with ``get_unk_probability``
+            pred_weights (list): Predictor weights
             top_n (int): If positive, return only top n words
         
         Returns:
@@ -625,7 +629,7 @@ class Decoder(Observable):
         """
         n_predictors = len(self.predictors)
         unk_counts = [0.0] * n_predictors
-        for idx, (_,w) in enumerate(self.predictors):
+        for idx, w in enumerate(pred_weights):
             if unk_probs[idx] >= -0.00001 or unk_probs[idx] == NEG_INF:
                 continue
             for trgt_word in non_zero_words:
@@ -642,6 +646,7 @@ class Decoder(Observable):
                                        non_zero_words,
                                        posteriors,
                                        unk_probs,
+                                       pred_weights,
                                        top_n=0):
         """Combine predictor posteriors according the normalization
         scheme ``CLOSED_VOCAB_SCORE_NORM_EXACT``. For more information
@@ -654,6 +659,7 @@ class Decoder(Observable):
                         with ``predict_next()``
             unk_probs: UNK probabilities of the predictors, calculated
                        with ``get_unk_probability``
+            pred_weights (list): Predictor weights
             top_n (int): Not implemented!
         
         Returns:
@@ -664,7 +670,7 @@ class Decoder(Observable):
         unk_counts = [0] * n_predictors
         for trgt_word in non_zero_words:
             preds = []
-            for idx, (_,w) in enumerate(self.predictors):
+            for idx, w in enumerate(pred_weights):
                 if utils.common_contains(posteriors[idx], trgt_word):
                     preds.append((posteriors[idx][trgt_word], w))
                 else:
@@ -684,6 +690,7 @@ class Decoder(Observable):
                                          non_zero_words,
                                          posteriors,
                                          unk_probs,
+                                         pred_weights,
                                          top_n=0):
         """Combine predictor posteriors according the normalization
         scheme ``CLOSED_VOCAB_SCORE_NORM_REDUCED``. For more information
@@ -696,6 +703,7 @@ class Decoder(Observable):
                         with ``predict_next()``
             unk_probs: UNK probabilities of the predictors, calculated
                        with ``get_unk_probability``
+            pred_weights (list): Predictor weights
             top_n (int): Not implemented!
         
         Returns:
@@ -707,7 +715,7 @@ class Decoder(Observable):
             score_breakdown_raw[trgt_word] = [(utils.common_get(
                                                 posteriors[idx],
                                                 trgt_word, unk_probs[idx]), w)
-                        for idx, (_,w) in enumerate(self.predictors)]
+                        for idx, w in enumerate(pred_weights)]
         sums = []
         for idx in xrange(n_predictors):
             sums.append(utils.log_sum([preds[idx][0] 

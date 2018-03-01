@@ -640,6 +640,12 @@ def get_parser():
                         "means that a MoE network with output dimensionality "
                         "3 will decide for the 2nd, 4th, and 5th predictors, "
                         "and the rest keep their weight from predictor_weights.")
+    group.add_argument("--moe_config", default="",
+                        help="Only for MoE interpolation strategy: Semicolon-"
+                        "separated key=value pairs specifying the MoE network")
+    group.add_argument("--moe_checkpoint_dir", default="",
+                        help="Only for MoE interpolation strategy: Path to "
+                        "the TensorFlow checkpoint directory.")
     group.add_argument("--closed_vocabulary_normalization", default="none",
                         choices=['none', 'exact', 'reduced', 'rescale_unk'],
                         help="This parameter specifies the way closed "
@@ -1005,7 +1011,7 @@ def get_parser():
                         help="Whether to normalize nplm probabilities over "
                         "the current unbounded predictor vocabulary.")
     
-    # Automaton predictors
+    # FSM predictors
     group = parser.add_argument_group('FST and RTN predictor options')
     group.add_argument("--fst_path", default="fst/%d.fst",
                         help="Only required for fst and nfst predictor. Sets "
