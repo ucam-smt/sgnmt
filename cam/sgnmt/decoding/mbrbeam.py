@@ -61,9 +61,6 @@ class MBRBeamDecoder(BeamDecoder):
             decoder_args (object): Decoder configuration passed through
                                    from the configuration API.
         """
-        if decoder_args.early_stopping:
-            logging.warn("Setting early_stopping=False (not supported by MBR)")
-            decoder_args.early_stopping = False
         self.min_order = decoder_args.min_ngram_order
         self.max_order = decoder_args.max_ngram_order
         self.smooth_factor = decoder_args.mbrbeam_smooth_factor
@@ -81,6 +78,7 @@ class MBRBeamDecoder(BeamDecoder):
             raise AttributeError("Unknown evidence strategy '%s'"
                                  % decoder_args.mbrbeam_evidence_strategy)
         super(MBRBeamDecoder, self).__init__(decoder_args)
+        self.maintain_best_scores = False # Does not work with MBR
 
     def _compute_bleu(self, hyp_ngrams, ref_ngrams, hyp_length, ref_length):
         """Not the exact BLEU score, we do filter out multiple matches for

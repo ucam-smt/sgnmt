@@ -116,7 +116,11 @@ class ForcedLstPredictor(Predictor):
     cur_trgt_sentences instead of a flat list.
     """
     
-    def __init__(self, trg_test_file, use_scores = True, feat_name = None):
+    def __init__(self, 
+                 trg_test_file, 
+                 use_scores=True, 
+                 match_unk=False, 
+                 feat_name=None):
         """Creates a new n-best rescoring predictor instance.
         
         Args:
@@ -124,6 +128,8 @@ class ForcedLstPredictor(Predictor):
             use_scores (bool): Whether to use the scores from the
                                n-best list. If false, use uniform
                                scores of 0 (=log 1).
+            match_unk (bool): If true, allow any word where the n-best
+                              list contains UNK.
             feat_name (string): Instead of the combined score in the
                                 last column of the Moses n-best list,
                                 we can use one of the sparse features.
@@ -133,6 +139,7 @@ class ForcedLstPredictor(Predictor):
         """
         super(ForcedLstPredictor, self).__init__()
         self.trg_sentences = []
+        self.match_unk = match_unk
         score = 0.0
         with open(trg_test_file) as f:
             for line in f:
@@ -177,7 +184,9 @@ class ForcedLstPredictor(Predictor):
         """Return negative infinity unconditionally - words outside the
         n-best list are not possible according to this predictor.
         """
-        return posterior.get(utils.UNK_ID, NEG_INF)
+        if self.match_unk:
+            return posterior.get(utils.UNK_ID, NEG_INF)
+        return NEG_INF
     
     def predict_next(self):
         """Outputs 0.0 (i.e. prob=1) for all words for which there is 
@@ -195,8 +204,12 @@ class ForcedLstPredictor(Predictor):
             sen_len = len(trg_sentence)
             if sen_len < hist_len:
                 continue
-            hist = [self.history[i] if trg_sentence[i] != utils.UNK_ID else utils.UNK_ID
-                      for i in xrange(hist_len)] 
+            if self.match_unk:
+                hist = [self.history[i] 
+                      if trg_sentence[i] != utils.UNK_ID else utils.UNK_ID
+                      for i in xrange(hist_len)]
+            else:
+                hist = self.history 
             if trg_sentence[:hist_len] == hist:
                 if sen_len == hist_len:
                     scores[utils.EOS_ID] = sen_score

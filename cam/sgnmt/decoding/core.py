@@ -11,6 +11,7 @@ import copy
 from cam.sgnmt import utils
 from cam.sgnmt.predictors.core import UnboundedVocabularyPredictor
 from cam.sgnmt.decoding.interpolation import FixedInterpolationStrategy, \
+                                             EntropyInterpolationStrategy, \
                                              MoEInterpolationStrategy
 from cam.sgnmt.utils import Observable, Observer, MESSAGE_TYPE_DEFAULT, \
     MESSAGE_TYPE_POSTERIOR, MESSAGE_TYPE_FULL_HYPO, NEG_INF
@@ -326,6 +327,9 @@ class Decoder(Observable):
                                     if strat == name]
                 if name == 'fixed':
                     strat = FixedInterpolationStrategy()
+                elif name == 'entropy':
+                    strat = EntropyInterpolationStrategy(
+                             decoder_args.pred_trg_vocab_size)
                 elif name == 'moe':
                     strat = MoEInterpolationStrategy(len(pred_indices), 
                                                      decoder_args)
@@ -476,7 +480,7 @@ class Decoder(Observable):
                 unrestricted.append(posterior)
         return restricted, unrestricted
 
-    def _apply_interpolation_strategy(
+    def apply_interpolation_strategy(
             self, pred_weights, non_zero_words, posteriors, unk_probs):
         """Applies the interpolation strategies to find the predictor 
         weights for this apply_predictors() call.
@@ -538,7 +542,7 @@ class Decoder(Observable):
             posteriors.append(posterior)
             unk_probs.append(p.get_unk_probability(posterior))
             pred_weights.append(w)
-        pred_weights = self._apply_interpolation_strategy(
+        pred_weights = self.apply_interpolation_strategy(
                 pred_weights, non_zero_words, posteriors, unk_probs)
         ret = self.combine_posteriors(
             non_zero_words, posteriors, unk_probs, pred_weights, top_n)

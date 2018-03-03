@@ -21,17 +21,26 @@ class SyncBeamDecoder(BeamDecoder):
         `BeamDecoder`, the following values are fetched from 
         `decoder_args`:
         
-            sync_symb (int): Synchronization symbol. If negative, fetch
-                             '</w>' from ``utils.trg_cmap`` 
+            sync_symb (int): Synchronization symbol. If negative,
+                             consider a hypothesis as closed when it
+                             ends with a terminal symbol (see 
+                             syntax_min_terminal_id and
+                             syntax_max_terminal_id)
             max_word_len (int): Maximum length of a single word
         """
         super(SyncBeamDecoder, self).__init__(decoder_args)
-        self.sync_symb = decoder_args.sync_symbol
+        if decoder_args.sync_symbol >= 0:
+            self.sync_min = decoder_args.sync_symbol
+            self.sync_max = decoder_args.sync_symbol
+        else:
+            self.sync_min = decoder_args.syntax_min_terminal_id
+            self.sync_max = decoder_args.syntax_max_terminal_id
         self.max_word_len = decoder_args.max_word_len
     
     def _is_closed(self, hypo):
-        """Returns true if hypo ends with </S> or </W>"""
-        return hypo.get_last_word() in [utils.EOS_ID, self.sync_symb]
+        """Returns true if hypo ends with </S> or </w>"""
+        w = hypo.get_last_word()
+        return w == utils.EOS_ID or (w >= self.sync_min and w <= self.sync_max)
     
     def _all_eos_or_eow(self, hypos):
         """Returns true if the all hypotheses end with </S> or </W>"""
@@ -74,5 +83,6 @@ class SyncBeamDecoder(BeamDecoder):
                     next_hypos.append(next_hypo)
                     next_scores.append(self._get_combined_score(next_hypo))
             hypos = self._get_next_hypos(next_hypos, next_scores)
+        ret =  [h for h in hypos if self._is_closed(h)]
         return [h for h in hypos if self._is_closed(h)]
 

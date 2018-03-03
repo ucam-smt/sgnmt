@@ -26,10 +26,11 @@ class SyntaxBeamDecoder(BeamDecoder):
         `BeamDecoder`, the following values are fetched from 
         `decoder_args`:
         
-            syntax_max_terminal_id (int): Synchronization symbol. If negative, fetch
-                             '</w>' from ``utils.trg_cmap`` 
+            syntax_min_terminal_id (int): All IDs smaller than this are NTs
+            syntax_max_terminal_id (int): All IDs larger than this are NTs
         """
         super(SyntaxBeamDecoder, self).__init__(decoder_args)
+        self.min_terminal_id = decoder_args.syntax_min_terminal_id
         self.max_terminal_id = decoder_args.syntax_max_terminal_id
 
     def _get_next_hypos_diverse(self, hypos, scores):
@@ -47,7 +48,8 @@ class SyntaxBeamDecoder(BeamDecoder):
         for idx in reversed(np.argsort(scores)):
             candidate = hypos[idx]
             key = " ".join([str(i) for i in candidate.trgt_sentence 
-                                   if i <= self.max_terminal_id])
+                                   if i <= self.max_terminal_id
+                                      and i >= self.min_terminal_id])
             cnt = terminal_history_counts.get(key, 0)
             if cnt >= self.beam_size:
                 continue
@@ -87,6 +89,8 @@ class SyntaxBeamDecoder(BeamDecoder):
             next_hypos = []
             next_scores = []
             for hypo in hypos:
+                logging.debug("Expand (it=%d score=%f): %s"
+                              % (it, hypo.score, hypo.trgt_sentence))
                 if hypo.get_last_word() == utils.EOS_ID:
                     next_hypos.append(hypo)
                     next_scores.append(self._get_combined_score(hypo))

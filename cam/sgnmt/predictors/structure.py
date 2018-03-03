@@ -80,7 +80,8 @@ class OSMPredictor(Predictor):
         """
         ret = {}
         if self.n_eop >= self.src_len:
-            ret[OSM_EOP_ID] = utils.NEG_INF
+            return {utils.EOS_ID: 0.0} # Force EOS
+            #ret[OSM_EOP_ID] = utils.NEG_INF
         else:
             ret[utils.EOS_ID] = utils.NEG_INF
         if self.head <= 0:
@@ -95,6 +96,8 @@ class OSMPredictor(Predictor):
         
     def get_unk_probability(self, posterior):
         """Always returns 0.0"""
+        if self.n_eop >= self.src_len: # Force EOS
+            return utils.NEG_INF
         return 0.0
     
     def consume(self, word):

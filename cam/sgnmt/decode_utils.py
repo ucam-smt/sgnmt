@@ -311,6 +311,7 @@ def add_predictors(decoder):
                 feat_name = _get_override_args("forcedlst_sparse_feat")
                 p = ForcedLstPredictor(args.trg_test,
                                        args.use_nbest_weights,
+                                       args.forcedlst_match_unk,
                                        feat_name if feat_name else None)
             elif pred == "rtn":
                 p = RtnPredictor(args.rtn_path,

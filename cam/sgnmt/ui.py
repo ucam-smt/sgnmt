@@ -410,7 +410,7 @@ def get_parser():
     group.add_argument("--sync_symbol", default=-1, type=int,
                        help="Used for the syncbeam decoder. Synchronization "
                        "symbol for hypothesis comparision. If negative, use "
-                       "the </w> entry in --trg_cmap.")
+                       "syntax_[min|max]_terminal_id.")
     group.add_argument("--max_word_len", default=25, type=int,
                        help="Maximum length of a single word. Only applicable "
                        "to the decoders multisegbeam and syncbeam.")
@@ -418,7 +418,7 @@ def get_parser():
                        help="If positive, apply mix the evidence space "
                        "distribution with the uniform distribution using "
                        "this factor")
-    group.add_argument("--mbrbeam_selection_strategy", default="bleu",
+    group.add_argument("--mbrbeam_selection_strategy", default="oracle_bleu",
                         choices=['bleu','oracle_bleu'],
                         help="Defines the hypo selection strategy for mbrbeam."
                         " See the mbrbeam docstring for more information.\n"
@@ -426,7 +426,7 @@ def get_parser():
                         "expected BLEU.\n"
                         "'oracle_bleu': Optimize the expected oracle BLEU "
                         "score of the n-best list.")
-    group.add_argument("--mbrbeam_evidence_strategy", default="maxent",
+    group.add_argument("--mbrbeam_evidence_strategy", default="renorm",
                         choices=['maxent','renorm'],
                         help="Defines the way the evidence space is estimated "
                         "for mbrbeam. See the mbrbeam docstring for more.\n"
@@ -542,8 +542,8 @@ def get_parser():
                         "            Options: trg_test\n"
                         "* 'forcedlst': Forced decoding with a Moses n-best "
                         "list (n-best list rescoring)\n"
-                        "               Options: trg_test, "
-                        "forcedlst_sparse_feat, use_nbest_weights\n"
+                        "               Options: trg_test, forcedlst_match_unk"
+                        " forcedlst_sparse_feat, use_nbest_weights\n"
                         "* 'bow': Forced decoding with one bag-of-words ref.\n"
                         "         Options: trg_test, heuristic_scores_file, "
                         "bow_heuristic_strategies, bow_accept_subsets, "
@@ -632,6 +632,8 @@ def get_parser():
                         help="This parameter specifies how the predictor "
                         "weights are used.\n"
                         "'fixed': Predictor weights do not change.\n"
+                        "'entropy': Set predictor weight according the (cross-"
+                        ") entropy of its posterior to all other predictors.\n"
                         "'moe': Use a Mixture of Experts gating network "
                         "to decide predictor weights at each time step. See "
                         "the sgnmt_moe project on how to train it.\n"
@@ -747,6 +749,11 @@ def get_parser():
                        " layerbylayer and t2t predictors support single "
                        "integer values. The bracket predictor can take a comma"
                        "-separated list of integers.")
+    group.add_argument("--syntax_min_terminal_id", default=0,
+                       type=int,
+                       help="All token IDs smaller than this are considered to "
+                       "be non-terminal symbols except the ones specified by "
+                       "--syntax_terminal_list")
     group.add_argument("--syntax_max_terminal_id", default=30003,
                        type=int,
                        help="All token IDs larger than this are considered to "
@@ -904,6 +911,9 @@ def get_parser():
                         " for nbest lists in sparse feature format, you can "
                         "specify the name of the features which should be "
                         "used instead.")
+    group.add_argument("--forcedlst_match_unk", default=False, type='bool',
+                        help="Only required for forcedlst predictor. If true, "
+                        "allow any word where the n-best list has an UNK.")
     group.add_argument("--use_nbest_weights", default=False, type='bool',
                         help="Only required for forcedlst predictor. Whether "
                         "to use the scores in n-best lists.")

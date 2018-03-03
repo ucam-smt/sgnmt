@@ -136,16 +136,16 @@ class MoEInterpolationStrategy(InterpolationStrategy):
             raise AttributeError("Could not initialize TF session for MoE.")
 
     def _create_score_matrix(self, posteriors, unk_probs):
-      scores = np.transpose(np.tile(np.array(unk_probs, dtype=np.float32),
-                                    (self.params.vocab_size, 1)))
-      # Scores has shape [n_predictors, vocab_size], fill it
-      for row, posterior in enumerate(posteriors):
-          if isinstance(posterior, dict):
-              for  w, s in posterior.iteritems():
-                  scores[row,int(w)] = s
-          else:
-              scores[row,:len(posterior)] = np.maximum(-99, posterior)
-      return np.expand_dims(scores, axis=0)
+        scores = np.transpose(np.tile(np.array(unk_probs, dtype=np.float32),
+                                      (self.params.vocab_size, 1)))
+        # Scores has shape [n_predictors, vocab_size], fill it
+        for row, posterior in enumerate(posteriors):
+            if isinstance(posterior, dict):
+                for  w, s in posterior.iteritems():
+                    scores[row,int(w)] = s
+            else:
+                scores[row,:len(posterior)] = np.maximum(-99, posterior)
+        return np.expand_dims(scores, axis=0)
 
     def find_weights(self, pred_weights, non_zero_words, posteriors, unk_probs):
         """Runs the MoE model to find interpolation weights.
@@ -169,3 +169,43 @@ class MoEInterpolationStrategy(InterpolationStrategy):
                                 feed_dict={self.model.expert_scores: scores})
         return weights[0,:]
 
+
+class EntropyInterpolationStrategy(InterpolationStrategy):
+    """The entropy interpolation strategy assigns weights to predictors
+    according the entropy of their posteriors to the other posteriors.
+    We first build a n x n square matrix of (cross-)entropies between 
+    all predictors, and then weight according the row sums. We mix the
+    resulting weights with the a prior `predictor_weights`.
+
+    We assume that predictor weights are log probabilities.
+    """
+
+    def __init__(self, vocab_size):
+        self.vocab_size = vocab_size
+
+    def _create_score_matrix(self, posteriors, unk_probs):
+        scores = np.transpose(np.tile(np.array(unk_probs),
+                                      (self.vocab_size, 1)))
+        # Scores has shape [n_predictors, vocab_size], fill it
+        for row, posterior in enumerate(posteriors):
+            if isinstance(posterior, dict):
+                for  w, s in posterior.iteritems():
+                    scores[row,int(w)] = s
+            else:
+                scores[row,:len(posterior)] = np.maximum(-99, posterior)
+        return scores
+
+    def find_weights(self, pred_weights, non_zero_words, posteriors, unk_probs):
+        logprobs = self._create_score_matrix(posteriors, unk_probs)
+        probs = np.exp(logprobs)
+        n_preds = len(pred_weights)
+        ents = np.zeros((n_preds, n_preds))
+        for p_idx in xrange(n_preds):
+            for q_idx in xrange(n_preds):
+                ents[p_idx,q_idx] = -np.sum(probs[p_idx] * logprobs[q_idx])
+                ents[p_idx,q_idx] *= pred_weights[p_idx]
+        ent_weights = -np.sum(ents, axis=0)
+        ent_weights -= np.min(ent_weights)
+        ent_weights /= np.sum(ent_weights)
+        ent_weights = [(w1+w2)/2.0 for w1, w2 in zip(pred_weights, ent_weights)]
+        return ent_weights
