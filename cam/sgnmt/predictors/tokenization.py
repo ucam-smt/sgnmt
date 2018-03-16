@@ -162,7 +162,8 @@ class FSTTokPredictor(Predictor):
       predictor states
     """
     
-    def __init__(self, path, fst_unk_id, max_pending_score, slave_predictor):
+    def __init__(self, path, fst_unk_id, max_pending_score, slave_predictor,
+                 len_penalty=0.0):
         """Constructor for the fsttok wrapper
         
         Args:
@@ -173,14 +174,18 @@ class FSTTokPredictor(Predictor):
             max_pending_score (float): Maximum pending score in a
                                        ``CombinedState`` instance.
             slave_predictor (Predictor): Wrapped predictor
+            len_penalty (float) : penalty applied to returned token scores if 
+                                   output label is EPS
         """
         super(FSTTokPredictor, self).__init__()
         self.max_pending_score = max_pending_score 
         self.fst_unk_id = fst_unk_id
+        self.first_state_degree = 20
         self.slave_predictor = slave_predictor
         if isinstance(slave_predictor, UnboundedVocabularyPredictor):
             logging.fatal("fsttok cannot wrap an unbounded "
                           "vocabulary predictor.")
+        self.len_penalty = len_penalty
         self.trans_fst = utils.load_fst(path)
     
     def initialize(self, src_sentence):
@@ -212,19 +217,30 @@ class FSTTokPredictor(Predictor):
         """Recursively builds up ``last_prediction`` by traversing
         epsilon arcs in the FST from ``root_node``
         """
+        count = 0
+        if self.first_state_degree:
+            for arc in self.trans_fst.arcs(root_node):
+                count +=1
+                if count >= self.first_state_degree:
+                    break
+
         for arc in self.trans_fst.arcs(root_node):
             arc_first_olabel = first_olabel if first_olabel else arc.olabel
             if arc.ilabel == EPS_ID:
                 self._collect_chars(state, arc.nextstate, arc_first_olabel)
             else:
                 score = state.score(arc_first_olabel, self.slave_predictor)
-                if arc.ilabel in self.last_prediction: 
+                if self.len_penalty and arc.olabel == EPS_ID:
+                    score -= self.len_penalty
+                elif count < self.first_state_degree and arc.olabel == EPS_ID:
+                    score -= 0.0001
+                if arc.ilabel in self.last_prediction:
                     self.last_prediction[arc.ilabel] = max(
                                             self.last_prediction[arc.ilabel], 
                                             score)
                 else:
                     self.last_prediction[arc.ilabel] = score
-        
+
     def get_unk_probability(self, posterior):
         """Always returns negative infinity. Handling UNKs needs to be 
         realized by the FST.

@@ -100,6 +100,7 @@ class BeamDecoder(Decoder):
         posterior,score_breakdown = self.apply_predictors()
         hypo.predictor_states = self.get_predictor_states()
         top = utils.argmax_n(posterior, self.beam_size)
+        other_top = utils.argmax_n(posterior, 3)
         return [hypo.cheap_expand(
                             trgt_word,
                             posterior[trgt_word],

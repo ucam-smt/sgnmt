@@ -55,7 +55,7 @@ from cam.sgnmt.predictors.forced import ForcedPredictor, ForcedLstPredictor
 from cam.sgnmt.predictors.grammar import RuleXtractPredictor
 from cam.sgnmt.predictors.length import WordCountPredictor, NBLengthPredictor, \
     ExternalLengthPredictor, NgramCountPredictor, UnkCountPredictor, \
-    NgramizePredictor
+    NgramizePredictor, WeightNonTerminalPredictor
 from cam.sgnmt.predictors.structure import BracketPredictor, OSMPredictor
 from cam.sgnmt.predictors.misc import UnboundedAltsrcPredictor, AltsrcPredictor
 from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
@@ -109,6 +109,7 @@ def _parse_config_param(field, default):
     """
     add_config = ui.parse_param_string(_get_override_args(field))
     for (k,v) in default.iteritems():
+        logging.info('here, parsing {} {}'.format(k, v))
         if k in add_config:
             if type(v) is type(None):
                 default[k] = add_config[k]
@@ -204,6 +205,7 @@ def add_predictors(decoder):
                                  _get_override_args("t2t_hparams_set"),
                                  args.t2t_usr_dir,
                                  _get_override_args("t2t_checkpoint_dir"),
+                                 t2t_unk_id=_get_override_args("t2t_unk_id"),
                                  single_cpu_thread=args.single_cpu_thread,
                                  max_terminal_id=args.syntax_max_terminal_id,
                                  pop_id=args.syntax_pop_id)
@@ -308,9 +310,10 @@ def add_predictors(decoder):
             elif pred == "wc":
                 p = WordCountPredictor(args.wc_word,
                                        args.wc_nonterminal_penalty,
+                                       args.syntax_nonterminal_ids,
                                        args.syntax_min_terminal_id,
                                        args.syntax_max_terminal_id,
-                                       args.pred_trg_vocab_size)
+                                       _get_override_args("pred_trg_vocab_size"))
             elif pred == "ngramc":
                 p = NgramCountPredictor(_get_override_args("ngramc_path"),
                                         _get_override_args("ngramc_order"),
@@ -353,7 +356,14 @@ def add_predictors(decoder):
                         p = UnboundedIdxmapPredictor(src_path, trg_path, p, 1.0) 
                     else: # idxmap predictor for bounded predictors
                         p = IdxmapPredictor(src_path, trg_path, p, 1.0)
-
+                elif wrapper == "weightnt":
+                    p = WeightNonTerminalPredictor(
+                        p, 
+                        args.nonterminal_factor,
+                        args.syntax_nonterminal_ids,
+                        args.syntax_min_terminal_id,
+                        args.syntax_max_terminal_id,
+                        _get_override_args("pred_trg_vocab_size"))
                 elif wrapper == "parse":
                     if args.parse_tok_grammar:
                         if args.parse_bpe_path:
@@ -386,11 +396,15 @@ def add_predictors(decoder):
                                 allow_early_eos=args.parse_allow_early_eos,
                                 consume_out_of_class=args.parse_consume_ooc)
                     else:
-                        p = ParsePredictor(args.parse_path,
-                                           p,
-                                           args.parse_word_out,
-                                           args.normalize_fst_weights,
-                                           to_log=args.fst_to_log)
+                        p = ParsePredictor(
+                            p,
+                            args.parse_word_out,
+                            args.normalize_fst_weights,
+                            to_log=args.fst_to_log,
+                            beam_size=args.parse_beam,
+                            norm_alpha=args.parse_norm_alpha,
+                            max_internal_len=args.parse_max_internal_len,
+                            nonterminal_ids=args.syntax_nonterminal_ids)
                 elif wrapper == "altsrc":
                     src_test = _get_override_args("altsrc_test")
                     if isinstance(p, UnboundedVocabularyPredictor): 
@@ -413,7 +427,8 @@ def add_predictors(decoder):
                     p = FSTTokPredictor(fsttok_path,
                                         args.fst_unk_id,
                                         args.fsttok_max_pending_score,
-                                        p)
+                                        p,
+                                        len_penalty=args.fsttok_internal_penalty)
                 elif wrapper == "ngramize":
                     # ngramize always wraps bounded predictors
                     p = NgramizePredictor(args.min_ngram_order, 

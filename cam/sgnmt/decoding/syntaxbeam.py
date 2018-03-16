@@ -52,6 +52,8 @@ class SyntaxBeamDecoder(BeamDecoder):
             list. List with hypotheses.
         """
         new_hypos = []
+        too_many_nts = dict()
+        count_too_many_nts = 0
         terminal_history_counts = {}
         for idx in reversed(np.argsort(scores)):
             candidate = hypos[idx]
@@ -60,17 +62,19 @@ class SyntaxBeamDecoder(BeamDecoder):
             if cnt >= self.beam_size:
                 continue
             if self.use_max_depth:
-                max_depth = 0
-                curr_depth = 0
-                for i in candidate.trgt_sentence:
-                    if self.is_terminal(i):
-                        max_depth = max(curr_depth, max_depth)
-                        curr_depth = 0
-                    else:
-                        curr_depth += 1
-                max_depth = max(curr_depth, max_depth)
-                if max_depth > self.max_depth:
-                    continue
+                #check for streaks of same token longer than max depth
+                all_same = False
+                if self.max_depth <= len(candidate.trgt_sentence):
+                    all_same = True
+                    for idx in range(1, self.max_depth + 1):
+                        if self.is_terminal(candidate.trgt_sentence[-idx]):
+                            all_same = False
+                            break
+                too_many_nts[len(new_hypos)] = all_same
+                if all_same:
+                    #logging.info(candidate.trgt_sentence)
+                    count_too_many_nts += 1
+                    #continue
             valid = True
             if self.hypo_recombination:
                 self.set_predictor_states(copy.deepcopy(candidate.predictor_states))
@@ -90,8 +94,19 @@ class SyntaxBeamDecoder(BeamDecoder):
             if valid:
                 terminal_history_counts[key] = cnt + 1
                 new_hypos.append(candidate)
-                if len(terminal_history_counts) >= self.beam_size:
+                if len(terminal_history_counts) >= self.beam_size + count_too_many_nts:
                     break
+        if self.use_max_depth:
+            if count_too_many_nts == len(too_many_nts):
+                new_hypos = [new_hypos[0]]
+                #logging.info('too many too long - just taking best')
+            elif count_too_many_nts > 0:
+                #logging.info('filtering')
+                filtered = []
+                for idx, hypo in enumerate(new_hypos):
+                    if not too_many_nts[idx]:
+                        filtered.append(hypo)
+                new_hypos = filtered
         return new_hypos
     
     def decode(self, src_sentence):

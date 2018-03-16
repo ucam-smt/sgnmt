@@ -9,43 +9,55 @@ import numpy as np
 
 
 import collections
-class ParsePredictor(Predictor):
-    """This predictor builds a determinized lattice, given a grammar. 
+
+def load_external_ids(path):
     """
-    
-    def __init__(self, grammar_path, nmt_predictor, word_out,
-                 normalize_scores=True, to_log=True, beam_size=12):
-        """Creates a new parse predictor.
-        Args:
-            grammar_path (string): Path to the grammar file
-        """
+    load file of ids to list
+    """
+    logging.info('Loading ids from file {}'.format(path))
+    ids = set()
+    with open(path) as f:
+        for line in f:
+            ids.add(int(line.strip()))
+    return ids
+
+class InternalHypo(object):
+    """Helper class for internal beam search in skipvocab."""
+
+    def __init__(self, score, token_score, predictor_state, word_to_consume):
+        self.score = score
+        self.predictor_state = predictor_state
+        self.word_to_consume = word_to_consume
+        self.norm_score = score
+        self.token_score = token_score
+        self.beam_len = 1
+
+    def extend(self, score, predictor_state, word_to_consume):
+        self.score += score
+        self.predictor_state = predictor_state
+        self.word_to_consume = word_to_consume
+        self.beam_len += 1
+
+
+class ParsePredictor(Predictor):
+    def __init__(self, nmt_predictor, word_out,
+                 normalize_scores=True, to_log=True, beam_size=4,
+                 norm_alpha=1.0, max_internal_len=35, nonterminal_ids=None):
         super(ParsePredictor, self).__init__()
-        self.grammar_path = grammar_path
         self.nmt = nmt_predictor
         self.weight_factor = -1.0 if to_log else 1.0
         self.word_out = word_out
         self.use_weights = True
         self.normalize_scores = normalize_scores
         self.beam_size = beam_size
-        self.cur_fst = None
         self.add_bos_to_eos_score = False
-        self.cur_node = -1
-        self.stack = []
-        self.prepare_grammar()
-    
-    def prepare_grammar(self):
-        self.lhs_to_rule_ids = collections.defaultdict(list)
-        rules = []
-        with open(self.grammar_path) as f:
-            for idx, line in enumerate(f):
-                nt, rule = line.split(':')
-                nt = int(nt.strip())
-                self.lhs_to_rule_ids[nt].append(idx)
-                rules.append(rule.strip().split())  
-        self.rule_id_to_rhs = dict() # reversed rhs
-        for rule_idx, rule in enumerate(rules):
-          self.rule_id_to_rhs[rule_idx] = [int(r) for r in reversed(rule) 
-                                           if int(r) in self.lhs_to_rule_ids]
+        self.internal_alpha = norm_alpha
+        self.max_internal_len = max_internal_len
+        self.UNK_ID = 3
+        self.nonterminals = load_external_ids(nonterminal_ids)
+        self.nonterminals.discard(utils.EOS_ID)
+        self.nonterminals.discard(self.UNK_ID)
+        self.tok_to_hypo = {}
 
     def get_unk_probability(self, posterior):
         """Always returns negative infinity: Words outside the 
@@ -55,71 +67,107 @@ class ParsePredictor(Predictor):
         Returns:
             float. Negative infinity
         """
-        if utils.UNK_ID in posterior:
-            return posterior[utils.UNK_ID] 
-        else:
-            return utils.NEG_INF
-    
-    def predict_next(self, predicting_next_word=False):
-        """Adds outgoing arcs from the current node as permitted by 
-        the current stack and the grammar
-        Uses these arcs to define next permitted rule.
-              
-        Returns:
-            dict. Set of words on outgoing arcs from the current node
-            together with their scores, or an empty set if we currently
-            have no active node or fst.
-        """
-        if self.cur_node < 0:
-            return {}
-        nmt_posterior = self.nmt.predict_next()
-        current_nt = self.stack.pop()
-        outgoing_rules = self.lhs_to_rule_ids[current_nt]
-        scores = {rule_id: 0 for rule_id in outgoing_rules}
-        if utils.EOS_ID in scores and self.add_bos_to_eos_score:
-            scores[utils.EOS_ID] += self.bos_score
-        for rule_id in scores:
-            scores[rule_id] += nmt_posterior[rule_id]
-        if self.word_out and not predicting_next_word:
-            scores = self.find_word(scores)
-        parse_posterior = self.finalize_posterior(scores, 
-                                                  self.use_weights,
-                                                  self.normalize_scores)
-        return parse_posterior
+        return utils.NEG_INF
+   
 
     def are_best_terminal(self, posterior):
-        best_rule_id = utils.argmax_n(posterior)
-        rhs = self.rule_id_to_rhs[best_rule_id]
-        if not rhs or rhs[0] in (utils.EOS_ID, utils.UNK_ID):
-          return True
-        else:
-          return False
+        # Return true if most probable tokens in posterior is a terminal (including EOS)
+        best_rule_ids = utils.argmax_n(posterior, self.beam_size)
+        for tok in best_rule_ids:
+            if tok in self.nonterminals:
+                return False
 
-    def find_word(self, posterior):
-        """Check whether rhs of best option in posterior is a terminal
-        if it is, return the posterior for decoding
-        if not, take the best result and follow that path until a word is found
-        this follows a greedy 1best path through non-terminals
+        return True
 
-        if using beam search n approach, need to loop:
-        - deep copy of state
-        - get top n in posterior. check if they're words. If they are, return. 
-        - For each argmax_n:
-          - consume word and predict next. 
-          - store posterior
-          - restore original state
-        - combine the posteriors
-        - 
+
+    def predict_next(self, predicting_internally=False):
+        """predict next tokens.
+        we allow non-terminals in the beam only if we're not doing an internal search
         """
-        if self.are_best_terminal(posterior):
-          return posterior
-        if self.beam_size == 0:
-          best_rule_id = utils.argmax(posterior)
-          self.consume(best_rule_id)
-          return self.predict_next()
-        else:
-          pass # not yet implemented
+        nmt_posterior = self.nmt.predict_next()
+        all_keys = utils.common_viewkeys(nmt_posterior)
+        scores = {rule_id: nmt_posterior[rule_id] for rule_id in all_keys}
 
+        scores = self.finalize_posterior(scores, 
+                                         self.use_weights,
+                                         self.normalize_scores)
+        if self.word_out and not predicting_internally:
+            scores = self.find_word_beam(scores)
+        return scores
+    
+    def new_unk_hypo(self, posterior, path_score):
+        new_unk_path_score = posterior[self.UNK_ID] + path_score
+        if self.UNK_ID not in self.tok_to_hypo or new_unk_path_score > self.tok_to_hypo[self.UNK_ID].score:
+            best_unk_hypo = InternalHypo(new_unk_path_score,
+                                         posterior[self.UNK_ID],
+                                         copy.deepcopy(self.nmt.get_state()),
+                                         self.UNK_ID)
+            self.tok_to_hypo[self.UNK_ID] = best_unk_hypo
+
+
+    def find_word_beam(self, posterior):
+        top_tokens = utils.argmax_n(posterior, self.beam_size)
+        hypos = []
+        top_terminals = []
+        #self.new_unk_hypo(posterior, 0)
+        for tok in top_tokens:
+            new_hypo = InternalHypo(posterior[tok],
+                                    posterior[tok],
+                                    copy.deepcopy(self.nmt.get_state()),
+                                    tok)
+            if tok not in self.nonterminals:
+                self.tok_to_hypo[tok] = new_hypo
+                top_terminals.append(tok)
+            hypos.append(new_hypo)
+        min_score = utils.NEG_INF
+        if top_terminals:
+            top_terminals.sort(key=lambda h: -self.tok_to_hypo[h].score)
+            min_score = self.tok_to_hypo[top_terminals[-1]].score
+        # at least one of top-terminals or hypos must exist
+        hypos.sort(key=lambda h: -h.score)
+        # search until we have n terminal hypos with path scores better than further internal search can give us
+        while hypos and hypos[0].score > min_score:
+            next_hypos = []
+            for hypo in hypos:
+                if not hypo.word_to_consume in self.nonterminals:
+                    continue
+                self.nmt.set_state(copy.deepcopy(hypo.predictor_state))
+                self.consume(hypo.word_to_consume, internal=True)
+                new_post = self.predict_next(predicting_internally=True)
+                top_tokens = utils.argmax_n(new_post, self.beam_size)
+                next_state = copy.deepcopy(self.nmt.get_state())
+                #self.new_unk_hypo(new_post, hypo.score)                    
+                for tok in top_tokens:
+                    score = hypo.score + new_post[tok]
+                    new_hypo = InternalHypo(score, new_post[tok], next_state, tok)
+                    if tok not in self.nonterminals:
+                        add_hypo = False
+                        found = False
+                        for t in top_terminals:
+                            if t == tok:
+                                found = True
+                                if self.tok_to_hypo[tok].score < new_hypo.score:
+                                    add_hypo = True
+                                    top_terminals.remove(t)
+                                break
+                        if not found:
+                            add_hypo = True
+                        if add_hypo:
+                            top_terminals.append(tok)
+                            self.tok_to_hypo[tok] = new_hypo
+                    else:
+                        next_hypos.append(new_hypo)
+            next_hypos.sort(key=lambda h: -h.score)
+            hypos = next_hypos[:self.beam_size]
+            top_terminals.sort(key=lambda t: -self.tok_to_hypo[t].score)
+            top_terminals = top_terminals[:self.beam_size]
+            if top_terminals:
+                min_score = self.tok_to_hypo[top_terminals[-1]].score
+        token_scores = [self.tok_to_hypo[t].score for t in top_terminals]
+        return_post = {t: s for t, s in zip(top_terminals, token_scores)}
+        #return_post[self.UNK_ID] = self.tok_to_hypo[self.UNK_ID].score
+        #logging.info('returning {}'.format(return_post))
+        return return_post
 
     def initialize(self, src_sentence):
         """Loads the FST from the file system and consumes the start
@@ -129,81 +177,46 @@ class ParsePredictor(Predictor):
             src_sentence (list)
         """
         self.nmt.initialize(src_sentence)
-        self.cur_fst = fst.Fst()
-        self.cur_fst.set_start(self.cur_fst.add_state())
-        self.cur_node = self.cur_fst.start()
-        self.stack = self.rule_id_to_rhs[utils.GO_ID]
     
-    def consume(self, word):
-        """Updates the current node by following the arc labelled with
-        ``word``. If there is no such arc, we set ``cur_node`` to -1,
-        indicating that the predictor is in an invalid state. In this
-        case, all subsequent ``predict_next`` calls will return the
-        empty set.
-        Args:
-            word (int): Word on an outgoing arc from the current node
-        Returns:
-            float. Weight on the traversed arc
-        """
-        if self.cur_node < 0:
-            return
-        n = self.cur_fst.add_state()
-        self.cur_fst.add_arc(self.cur_node, fst.Arc(word, word, 1, n))
-        self.nmt.consume(word) 
-        from_state = self.cur_node
-        self.cur_node = None
-        for arc in self.cur_fst.arcs(from_state):
-            if arc.olabel == word:
-                self.cur_node = arc.nextstate
-                self.stack.extend(self.rule_id_to_rhs[arc.olabel])
-                return self.weight_factor*w2f(arc.weight)
+    def consume(self, word, internal=False):
+        try:
+            if self.word_out and not internal:
+                self.nmt.set_state(copy.deepcopy(self.tok_to_hypo[word].predictor_state))
+        except KeyError:
+            logging.info('trying to consume {}, not in tok-to-hypo'.format(word))
+            #word = self.UNK_ID
+            #self.nmt.set_state(copy.deepcopy(self.tok_to_hypo[word].predictor_state))
+
+        return self.nmt.consume(word) 
     
     def get_state(self):
         """Returns the current node. """
-        return self.cur_node, self.stack, self.nmt.get_state()
+        return self.nmt.get_state(), self.tok_to_hypo
     
     def set_state(self, state):
         """Sets the current node. """
-        self.cur_node, self.stack, nmt_state = state
+        nmt_state, tok_to_hypo = state
+        self.tok_to_hypo = tok_to_hypo
         self.nmt.set_state(nmt_state)
         
 
     def reset(self):
         """Resets the loaded FST object and current node. """
-        self.cur_fst = None
-        self.cur_node = None
-        self.stack = []
         self.nmt.reset()
+        self.tok_to_hypo = {}
     
     def initialize_heuristic(self, src_sentence):
         """Creates a matrix of shortest distances between nodes. """
-        self.distances = fst.shortestdistance(self.cur_fst, reverse=True)
-        
+        pass
     
     def is_equal(self, state1, state2):
         """Returns true if the current node is the same """
         return state1 == state2
 
 
-class InternalHypo(object):
-    """Helper class for internal beam search in skipvocab."""
-
-    def __init__(self, score, predictor_state, word_to_consume):
-        self.score = score
-        self.predictor_state = predictor_state
-        self.word_to_consume = word_to_consume
-        self.norm_score = score
-        self.beam_len = 1
-
-    def extend(self, score, predictor_state, word_to_consume):
-        self.score += score
-        self.predictor_state = predictor_state
-        self.word_to_consume = word_to_consume
-        self.beam_len += 1
-
 class TokParsePredictor(Predictor):
     """
-    Unlike ParsePredictor, the grammar predicts tokens, not rules
+    Unlike ParsePredictor, the grammar predicts tokens according to a grammar
     """
     
     def __init__(self, grammar_path, nmt_predictor, word_out=True,
@@ -244,7 +257,7 @@ class TokParsePredictor(Predictor):
         if self.internal_alpha != 1.0:
             length_penalty = pow(length_penalty, self.internal_alpha)
         return score / length_penalty
-        
+
 
     def prepare_grammar(self):
         self.lhs_to_can_follow = {}
@@ -295,7 +308,7 @@ class TokParsePredictor(Predictor):
         self.current_lhs = None
         self.current_rhs = []
         self.stack = [utils.EOS_ID]
-        self.consume(utils.GO_ID)
+        self.update_stacks(utils.GO_ID)
 
     def replace_lhs(self):
         while self.current_rhs:
@@ -539,3 +552,4 @@ class BpeParsePredictor(TokParsePredictor):
         if self.word_out and not predicting_next_word:
             scores = self.find_word(scores)
         return scores
+

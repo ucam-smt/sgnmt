@@ -795,7 +795,7 @@ def get_parser():
                         "(empty string) means that each predictor gets "
                         "assigned the weight 1.")
     group.add_argument("--closed_vocabulary_normalization", default="none",
-                        choices=['none', 'exact', 'reduced', 'rescale_unk'],
+                        choices=['none', 'exact', 'reduced', 'rescale_unk', 'non_zero'],
                         help="This parameter specifies the way closed "
                         "vocabulary predictors (e.g. NMT) are normalized. "
                         "Closed vocabulary means that they have a predefined "
@@ -811,7 +811,9 @@ def get_parser():
                         "leave all other scores unmodified. Results in a "
                         "distribution if predictor scores are stochastic.\n"
                         "* 'reduced': Normalize to vocabulary defined by the "
-                        "open vocabulary predictors at each time step.")
+                        "open vocabulary predictors at each time step.\n"
+                       "* 'non_zero': only keep scores which are strictly < 0 "
+                       "after combination.")
     group.add_argument("--combination_scheme", default="sum",
                         choices=['sum', 'length_norm', 'bayesian'],
                         help="This parameter controls how the combined "
@@ -834,6 +836,9 @@ def get_parser():
                         "with --combination_scheme after each node expansion. "
                         "If false, apply it only to complete hypotheses at "
                         "the end of decoding")
+    group.add_argument("--t2t_unk_id", default=-1, type=int,
+                        help="unk id for t2t. Used by the t2t predictor")
+
     group.add_argument("--pred_src_vocab_size", default=30000, type=int,
                         help="Predictor source vocabulary size. Used by the "
                         "bow, bowsearch, t2t, nizza, unkc predictors.")
@@ -930,6 +935,8 @@ def get_parser():
                        "--syntax_max_terminal_id. This can be used to "
                        "exclude the POP symbol from the list of non-terminals "
                        "even though it has a ID higher than max_terminal_id.")
+    group.add_argument("--syntax_nonterminal_ids", default="",
+                       help="explicitly define non-terminals with a file containing their ids. Useful when non-terminals do not occur consecutively in data (e.g. internal bpe units.)")
     group.add_argument("--t2t_usr_dir", default="",
                        help="Available for the t2t predictor. See the "
                        "--t2t_usr_dir argument in tensor2tensor.")
@@ -1005,6 +1012,12 @@ def get_parser():
     group.add_argument("--wc_nonterminal_penalty", default=False, 
                        action='store_true', help="if true, "
                        "use syntax_[max|min]_terminal_id to apply penalty to all non-terminals")
+
+    group.add_argument("--nonterminal_factor", default=1.0, type=float,
+                       help="penalty factor for WeightNonTerminalWrapper to apply")
+
+    group.add_argument("--fsttok_internal_penalty", default=0.0, type=float,
+                       help="penalty to apply to fsttok scores with internal output label EPS")
 
     group.add_argument("--ngramc_path", default="ngramc/%d.txt",
                         help="Only required for ngramc predictor. The ngramc "
@@ -1184,9 +1197,9 @@ def get_parser():
     group.add_argument("--parse_consume_ooc", default=False, type='bool',
                         help="Whether to let parse predictor consume tokens "
                        "which are not permitted by the current LHS")
-    group.add_argument("--parse_tok_grammar", default=True, type='bool',
+    group.add_argument("--parse_tok_grammar", default=False, type='bool',
                         help="Whether to use a token-based grammar."
-                        "Default uses token-based.")
+                        "Default uses no internal grammar")
     group.add_argument("--parse_terminal_restrict", default=True, type='bool',
                         help="Whether to restrict inside terminals.")
     group.add_argument("--parse_internal_only", default=False, type='bool',
@@ -1261,6 +1274,10 @@ def get_parser():
         group.add_argument("--pred_src_vocab_size%s" % n, default=0, type=int,
                         help="Overrides --pred_src_vocab_size for the %s t2t "
                         "predictor" % w)
+        group.add_argument("--t2t_unk_id%s" % n, default=3, type=int,
+                        help="Overrides --t2t_unk_id for the %s t2t "
+                        "predictor" % w)
+
         group.add_argument("--pred_trg_vocab_size%s" % n, default=0, type=int,
                         help="Overrides --pred_trg_vocab_size for the %s t2t "
                         "predictor" % w)
