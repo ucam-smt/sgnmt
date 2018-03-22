@@ -511,6 +511,10 @@ def get_parser():
                         "         Options: t2t_usr_dir, t2t_model, "
                         "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
                         "pred_src_vocab_size, pred_trg_vocab_size\n"
+                        "* 'fertt2t': T2T predictor for fertility models.\n"
+                        "       Options: syntax_pop_id, t2t_usr_dir, t2t_model,"
+                        " t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
+                        "pred_src_vocab_size, pred_trg_vocab_size\n"
                         "* 'nizza': Nizza alignment models.\n"
                         "           Options: nizza_model, nizza_hparams_set, "
                         "nizza_checkpoint_dir, pred_src_vocab_size, "
@@ -638,10 +642,17 @@ def get_parser():
                         "to decide predictor weights at each time step. See "
                         "the sgnmt_moe project on how to train it.\n"
                         "Interpolation strategies can be specified for each "
-                        "predictor separately, e.g. 'fixed,moe,fixed,moe,moe' "
-                        "means that a MoE network with output dimensionality "
-                        "3 will decide for the 2nd, 4th, and 5th predictors, "
-                        "and the rest keep their weight from predictor_weights.")
+                        "predictor separately, eg 'fixed|moe,moe,fixed,moe,moe'"
+                        " means that a MoE network with output dimensionality "
+                        "4 will decide for the 2nd, 4th, and 5th predictors, "
+                        "the 1st predictor mixes the prior weight with the MoE"
+                        " prediction, and the rest keep their weight from "
+                        "predictor_weights.")
+    group.add_argument("--interpolation_weights_mean", default="arith",
+                        choices=['arith', 'geo', 'prob'],
+                        help="Used when --interpolation_strategy contains |. "
+                        "Specifies the way interpolation weights are combined."
+                        "'arith'metirc, 'geo'metric, 'prob'abilistic.")
     group.add_argument("--moe_config", default="",
                         help="Only for MoE interpolation strategy: Semicolon-"
                         "separated key=value pairs specifying the MoE network")

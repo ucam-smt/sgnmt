@@ -1,8 +1,8 @@
 """Implementation of beam search with explicit synchronization symbol"""
 
-
 from cam.sgnmt import utils
 from cam.sgnmt.decoding.beam import BeamDecoder
+import logging
 
 
 class SyncBeamDecoder(BeamDecoder):
@@ -70,19 +70,27 @@ class SyncBeamDecoder(BeamDecoder):
         it = 1
         while self._all_eos_or_eow(hypos):
             if it > self.max_word_len: # prevent infinite loops
+                logging.debug("Maximum word length reached.")
                 break
             it = it + 1
             next_hypos = []
             next_scores = []
-            for hypo in hypos:
-                if self._is_closed(hypo):
-                    next_hypos.append(hypo)
-                    next_scores.append(self._get_combined_score(hypo))
+            for h in hypos:
+                if self._is_closed(h):
+                    next_hypos.append(h)
+                    next_scores.append(self._get_combined_score(h))
                     continue 
-                for next_hypo in super(SyncBeamDecoder, self)._expand_hypo(hypo):
+                for next_hypo in super(SyncBeamDecoder, self)._expand_hypo(h):
                     next_hypos.append(next_hypo)
                     next_scores.append(self._get_combined_score(next_hypo))
             hypos = self._get_next_hypos(next_hypos, next_scores)
         ret =  [h for h in hypos if self._is_closed(h)]
-        return [h for h in hypos if self._is_closed(h)]
+        logging.debug("Expand %f: %s (%d)" % (hypo.score,
+                                              hypo.trgt_sentence, 
+                                              len(hypo.trgt_sentence)))
+        for h in ret:
+            logging.debug("-> %f: %s (%d)" % (h.score,
+                                              h.trgt_sentence, 
+                                              len(h.trgt_sentence)))
+        return ret
 

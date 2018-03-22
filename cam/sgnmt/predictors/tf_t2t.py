@@ -352,3 +352,84 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
         return state1 == state2
 
 
+class FertilityT2TPredictor(T2TPredictor):
+    """Use this predictor to integrate fertility models trained with 
+    T2T. Fertility models output the fertility for each source word
+    instead of target words. We define the fertility of the i-th
+    source word in a hypothesis as the number of tokens between the 
+    (i-1)-th and the i-th POP token.
+
+    TODO: This is not SOLID (violates substitution principle)
+    """
+
+    def _update_scores(self):
+        """Call the T2T model in self.mon_sess to update pop_scores
+        and other_scores.
+        """
+        log_probs = self.mon_sess.run(self._log_probs,
+           {self._inputs_var: self.src_sentence,
+            self._targets_var: self.fertility_history + [text_encoder.PAD_ID]})
+        fert_log_probs = [p for p in log_probs[4:]] + [log_probs[utils.UNK_ID]]
+        fert_log_probs = fert_log_probs[:10]
+        prev_max = utils.NEG_INF
+        best_future = []
+        for f in fert_log_probs[:0:-1]:
+            prev_max = max(prev_max, f)
+            best_future.append(prev_max)
+        best_future.reverse()
+        self.pop_scores = []
+        self.other_scores = []
+        acc = 0.0
+        for score, best_future_score in zip(fert_log_probs[:-1], best_future):
+            self.pop_scores.append(score - acc)
+            self.other_scores.append(best_future_score - acc)
+            acc = best_future_score
+    
+    def initialize(self, src_sentence):
+        """Set src_sentence, compute fertilities for first src word."""
+        self.fertility_history = []
+        self.n_aligned_words = 0
+        self.src_sentence = utils.oov_to_unk(
+            src_sentence + [text_encoder.EOS_ID], 
+            self.src_vocab_size)
+        self._update_scores()
+
+    def predict_next(self):
+        """Returns self.pop_scores[n_aligned_words] for POP and EOS."""
+        score = utils.common_get(self.pop_scores, self.n_aligned_words, 0.0)
+        return {self.pop_id: score, utils.EOS_ID: score, 6: 0.0, 7: 0.0}
+   
+    def consume(self, word):
+        if word == self.pop_id:
+            target = 4 + self.n_aligned_words
+            if target >= self.trg_vocab_size:
+                target = utils.UNK_ID
+            self.fertility_history.append(target)
+            self.n_aligned_words = 0
+            self._update_scores()
+        elif word != 6 and word != 7: 
+            self.n_aligned_words += 1
+    
+    def get_state(self):
+        return (self.fertility_history, 
+                self.n_aligned_words, 
+                self.pop_scores, 
+                self.other_scores)
+    
+    def set_state(self, state):
+        (self.fertility_history, 
+         self.n_aligned_words, 
+         self.pop_scores, 
+         self.other_scores) = state
+
+    def reset(self):
+        """Empty method. """
+        pass
+
+    def is_equal(self, state1, state2):
+        """Returns true if the history is the same """
+        return state1 == state2
+
+    def get_unk_probability(self, posterior):
+        """Returns self.other_scores[n_aligned_words]."""
+        return utils.common_get(self.other_scores, self.n_aligned_words, 0.0)

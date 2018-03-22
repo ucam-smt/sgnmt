@@ -16,6 +16,7 @@ from cam.sgnmt.decoding.interpolation import FixedInterpolationStrategy, \
 from cam.sgnmt.utils import Observable, Observer, MESSAGE_TYPE_DEFAULT, \
     MESSAGE_TYPE_POSTERIOR, MESSAGE_TYPE_FULL_HYPO, NEG_INF
 import numpy as np
+from operator import mul
 import logging
 
 
@@ -321,10 +322,14 @@ class Decoder(Observable):
                     self.lower_bounds.append(float(line.strip()))
         self.interpolation_strategies = []
         if decoder_args.interpolation_strategy:
-            strat_names = decoder_args.interpolation_strategy.split(',')
-            for name in set(strat_names):
-                pred_indices = [idx for idx, strat in enumerate(strat_names) 
-                                    if strat == name]
+            self.interpolation_mean = decoder_args.interpolation_weights_mean
+            pred_strat_names = decoder_args.interpolation_strategy.split(',')
+            all_strat_names = set([])
+            for s in pred_strat_names:
+                all_strat_names |= set(s.split("|"))
+            for name in set(all_strat_names):
+                pred_indices = [idx for idx, strat in enumerate(pred_strat_names)
+                                    if name in strat]
                 if name == 'fixed':
                     strat = FixedInterpolationStrategy()
                 elif name == 'entropy':
@@ -496,14 +501,28 @@ class Decoder(Observable):
         Returns:
           A list of predictor weights.
         """
-        for strat, pred_indices in self.interpolation_strategies:
-            new_pred_weights = strat.find_weights(
-                    [pred_weights[idx] for idx in pred_indices],
-                    non_zero_words,
-                    [posteriors[idx] for idx in pred_indices],
-                    [unk_probs[idx] for idx in pred_indices])
-            for idx, weight in zip(pred_indices, new_pred_weights):
-                pred_weights[idx] = weight
+        if self.interpolation_strategies:
+            predictions = [[] for _ in pred_weights]
+            for strat, pred_indices in self.interpolation_strategies:
+                new_pred_weights = strat.find_weights(
+                        [pred_weights[idx] for idx in pred_indices],
+                        non_zero_words,
+                        [posteriors[idx] for idx in pred_indices],
+                        [unk_probs[idx] for idx in pred_indices])
+                for idx, weight in zip(pred_indices, new_pred_weights):
+                    predictions[idx].append(weight)
+            for idx, preds in enumerate(predictions):
+                if preds:
+                    if self.interpolation_mean == 'arith':
+                        pred_weights[idx] = sum(preds) / float(len(preds))
+                    else:
+                        pred_weights[idx] = reduce(mul, preds, 1)
+                    if self.interpolation_mean == 'geo':
+                        pred_weights[idx] = pred_weights[idx]**(1.0/len(preds))
+            if self.interpolation_mean == 'prob':
+                partition = sum(pred_weights)
+                for idx in xrange(len(pred_weights)):
+                    pred_weights[idx] /= partition
         return pred_weights
     
     def apply_predictors(self, top_n=0):

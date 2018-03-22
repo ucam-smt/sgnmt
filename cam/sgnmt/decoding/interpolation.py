@@ -174,8 +174,7 @@ class EntropyInterpolationStrategy(InterpolationStrategy):
     """The entropy interpolation strategy assigns weights to predictors
     according the entropy of their posteriors to the other posteriors.
     We first build a n x n square matrix of (cross-)entropies between 
-    all predictors, and then weight according the row sums. We mix the
-    resulting weights with the a prior `predictor_weights`.
+    all predictors, and then weight according the row sums. 
 
     We assume that predictor weights are log probabilities.
     """
@@ -207,5 +206,4 @@ class EntropyInterpolationStrategy(InterpolationStrategy):
         ent_weights = -np.sum(ents, axis=0)
         ent_weights -= np.min(ent_weights)
         ent_weights /= np.sum(ent_weights)
-        ent_weights = [(w1+w2)/2.0 for w1, w2 in zip(pred_weights, ent_weights)]
         return ent_weights

@@ -51,12 +51,12 @@ class OSMPredictor(Predictor):
         """Creates a new osm predictor."""
         super(OSMPredictor, self).__init__()
         self.illegal_sequences = [
-            [OSM_JUMP_FWD_ID, OSM_JUMP_BWD_ID],
-            [OSM_JUMP_BWD_ID, OSM_JUMP_FWD_ID],
-            [OSM_JUMP_FWD_ID, OSM_GAP_ID, OSM_JUMP_FWD_ID],
-            [OSM_JUMP_FWD_ID, OSM_GAP_ID, OSM_JUMP_BWD_ID],
-            [OSM_JUMP_BWD_ID, OSM_GAP_ID, OSM_JUMP_FWD_ID],
-            [OSM_JUMP_BWD_ID, OSM_GAP_ID, OSM_JUMP_BWD_ID],
+            #[OSM_JUMP_FWD_ID, OSM_JUMP_BWD_ID],
+            #[OSM_JUMP_BWD_ID, OSM_JUMP_FWD_ID],
+            #[OSM_JUMP_FWD_ID, OSM_GAP_ID, OSM_JUMP_FWD_ID],
+            #[OSM_JUMP_FWD_ID, OSM_GAP_ID, OSM_JUMP_BWD_ID],
+            #[OSM_JUMP_BWD_ID, OSM_GAP_ID, OSM_JUMP_FWD_ID],
+            #[OSM_JUMP_BWD_ID, OSM_GAP_ID, OSM_JUMP_BWD_ID],
             [OSM_GAP_ID, OSM_GAP_ID]
         ]
     
@@ -84,6 +84,7 @@ class OSMPredictor(Predictor):
             #ret[OSM_EOP_ID] = utils.NEG_INF
         else:
             ret[utils.EOS_ID] = utils.NEG_INF
+            #ret[utils.EOS_ID] = 0.0
         if self.head <= 0:
             ret[OSM_JUMP_BWD_ID] = utils.NEG_INF
         if self.head >= self.n_holes:
