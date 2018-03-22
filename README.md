@@ -31,6 +31,11 @@ SGNMT is compatible with multiple NMT implementations based on [Theano](http://d
 
 Please see the [full SGNMT documentation](http://ucam-smt.github.io/sgnmt/html/) for more information.
 
+### Contributors
+
+- Felix Stahlberg, University of Cambridge
+- Eva Hasler, SDL Research
+
 ### Citing
 
 If you use SGNMT in your work, please cite the following paper:
