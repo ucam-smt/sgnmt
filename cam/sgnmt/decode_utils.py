@@ -761,32 +761,17 @@ def do_decode(decoder,
         try:
             if src_sentences is False:
                 src = "0"
-                logging.info("Next sentence (ID: %d)" % (sen_idx+1))
+                logging.info("Next sentence (ID: %d)" % (sen_idx + 1))
             else:
                 src = src_sentences[sen_idx]
-                if isinstance(src[0], list):
-                    src_lst = []
-                    for idx in xrange(len(src)):
-                        logging.info("Next sentence, input %d (ID: %d): %s" % (
-                                                           idx, 
-                                                           sen_idx + 1,
-                                                           ' '.join(src[idx])))
-                        src_lst.append([int(x) for x in src[idx]])
-                    src = src_lst
-                else:
-                    logging.info("Next sentence (ID: %d): %s" % (sen_idx + 1, 
-                                                                 ' '.join(src)))
-                    src = [int(x) for x in src]
+                logging.info("Next sentence (ID: %d): %s" % (sen_idx + 1, 
+                                                             ' '.join(src)))
+            src = [int(x) for x in src]
             start_hypo_time = time.time()
             decoder.apply_predictors_count = 0
-            if isinstance(src[0], list):
-                # Don't apply wordmap for multiple inputs
-                hypos = [hypo for hypo in decoder.decode(src)
-                            if hypo.total_score > args.min_score]
-            else:
-                hypos = [hypo 
-                         for hypo in decoder.decode(utils.apply_src_wmap(src))
-                            if hypo.total_score > args.min_score]
+            hypos = [hypo 
+                     for hypo in decoder.decode(utils.apply_src_wmap(src))
+                        if hypo.total_score > args.min_score]
             if not hypos:
                 logging.error("No translation found for ID %d!" % (sen_idx+1))
                 logging.info("Stats (ID: %d): score=<not-found> "

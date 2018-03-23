@@ -68,30 +68,6 @@ def _update_decoder(decoder, key, val):
     return decoder
 
 
-def _process_inputs():
-    """Helper method to support multiple input files."""
-    inputfiles = [ args.src_test ]
-    while True:
-        inputfile = getattr(args, "src_test%d" % (len(inputfiles)+1), None)
-        if not inputfile:
-            break
-        inputfiles.append(inputfile)
-    # Read all input files
-    inputs_tmp = [ [] for i in xrange(len(inputfiles)) ]
-    for i in xrange(len(inputfiles)):
-        with codecs.open(inputfiles[i], encoding='utf-8') as f:
-            for line in f:
-                inputs_tmp[i].append(line.strip().split())
-    # Gather multiple input sentences for each line
-    inputs = []
-    for i in xrange(len(inputs_tmp[0])):
-        input_lst = []
-        for j in xrange(len(inputfiles)):
-            input_lst.append(inputs_tmp[j][i])
-        inputs.append(input_lst)
-    return inputs
-
-
 def _print_shell_help():
     """Print help text for shell usage in interactive mode."""
     print("Available SGNMT directives:")
@@ -116,14 +92,10 @@ decoder = decode_utils.create_decoder()
 outputs = decode_utils.create_output_handlers()
 
 if args.input_method == 'file':
-    # Check for additional input files
-    if getattr(args, "src_test2"):
-        decode_utils.do_decode(decoder, outputs, _process_inputs())
-    else:
-        with codecs.open(args.src_test, encoding='utf-8') as f:
-            decode_utils.do_decode(decoder,
-                                   outputs,
-                                   [line.strip().split() for line in f])
+    with codecs.open(args.src_test, encoding='utf-8') as f:
+        decode_utils.do_decode(decoder,
+                               outputs,
+                               [line.strip().split() for line in f])
 elif args.input_method == 'dummy':
     decode_utils.do_decode(decoder, outputs, False)
 else: # Interactive mode: shell or stdin

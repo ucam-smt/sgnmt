@@ -100,7 +100,10 @@ def get_parser():
                         "Syntax is equal to HiFSTs printstrings and lmerts "
                         "idxrange parameter: <start-idx>:<end-idx> (both "
                         "inclusive, start with 1). E.g. 2:5 means: skip the "
-                        "first sentence, process next 4 sentences")
+                        "first sentence, process next 4 sentences. If this "
+                        "points to a file, we grap sentence IDs to translate "
+                        "from that file and delete the decoded IDs. This can "
+                        "be used for distributed decoding.")
     group.add_argument("--src_test", default="",
                         help="Path to source test set. This is expected to be "
                         "a plain text file with one source sentence in each "
@@ -1114,8 +1117,6 @@ def get_parser():
                         "the ones in this parameter." % (w, w))
         group.add_argument("--rnnlm_path%s" % n, default="",
                         help="Overrides --rnnlm_path for the %s nmt" % w)
-        group.add_argument("--src_test%s" % n, default="",
-                        help="Overrides --src_test for the %s src" % w)                        
         group.add_argument("--altsrc_test%s" % n, default="",
                         help="Overrides --altsrc_test for the %s altsrc" % w)
         group.add_argument("--word2char_map%s" % n, default="",
