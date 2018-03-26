@@ -151,11 +151,6 @@ class FstPredictor(Predictor):
         """Sets the current node. """
         self.cur_node = state
 
-    def reset(self):
-        """Resets the loaded FST object and current node. """
-        self.cur_fst = None
-        self.cur_node = None
-    
     def initialize_heuristic(self, src_sentence):
         """Creates a matrix of shortest distances between nodes. """
         self.distances = fst.shortestdistance(self.cur_fst, reverse=True)
@@ -335,11 +330,6 @@ class NondeterministicFstPredictor(Predictor):
         """Sets the set of current nodes """
         self.cur_nodes = state
 
-    def reset(self):
-        """Resets the FST and empties the set of current nodes """ 
-        self.cur_fst = None
-        self.cur_nodes = []
-    
     def initialize_heuristic(self, src_sentence):
         """Creates a matrix of shortest distances between all nodes """
         self.distances = fst.shortestdistance(self.cur_fst, reverse=True)
@@ -604,8 +594,4 @@ class RtnPredictor(Predictor):
     def set_state(self, state):
         """Sets the current history. """
         self.cur_history = state
-
-    def reset(self):
-        """Unloads the current RTN """ 
-        self.cur_fst = None
 

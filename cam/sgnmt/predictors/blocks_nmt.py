@@ -119,8 +119,8 @@ class BlocksNMTPredictor(Predictor):
             src_sentence (list): List of word ids without <S> and </S>
                                  which represent the source sentence.
         """
-        
-        self.reset()
+        self.contexts = None
+        self.states = None 
         self.posterior_cache = SimpleTrie()
         self.states_cache = SimpleTrie()
         self.consumed = []
@@ -217,11 +217,6 @@ class BlocksNMTPredictor(Predictor):
         """Set the NMT predictor state. """
         self.states,self.consumed,self.attention_records = state
 
-    def reset(self):
-        """Deletes the source side annotations and decoder state. """
-        self.contexts = None
-        self.states = None 
-    
     def is_equal(self, state1, state2):
         """Returns true if the history is the same """
         _,consumed1,_ = state1

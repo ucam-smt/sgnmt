@@ -13,6 +13,8 @@ import codecs
 import sys
 import time
 import traceback
+import os
+import uuid
 
 from cam.sgnmt import ui
 from cam.sgnmt import utils
@@ -26,6 +28,7 @@ from cam.sgnmt.decoding.bigramgreedy import BigramGreedyDecoder
 from cam.sgnmt.decoding.bow import BOWDecoder
 from cam.sgnmt.decoding.bucket import BucketDecoder
 from cam.sgnmt.decoding.core import UnboundedVocabularyPredictor
+from cam.sgnmt.decoding.core import Hypothesis
 from cam.sgnmt.decoding.dfs import DFSDecoder
 from cam.sgnmt.decoding.flip import FlipDecoder
 from cam.sgnmt.decoding.greedy import GreedyDecoder
@@ -535,11 +538,6 @@ def create_decoder():
     # Add heuristics for search strategies like A*
     if args.heuristics:
         add_heuristics(decoder)
-    
-    # Update start sentence id if necessary
-    if args.range:
-        idx,_ = args.range.split(":") if (":" in args.range) else (args.range,0)  
-        decoder.set_start_sen_id(int(idx)-1) # -1 because indices start with 1
     return decoder
 
 
@@ -620,10 +618,6 @@ def create_output_handlers():
         return []
     trg_map = {} if utils.trg_cmap else utils.trg_wmap
     outputs = []
-    start_sen_id = 0
-    if args.range:
-        idx,_ = args.range.split(":")
-        start_sen_id = int(idx)-1 # -1 because --range indices start with 1
     for name in utils.split_comma(args.outputs):
         if '%s' in args.output_path:
             path = args.output_path % name
@@ -634,24 +628,19 @@ def create_output_handlers():
         elif name == "nbest":
             outputs.append(NBestOutputHandler(path, 
                                               utils.split_comma(args.predictors),
-                                              start_sen_id,
                                               trg_map))
         elif name == "ngram":
             outputs.append(NgramOutputHandler(path,
                                               args.min_ngram_order,
-                                              args.max_ngram_order,
-                                              start_sen_id))
+                                              args.max_ngram_order))
         elif name == "timecsv":
             outputs.append(TimeCSVOutputHandler(path, 
-                                                utils.split_comma(args.predictors),
-                                                start_sen_id))
+                                                utils.split_comma(args.predictors)))
         elif name == "fst":
             outputs.append(FSTOutputHandler(path,
-                                            start_sen_id,
                                             args.fst_unk_id))
         elif name == "sfst":
             outputs.append(StandardFSTOutputHandler(path,
-                                                    start_sen_id,
                                                     args.fst_unk_id))
         else:
             logging.fatal("Output format %s not available. Please double-check"
@@ -669,6 +658,7 @@ def get_sentence_indices(range_param, src_sentences):
                                source sentences with word indices to 
                                translate (e.g. '1 123 432 2')
     """
+    ids = []
     if args.range:
         try:
             if ":" in args.range:
@@ -676,14 +666,42 @@ def get_sentence_indices(range_param, src_sentences):
             else:
                 from_idx = int(args.range)
                 to_idx = from_idx
-            return xrange(int(from_idx)-1, int(to_idx))
+            ids = xrange(int(from_idx)-1, int(to_idx))
         except Exception as e:
-            logging.fatal("Invalid value for --range: %s" % e)
-            return []
-    if src_sentences is False:
-        logging.fatal("Input method dummy requires --range")
-        return []
-    return xrange(len(src_sentences))
+            logging.info("The --range does not seem to specify a numerical "
+                         "range (%s). Interpreting as file name.." % e)
+            tmp_path = "%s/sgnmt-tmp.%s" % (os.path.dirname(args.range), 
+                                            uuid.uuid4())
+            logging.debug("Temporary range file: %s" % tmp_path)
+            while True:
+                try:
+                    os.rename(args.range, tmp_path)
+                    with open(tmp_path) as tmp_f:
+                        all_ids = [i.strip() for i in tmp_f]
+                    next_id = None
+                    if all_ids:
+                        next_id = all_ids[0]
+                        all_ids = all_ids[1:]
+                    with open(tmp_path, "w") as tmp_f:
+                        tmp_f.write("\n".join(all_ids))
+                    os.rename(tmp_path, args.range)
+                    if next_id is None:
+                        return
+                    logging.debug("Fetched ID %s and updated %s"
+                                  % (next_id, args.range))
+                    yield int(next_id)-1
+                except Exception as e:
+                    logging.debug("Could not fetch sentence ID from %s (%s). "
+                                  "Trying again in 2 seconds..." 
+                                  % (args.range, e))
+                    time.sleep(2)
+    else:
+        if src_sentences is False:
+           logging.fatal("Input method dummy requires --range")
+        else:
+            ids = xrange(len(src_sentences))
+    for i in ids:
+        yield i
 
 
 def _get_text_output_handler(output_handlers):
@@ -732,6 +750,10 @@ def _postprocess_complete_hypos(hypos):
     return hypos
 
 
+def _generate_dummy_hypo(predictors):
+    return Hypothesis([utils.UNK_ID], 0.0, [[(0.0, w) for _, w in predictors]]) 
+
+
 def do_decode(decoder, 
               output_handlers, 
               src_sentences):
@@ -757,7 +779,9 @@ def do_decode(decoder,
         text_output_handler.open_file()
     start_time = time.time()
     logging.info("Start time: %s" % start_time)
+    sen_indices = []
     for sen_idx in get_sentence_indices(args.range, src_sentences):
+        decoder.set_current_sen_id(sen_idx)
         try:
             if src_sentences is False:
                 src = "0"
@@ -779,9 +803,7 @@ def do_decode(decoder,
                          "time=%.2f" % (sen_idx+1,
                                         decoder.apply_predictors_count,
                                         time.time() - start_hypo_time))
-                if text_output_handler:
-                    text_output_handler.write_empty_line()
-                continue
+                hypos = [_generate_dummy_hypo(decoder.predictors)]
             hypos = _postprocess_complete_hypos(hypos)
             if utils.trg_cmap:
                 hypos = [h.convert_to_char_level(utils.trg_cmap) for h in hypos]
@@ -796,6 +818,7 @@ def do_decode(decoder,
                                         decoder.apply_predictors_count,
                                         time.time() - start_hypo_time))
             all_hypos.append(hypos)
+            sen_indices.append(sen_idx)
             try:
                 # Write text output as we go
                 if text_output_handler:
@@ -826,7 +849,7 @@ def do_decode(decoder,
             if output_handler == text_output_handler:
                 output_handler.close_file()
             else:
-                output_handler.write_hypos(all_hypos)
+                output_handler.write_hypos(all_hypos, sen_indices)
     except IOError as e:
         logging.error("I/O error %s occurred when creating output files: %s"
                       % (sys.exc_info()[0], e))

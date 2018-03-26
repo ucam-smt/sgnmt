@@ -99,10 +99,6 @@ class IdxmapPredictor(Predictor):
         """Pass through to slave predictor """
         self.slave_predictor.set_state(state)
 
-    def reset(self):
-        """Pass through to slave predictor """
-        self.slave_predictor.reset()
-
     def estimate_future_cost(self, hypo):
         """Pass through to slave predictor """
         old_sen = hypo.trgt_sentence
@@ -206,10 +202,6 @@ class UnkvocabPredictor(Predictor):
     def set_state(self, state):
         """Pass through to slave predictor """
         self.slave_predictor.set_state(state)
-
-    def reset(self):
-        """Pass through to slave predictor """
-        self.slave_predictor.reset()
 
     def estimate_future_cost(self, hypo):
         """Pass through to slave predictor """
@@ -330,10 +322,6 @@ class SkipvocabPredictor(Predictor):
     def set_state(self, state):
         """Pass through to slave predictor """
         self.slave_predictor.set_state(state)
-
-    def reset(self):
-        """Pass through to slave predictor """
-        self.slave_predictor.reset()
 
     def estimate_future_cost(self, hypo):
         """Pass through to slave predictor """

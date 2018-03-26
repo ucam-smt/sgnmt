@@ -313,7 +313,6 @@ class Decoder(Observable):
             self.combine_posteriors = self._combine_posteriors_norm_rescale_unk
         
         self.current_sen_id = -1
-        self.start_sen_id = 0
         self.apply_predictors_count = 0
         self.lower_bounds = []
         if decoder_args.score_lower_bounds_file:
@@ -764,19 +763,8 @@ class Decoder(Observable):
             score_breakdown[trgt_word] = preds
         return combined, score_breakdown
     
-    def set_start_sen_id(self, start_sen_id):
-        """Set the internal sentence id counter `self.current_sen_id``
-        to ``start_sen_id`` and resets all predictors."""
-        self.start_sen_id = start_sen_id
-        self.reset_predictors()
-
-    def reset_predictors(self):
-        """Calls ``reset()`` on all predictors and resets the sentence
-        id counter ``self.current_sen_id``. """
-        for (p, _) in self.predictors:
-            p.reset()
-        # -1 because its incremented in initialize_predictors
-        self.current_sen_id = self.start_sen_id-1
+    def set_current_sen_id(self, sen_id):
+        self.current_sen_id = sen_id - 1  # -1 because incremented in init()
             
     def initialize_predictors(self, src_sentence):
         """First, increases the sentence id counter and calls

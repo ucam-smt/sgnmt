@@ -87,10 +87,6 @@ class ForcedPredictor(Predictor):
         """Set the predictor state. """
         self.n_consumed,self.cur_trg_sentence = state
 
-    def reset(self):
-        """Empty method. """
-        pass
-
     def is_equal(self, state1, state2):
         """Returns true if the state is the same """
         n1,s1 = state1
@@ -241,10 +237,6 @@ class ForcedLstPredictor(Predictor):
         """Sets the current history. """
         self.history = state
 
-    def reset(self):
-        """Empty method. """
-        pass
-    
     def is_equal(self, state1, state2):
         """Returns true if the history is the same """
         return state1 == state2

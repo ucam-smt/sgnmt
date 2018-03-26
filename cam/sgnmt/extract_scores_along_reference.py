@@ -156,10 +156,6 @@ def to_json(o, level=0):
 
 decoder = ForcedDecoder(args) 
 decode_utils.add_predictors(decoder)
-# Update start sentence id if necessary
-if args.range:
-    idx,_ = args.range.split(":") if (":" in args.range) else (args.range,0)  
-    decoder.set_start_sen_id(int(idx)-1) # -1 because indices start with 1
 
 if "pickle" in args.outputs:
     out_format = "pickle"
@@ -184,6 +180,7 @@ with open(out_path, mode) as writer:
         all_meta_data = []
     src_sentences = load_sentences(args.src_test, "source")
     for sen_idx in decode_utils.get_sentence_indices(args.range, src_sentences):
+        decoder.set_current_sen_id(sen_idx)
         try:
             src = src_sentences[sen_idx]
             logging.info("Next sentence (ID: %d): %s" 

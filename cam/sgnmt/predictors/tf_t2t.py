@@ -343,10 +343,6 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
         """The predictor state is the complete history."""
         self.consumed = state
 
-    def reset(self):
-        """Empty method. """
-        pass
-
     def is_equal(self, state1, state2):
         """Returns true if the history is the same """
         return state1 == state2
@@ -421,10 +417,6 @@ class FertilityT2TPredictor(T2TPredictor):
          self.n_aligned_words, 
          self.pop_scores, 
          self.other_scores) = state
-
-    def reset(self):
-        """Empty method. """
-        pass
 
     def is_equal(self, state1, state2):
         """Returns true if the history is the same """

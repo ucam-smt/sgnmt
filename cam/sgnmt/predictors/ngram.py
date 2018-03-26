@@ -96,10 +96,6 @@ class SRILMPredictor(UnboundedVocabularyPredictor):
         """Sets the current n-gram history """
         self.history = state
 
-    def reset(self):
-        """Resets the current history to <S> """
-        self.history = ['<s>'] if self.history_len > 0 else []
-
     def _replace_unks(self, hist):
         return ['<unk>' if getIndexForWord(w) > self.vocab_size else w for w in hist]
     

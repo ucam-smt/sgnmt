@@ -121,10 +121,6 @@ class OSMPredictor(Predictor):
     def set_state(self, state):
         self.n_holes, self.head, self.n_eop = state
 
-    def reset(self):
-        """Empty."""
-        pass
-    
     def is_equal(self, state1, state2):
         """Trivial implementation"""
         return state1 == state2
@@ -435,10 +431,6 @@ class BracketPredictor(UnboundedVocabularyPredictor):
         """Sets the current depth and number of consumed terminals"""
         self.cur_depth, self.n_terminals, self.ends_with_opening = state
 
-    def reset(self):
-        """Empty."""
-        pass
-    
     def is_equal(self, state1, state2):
         """Trivial implementation"""
         return state1 == state2

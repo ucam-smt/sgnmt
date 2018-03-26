@@ -1190,17 +1190,9 @@ def validate_args(args):
             logging.warn("Using deprecated argument %s. Please check the "
                          "documentation for the replacement." % depr)
     # Validate --range
-    if args.range:
-        if args.input_method == 'shell':
-            logging.warn("The --range parameter can lead to unexpected "
-                         "behavior in the 'shell' mode.")
-        if ":" in args.range:
-            try:
-                f,t = [int(i) for i in args.range.split(":")]
-                if f > t:
-                    logging.fatal("Start index in range greater than end index")
-            except:
-                pass # Deal with it later
+    if args.range and args.input_method == 'shell':
+        logging.warn("The --range parameter can lead to unintuitive "
+                     "behavior in 'shell' mode.")
         
     # Some common pitfalls
     sanity_check_failed = False

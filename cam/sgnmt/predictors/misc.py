@@ -66,10 +66,6 @@ class AltsrcPredictor(Predictor):
         """Pass through to slave predictor """
         self.slave_predictor.set_state(state)
 
-    def reset(self):
-        """Pass through to slave predictor """
-        self.slave_predictor.reset()
-
     def estimate_future_cost(self, hypo):
         """Pass through to slave predictor """
         return self.slave_predictor.estimate_future_cost(hypo)

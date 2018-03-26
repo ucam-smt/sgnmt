@@ -24,50 +24,6 @@ args = get_args()
 decode_utils.base_init(args)
 
 
-def _update_decoder(decoder, key, val):
-    """This method is called on a configuration update in an interactive 
-    (stdin or shell) mode. It tries to update the decoder such that it 
-    realizes the new configuration specified by key and val without
-    rebuilding the decoder. This can save time because rebuilding the
-    decoder involves reloading the predictors which can be expensive
-    (e.g. the NMT predictor would reload the model). If an update on
-    ``key`` cannot be realized efficiently, rebuild the whole decoder.
-    
-    Args:
-        decoder (Decoder):  Current decoder instance
-        key (string):  Parameter name to update
-        val (string):  New parameter value
-    
-    Returns:
-        Decoder. Returns an updated decoder instance
-    """
-    if key == 'beam':
-        decoder.beam_size = int(val)
-        args.beam = int(val)
-    elif key == 'nbest':
-        args.nbest = int(val)
-    elif key == 'range':
-        idx,_ = args.range.split(":")
-        decoder.set_start_sen_id(int(idx)-1) # -1 because indices start with 1
-    elif key == 'predictor_weights' and val:
-        logging.debug("Set predictor weights to %s on the fly" % val)
-        for idx,weight in enumerate(val.split(',')):
-            if '_' in weight: # wrapper predictor
-                wrapper_weights = [float(w) for w in weight.split('_')]
-                slave_pred = decoder.predictors[idx][0]
-                for i in xrange(len(wrapper_weights)-1):
-                    slave_pred.my_weight = wrapper_weights[i]
-                    slave_pred = slave_pred.slave_predictor
-                slave_pred.slave_weight = wrapper_weights[-1]
-            else: # normal predictor (not wrapped)
-                decoder.predictors[idx] = (decoder.predictors[idx][0],
-                                           float(weight))
-    else:
-        logging.info("Need to rebuild the decoder from scratch...")
-        decoder = decode_utils.create_decoder(args)
-    return decoder
-
-
 def _print_shell_help():
     """Print help text for shell usage in interactive mode."""
     print("Available SGNMT directives:")
@@ -79,8 +35,6 @@ def _print_shell_help():
     print("                             parameters use")
     print("                               !sgnmt config (without arguments)")
     print("!sgnmt decode <file_name>     Decode sentences in the given file")
-    print("!sgnmt reset                  Reset predictors, e.g. set sentence")
-    print("                             counter to 1 for fst predictor.")
     print("!sgnmt quit                   Quit SGNMT")
     print("!sgnmt help                   Print this help")
 
@@ -122,10 +76,7 @@ else: # Interactive mode: shell or stdin
                 cmd = input_[1]
                 if cmd == "help":
                     _print_shell_help()
-                elif cmd == "reset":
-                    decoder.reset_predictors()
                 elif cmd == "decode":
-                    decoder.reset_predictors()
                     with open(input_[2]) as f:
                         decode_utils.do_decode(
                             decoder, outputs,
@@ -140,7 +91,7 @@ else: # Interactive mode: shell or stdin
                         setattr(args, key, val) # TODO: non-string args!
                         outputs = decode_utils.create_output_handlers()
                         if not key in ['outputs', 'output_path']:
-                            decoder = _update_decoder(decoder, key, val)
+                            decoder = decode_utils.create_decoder(args)
                     else:
                         logging.error("Could not parse SGNMT directive")
                 else:

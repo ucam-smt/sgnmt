@@ -26,7 +26,10 @@ class TensorFlowRNNLMPredictor(Predictor):
 
   def initialize(self, src_sentence):
     # src_sentence is list of integers, without <s> and </s>
-    self.reset()
+    self.input = [utils.EOS_ID]
+    self.model_state = {}
+    self.word_count = 0
+    self.consumed = []
 
     # Initialize rnnlm state
     initial_state = self.model.initial_state.eval(session=self.session)
@@ -56,12 +59,6 @@ class TensorFlowRNNLMPredictor(Predictor):
 
   def set_state(self, state):
     self.input, self.model_state, self.word_count, self.consumed = state
-
-  def reset(self):
-    self.input = [utils.EOS_ID]
-    self.model_state = {}
-    self.word_count = 0
-    self.consumed = []
 
   def is_equal(self, state1, state2):
     """Returns true if the history is the same """
