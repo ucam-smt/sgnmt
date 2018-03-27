@@ -213,7 +213,6 @@ class ParsePredictor(Predictor):
         """Returns true if the current node is the same """
         return state1 == state2
 
-
 class TokParsePredictor(Predictor):
     """
     Unlike ParsePredictor, the grammar predicts tokens according to a grammar
@@ -248,7 +247,6 @@ class TokParsePredictor(Predictor):
         self.prepare_grammar()
         self.tok_to_internal_state = {}
         
-
     def norm_hypo_score(self, hypo):
         hypo.norm_score = self.norm_score(hypo.score, hypo.beam_len)
         
@@ -257,7 +255,6 @@ class TokParsePredictor(Predictor):
         if self.internal_alpha != 1.0:
             length_penalty = pow(length_penalty, self.internal_alpha)
         return score / length_penalty
-
 
     def prepare_grammar(self):
         self.lhs_to_can_follow = {}
@@ -308,7 +305,7 @@ class TokParsePredictor(Predictor):
         self.current_lhs = None
         self.current_rhs = []
         self.stack = [utils.EOS_ID]
-        self.update_stacks(utils.GO_ID)
+        self.consume(utils.GO_ID)
 
     def replace_lhs(self):
         while self.current_rhs:
@@ -367,6 +364,7 @@ class TokParsePredictor(Predictor):
                     best_hypo.predictor_state = next_state
                     best_hypo.norm_score = new_norm_score
                     best_posterior = new_post
+                    self.norm_score(best_hypo)
                 else:
                     if hypo.beam_len == self.max_internal_len:
                         logging.info('cutting off internal hypo - too long')
@@ -376,6 +374,7 @@ class TokParsePredictor(Predictor):
                             new_hypo = copy.deepcopy(hypo)
                             new_hypo.extend(new_post[tok], next_state, tok)
                             next_hypos.append(new_hypo)
+
             map(self.norm_hypo_score, next_hypos)
             next_hypos.sort(key=lambda h: -h.norm_score)
             hypos = next_hypos[:self.beam_size]
