@@ -10,26 +10,23 @@ visit the tutorial home page:
 http://ucam-smt.github.io/tutorial/sgnmt 
 """
 
-import codecs
 import logging
 import os
 import sys
+import codecs
 
 from cam.sgnmt import utils
+<<<<<<< HEAD
 from cam.sgnmt.decoding import core
 
+=======
+>>>>>>> 1f8bd07fc9af0d86dd00d2f9971cfd36879888db
 from cam.sgnmt import decode_utils
-from cam.sgnmt.ui import get_args, get_parser, validate_args
-
-
-# UTF-8 support
-if sys.version_info < (3, 0):
-    sys.stderr = codecs.getwriter('UTF-8')(sys.stderr)
-    sys.stdout = codecs.getwriter('UTF-8')(sys.stdout)
-    sys.stdin = codecs.getreader('UTF-8')(sys.stdin)
+from cam.sgnmt.ui import get_args, get_parser
 
 # Load configuration from command line arguments or configuration file
 args = get_args()
+<<<<<<< HEAD
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -138,6 +135,9 @@ def _process_inputs():
             input_lst.append(inputs_tmp[j][i])
         inputs.append(input_lst)
     return inputs
+=======
+decode_utils.base_init(args)
+>>>>>>> 1f8bd07fc9af0d86dd00d2f9971cfd36879888db
 
 
 def _print_shell_help():
@@ -151,8 +151,6 @@ def _print_shell_help():
     print("                             parameters use")
     print("                               !sgnmt config (without arguments)")
     print("!sgnmt decode <file_name>     Decode sentences in the given file")
-    print("!sgnmt reset                  Reset predictors, e.g. set sentence")
-    print("                             counter to 1 for fst predictor.")
     print("!sgnmt quit                   Quit SGNMT")
     print("!sgnmt help                   Print this help")
 
@@ -160,18 +158,14 @@ def _print_shell_help():
 utils.load_src_wmap(args.src_wmap)
 utils.load_trg_wmap(args.trg_wmap)
 utils.load_trg_cmap(args.trg_cmap)
-decoder = decode_utils.create_decoder(args)
+decoder = decode_utils.create_decoder()
 outputs = decode_utils.create_output_handlers()
 
 if args.input_method == 'file':
-    # Check for additional input files
-    if getattr(args, "src_test2"):
-        decode_utils.do_decode(decoder, outputs, _process_inputs())
-    else:
-        with codecs.open(args.src_test, encoding='utf-8') as f:
-            decode_utils.do_decode(decoder,
-                                   outputs,
-                                   [line.strip().split() for line in f])
+    with codecs.open(args.src_test, encoding='utf-8') as f:
+        decode_utils.do_decode(decoder,
+                               outputs,
+                               [line.strip().split() for line in f])
 elif args.input_method == 'dummy':
     decode_utils.do_decode(decoder, outputs, False)
 else: # Interactive mode: shell or stdin
@@ -198,10 +192,7 @@ else: # Interactive mode: shell or stdin
                 cmd = input_[1]
                 if cmd == "help":
                     _print_shell_help()
-                elif cmd == "reset":
-                    decoder.reset_predictors()
                 elif cmd == "decode":
-                    decoder.reset_predictors()
                     with open(input_[2]) as f:
                         decode_utils.do_decode(
                             decoder, outputs,
@@ -216,7 +207,7 @@ else: # Interactive mode: shell or stdin
                         setattr(args, key, val) # TODO: non-string args!
                         outputs = decode_utils.create_output_handlers()
                         if not key in ['outputs', 'output_path']:
-                            decoder = _update_decoder(decoder, key, val)
+                            decoder = decode_utils.create_decoder(args)
                     else:
                         logging.error("Could not parse SGNMT directive")
                 else:

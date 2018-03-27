@@ -294,10 +294,6 @@ class FSTTokPredictor(Predictor):
     def set_state(self, state):
         self.states, self.last_prediction = state
 
-    def reset(self):
-        """Pass through to slave predictor """
-        self.slave_predictor.reset()
-
     def estimate_future_cost(self, hypo):
         """Not implemented yet"""
         return 0.0
@@ -457,10 +453,6 @@ class Word2charPredictor(UnboundedVocabularyPredictor):
         """Pass through to slave predictor """
         self.word_stub, slave_state = state
         self.slave_predictor.set_state(slave_state)
-
-    def reset(self):
-        """Pass through to slave predictor """
-        self.slave_predictor.reset()
 
     def estimate_future_cost(self, hypo):
         """Not supported """

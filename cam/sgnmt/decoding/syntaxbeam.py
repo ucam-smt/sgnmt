@@ -7,7 +7,6 @@ import numpy as np
 
 from cam.sgnmt import utils
 from cam.sgnmt.decoding.beam import BeamDecoder
-from cam.sgnmt.decoding.core import PartialHypothesis
 
 
 class SyntaxBeamDecoder(BeamDecoder):
@@ -27,10 +26,11 @@ class SyntaxBeamDecoder(BeamDecoder):
         `BeamDecoder`, the following values are fetched from 
         `decoder_args`:
         
-            syntax_max_terminal_id (int): Synchronization symbol. If negative, fetch
-                             '</w>' from ``utils.trg_cmap`` 
+            syntax_min_terminal_id (int): All IDs smaller than this are NTs
+            syntax_max_terminal_id (int): All IDs larger than this are NTs
         """
         super(SyntaxBeamDecoder, self).__init__(decoder_args)
+        self.min_terminal_id = decoder_args.syntax_min_terminal_id
         self.max_terminal_id = decoder_args.syntax_max_terminal_id
         self.min_terminal_id = decoder_args.syntax_min_terminal_id
         self.max_depth = decoder_args.syntax_max_depth
@@ -122,6 +122,8 @@ class SyntaxBeamDecoder(BeamDecoder):
             next_hypos = []
             next_scores = []
             for hypo in hypos:
+                logging.debug("Expand (it=%d score=%f): %s"
+                              % (it, hypo.score, hypo.trgt_sentence))
                 if hypo.get_last_word() == utils.EOS_ID:
                     next_hypos.append(hypo)
                     next_scores.append(self._get_combined_score(hypo))

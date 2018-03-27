@@ -1,7 +1,8 @@
-"""Contains all the basic interfaces and abstract classes for decoding.
-This is mainly ``Predictor`` and ``Decoder``. Functionality should be
-implemented mainly in the ``predictors`` package for predictors and in
-the ``decoding.decoder`` module for decoders.
+"""Contains all the basic interfaces and abstract classes for decoders.
+The ``Decoder`` class provides common functionality for all decoders.
+The ``Hypothesis`` class represents complete hypotheses, which are 
+returned by decoders. ``PartialHypothesis`` is a helper class which can
+be used by predictors to represent translation prefixes.
 """
 
 from abc import abstractmethod
@@ -9,10 +10,15 @@ import copy
 
 from cam.sgnmt import utils
 from cam.sgnmt.predictors.core import UnboundedVocabularyPredictor
+from cam.sgnmt.decoding.interpolation import FixedInterpolationStrategy, \
+                                             EntropyInterpolationStrategy, \
+                                             MoEInterpolationStrategy
 from cam.sgnmt.utils import Observable, Observer, MESSAGE_TYPE_DEFAULT, \
     MESSAGE_TYPE_POSTERIOR, MESSAGE_TYPE_FULL_HYPO, NEG_INF
 import numpy as np
+from operator import mul
 import logging
+
 
 class Hypothesis:
     """Complete translation hypotheses are represented by an instance
@@ -126,7 +132,7 @@ class PartialHypothesis:
         hypo.score = self.score + score
         hypo.score_breakdown = copy.copy(self.score_breakdown)
         hypo.trgt_sentence = self.trgt_sentence + [word]
-        hypo.add_score_breakdown(score_breakdown)
+        hypo.score_breakdown.append(score_breakdown)
         return hypo
     
     def cheap_expand(self, word, score, score_breakdown):
@@ -151,15 +157,8 @@ class PartialHypothesis:
         hypo.score_breakdown = copy.copy(self.score_breakdown)
         hypo.trgt_sentence = self.trgt_sentence + [word]
         hypo.word_to_consume = word
-        hypo.add_score_breakdown(score_breakdown)
+        hypo.score_breakdown.append(score_breakdown)
         return hypo
-
-    def add_score_breakdown(self, added_scores):
-        """Helper function for adding the word level score breakdowns
-        for the newly added word to the hypothesis score breakdown.
-        """
-        self.score_breakdown.append(added_scores)
-        self.score = breakdown2score_partial(self.score, self.score_breakdown)
 
 
 """The ``CLOSED_VOCAB_SCORE_NORM_*`` constants define the normalization
@@ -266,7 +265,6 @@ class Heuristic(Observer):
         """
         pass
     
-
 def breakdown2score_sum(working_score, score_breakdown):
     """Implements the combination scheme 'sum' by always returning
     ``working_score``. This function is designed to be assigned to
@@ -367,6 +365,7 @@ full hypothesis, i.e. only once per hypothesis
 """
 breakdown2score_full = breakdown2score_sum
 
+
 class Decoder(Observable):    
     """A ``Decoder`` instance represents a particular search strategy
     such as A*, beam search, greedy search etc. Decisions are made 
@@ -424,13 +423,35 @@ class Decoder(Observable):
             self.combine_posteriors = self._combine_posteriors_norm_non_zero
 
         self.current_sen_id = -1
-        self.start_sen_id = 0
         self.apply_predictors_count = 0
         self.lower_bounds = []
         if decoder_args.score_lower_bounds_file:
             with open(decoder_args.score_lower_bounds_file) as f:
                 for line in f:
                     self.lower_bounds.append(float(line.strip()))
+        self.interpolation_strategies = []
+        if decoder_args.interpolation_strategy:
+            self.interpolation_mean = decoder_args.interpolation_weights_mean
+            pred_strat_names = decoder_args.interpolation_strategy.split(',')
+            all_strat_names = set([])
+            for s in pred_strat_names:
+                all_strat_names |= set(s.split("|"))
+            for name in set(all_strat_names):
+                pred_indices = [idx for idx, strat in enumerate(pred_strat_names)
+                                    if name in strat]
+                if name == 'fixed':
+                    strat = FixedInterpolationStrategy()
+                elif name == 'entropy':
+                    strat = EntropyInterpolationStrategy(
+                             decoder_args.pred_trg_vocab_size)
+                elif name == 'moe':
+                    strat = MoEInterpolationStrategy(len(pred_indices), 
+                                                     decoder_args)
+                else:
+                    logging.error("Unknown interpolation strategy '%s'. "
+                                  "Ignoring..." % name)
+                    continue
+                self.interpolation_strategies.append((strat, pred_indices))
     
     def add_predictor(self, name, predictor, weight=1.0):
         """Adds a predictor to the decoder. This means that this 
@@ -530,6 +551,8 @@ class Decoder(Observable):
                 else:
                     max_arr_length = max(max_arr_length, len(posterior))
             if max_arr_length:
+                if all(all(el < max_arr_length for el in k) for k in key_sets):
+                    return xrange(max_arr_length)
                 key_sets.append(xrange(max_arr_length))
             if len(key_sets) == 1:
                 return key_sets[0]
@@ -570,10 +593,53 @@ class Decoder(Observable):
             else:
                 unrestricted.append(posterior)
         return restricted, unrestricted
+
+    def apply_interpolation_strategy(
+            self, pred_weights, non_zero_words, posteriors, unk_probs):
+        """Applies the interpolation strategies to find the predictor 
+        weights for this apply_predictors() call.
     
-    def apply_predictors(self):
+        Args:
+            pred_weights (list): a prior predictor weights
+            non_zero_words (set): All words with positive probability
+            posteriors: Predictor posterior distributions calculated
+                        with ``predict_next()``
+            unk_probs: UNK probabilities of the predictors, calculated
+                       with ``get_unk_probability``
+
+        Returns:
+          A list of predictor weights.
+        """
+        if self.interpolation_strategies:
+            predictions = [[] for _ in pred_weights]
+            for strat, pred_indices in self.interpolation_strategies:
+                new_pred_weights = strat.find_weights(
+                        [pred_weights[idx] for idx in pred_indices],
+                        non_zero_words,
+                        [posteriors[idx] for idx in pred_indices],
+                        [unk_probs[idx] for idx in pred_indices])
+                for idx, weight in zip(pred_indices, new_pred_weights):
+                    predictions[idx].append(weight)
+            for idx, preds in enumerate(predictions):
+                if preds:
+                    if self.interpolation_mean == 'arith':
+                        pred_weights[idx] = sum(preds) / float(len(preds))
+                    else:
+                        pred_weights[idx] = reduce(mul, preds, 1)
+                    if self.interpolation_mean == 'geo':
+                        pred_weights[idx] = pred_weights[idx]**(1.0/len(preds))
+            if self.interpolation_mean == 'prob':
+                partition = sum(pred_weights)
+                for idx in xrange(len(pred_weights)):
+                    pred_weights[idx] /= partition
+        return pred_weights
+    
+    def apply_predictors(self, top_n=0):
         """Get the distribution over the next word by combining the
         predictor scores.
+
+        Args:
+            top_n (int): If positive, return only the best n words.
         
         Returns:
             combined,score_breakdown: Two dicts. ``combined`` maps 
@@ -593,8 +659,9 @@ class Decoder(Observable):
         # Add unbounded predictors and unk probabilities
         posteriors = []
         unk_probs = []
+        pred_weights = []
         bounded_idx = 0
-        for (p, _) in self.predictors:
+        for (p, w) in self.predictors:
             if isinstance(p, UnboundedVocabularyPredictor):
                 posterior = p.predict_next(non_zero_words)
             else: # Take it from the bounded_* variables
@@ -602,18 +669,27 @@ class Decoder(Observable):
                 bounded_idx += 1
             posteriors.append(posterior)
             unk_probs.append(p.get_unk_probability(posterior))
-        ret = self.combine_posteriors(non_zero_words, posteriors, unk_probs)
-    
+            pred_weights.append(w)
+        pred_weights = self.apply_interpolation_strategy(
+                pred_weights, non_zero_words, posteriors, unk_probs)
+        ret = self.combine_posteriors(
+            non_zero_words, posteriors, unk_probs, pred_weights, top_n)
         if not self.allow_unk_in_output and utils.UNK_ID in ret[0]:
             del ret[0][utils.UNK_ID]
             del ret[1][utils.UNK_ID]
+        if top_n > 0 and len(ret[0]) > top_n:
+            top = utils.argmax_n(ret[0], top_n)
+            ret = ({w: ret[0][w] for w in top},
+                   {w: ret[1][w] for w in top})
         self.notify_observers(ret, message_type = MESSAGE_TYPE_POSTERIOR)
         return ret
     
     def _combine_posteriors_norm_none(self,
                                       non_zero_words,
                                       posteriors,
-                                      unk_probs):
+                                      unk_probs,
+                                      pred_weights,
+                                      top_n=0):
         """Combine predictor posteriors according the normalization
         scheme ``CLOSED_VOCAB_SCORE_NORM_NONE``. For more information
         on closed vocabulary predictor score normalization see the 
@@ -625,16 +701,36 @@ class Decoder(Observable):
                         with ``predict_next()``
             unk_probs: UNK probabilities of the predictors, calculated
                        with ``get_unk_probability``
+            pred_weights (list): Predictor weights
+            top_n (int): If positive, return only top n words
         
         Returns:
             combined,score_breakdown: like in ``apply_predictors()``
         """
+        if isinstance(non_zero_words, xrange) and top_n > 0:
+            n_words = len(non_zero_words)
+            scaled_posteriors = []
+            for posterior, unk_prob, weight in zip(
+                          posteriors, unk_probs, pred_weights):
+                if isinstance(posterior, dict):
+                    arr = np.full(n_words, unk_prob)
+                    for word, score in posterior.iteritems():
+                        arr[word] = score
+                    scaled_posteriors.append(arr * weight)
+                else:
+                    n_unks = n_words - len(posterior)
+                    if n_unks:
+                        posterior = np.concatenate((
+                               posterior, np.full(n_unks, unk_prob)))
+                    scaled_posteriors.append(posterior * weight)
+            combined_scores = np.sum(scaled_posteriors, axis=0)
+            non_zero_words = utils.argmax_n(combined_scores, top_n)
         combined = {}
         score_breakdown = {}
         for trgt_word in non_zero_words:
             preds = [(utils.common_get(posteriors[idx],
                                        trgt_word, unk_probs[idx]), w)
-                        for idx, (_,w) in enumerate(self.predictors)]
+                        for idx, w in enumerate(pred_weights)]
             combined[trgt_word] = self.combi_predictor_method(preds) 
             score_breakdown[trgt_word] = preds
         return combined, score_breakdown
@@ -643,7 +739,9 @@ class Decoder(Observable):
     def _combine_posteriors_norm_rescale_unk(self,
                                              non_zero_words,
                                              posteriors,
-                                             unk_probs):
+                                             unk_probs,
+                                             pred_weights,
+                                             top_n=0):
         """Combine predictor posteriors according the normalization
         scheme ``CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK``. For more 
         information on closed vocabulary predictor score normalization 
@@ -655,13 +753,15 @@ class Decoder(Observable):
                         with ``predict_next()``
             unk_probs: UNK probabilities of the predictors, calculated
                        with ``get_unk_probability``
+            pred_weights (list): Predictor weights
+            top_n (int): If positive, return only top n words
         
         Returns:
             combined,score_breakdown: like in ``apply_predictors()``
         """
         n_predictors = len(self.predictors)
         unk_counts = [0.0] * n_predictors
-        for idx, (_,w) in enumerate(self.predictors):
+        for idx, w in enumerate(pred_weights):
             if unk_probs[idx] >= -0.00001 or unk_probs[idx] == NEG_INF:
                 continue
             for trgt_word in non_zero_words:
@@ -670,13 +770,16 @@ class Decoder(Observable):
         return self._combine_posteriors_norm_none(
                           non_zero_words,
                           posteriors,
-                          [unk_probs[idx] - np.log(max(1.0, unk_counts[idx])) 
-                               for idx in xrange(n_predictors)])
+                          [unk_probs[idx] - np.log(max(1.0, unk_counts[idx]))
+                               for idx in xrange(n_predictors)],
+                          top_n)
     
     def _combine_posteriors_norm_exact(self,
                                        non_zero_words,
                                        posteriors,
-                                       unk_probs):
+                                       unk_probs,
+                                       pred_weights,
+                                       top_n=0):
         """Combine predictor posteriors according the normalization
         scheme ``CLOSED_VOCAB_SCORE_NORM_EXACT``. For more information
         on closed vocabulary predictor score normalization see the 
@@ -688,6 +791,8 @@ class Decoder(Observable):
                         with ``predict_next()``
             unk_probs: UNK probabilities of the predictors, calculated
                        with ``get_unk_probability``
+            pred_weights (list): Predictor weights
+            top_n (int): Not implemented!
         
         Returns:
             combined,score_breakdown: like in ``apply_predictors()``
@@ -697,7 +802,7 @@ class Decoder(Observable):
         unk_counts = [0] * n_predictors
         for trgt_word in non_zero_words:
             preds = []
-            for idx, (_,w) in enumerate(self.predictors):
+            for idx, w in enumerate(pred_weights):
                 if utils.common_contains(posteriors[idx], trgt_word):
                     preds.append((posteriors[idx][trgt_word], w))
                 else:
@@ -716,7 +821,9 @@ class Decoder(Observable):
     def _combine_posteriors_norm_reduced(self,
                                          non_zero_words,
                                          posteriors,
-                                         unk_probs):
+                                         unk_probs,
+                                         pred_weights,
+                                         top_n=0):
         """Combine predictor posteriors according the normalization
         scheme ``CLOSED_VOCAB_SCORE_NORM_REDUCED``. For more information
         on closed vocabulary predictor score normalization see the 
@@ -728,6 +835,8 @@ class Decoder(Observable):
                         with ``predict_next()``
             unk_probs: UNK probabilities of the predictors, calculated
                        with ``get_unk_probability``
+            pred_weights (list): Predictor weights
+            top_n (int): Not implemented!
         
         Returns:
             combined,score_breakdown: like in ``apply_predictors()``
@@ -738,7 +847,7 @@ class Decoder(Observable):
             score_breakdown_raw[trgt_word] = [(utils.common_get(
                                                 posteriors[idx],
                                                 trgt_word, unk_probs[idx]), w)
-                        for idx, (_,w) in enumerate(self.predictors)]
+                        for idx, w in enumerate(pred_weights)]
         sums = []
         for idx in xrange(n_predictors):
             sums.append(utils.log_sum([preds[idx][0] 
@@ -796,19 +905,8 @@ class Decoder(Observable):
             score_breakdown[trgt_word] = preds
         return combined, score_breakdown
     
-    def set_start_sen_id(self, start_sen_id):
-        """Set the internal sentence id counter `self.current_sen_id``
-        to ``start_sen_id`` and resets all predictors."""
-        self.start_sen_id = start_sen_id
-        self.reset_predictors()
-
-    def reset_predictors(self):
-        """Calls ``reset()`` on all predictors and resets the sentence
-        id counter ``self.current_sen_id``. """
-        for (p, _) in self.predictors:
-            p.reset()
-        # -1 because its incremented in initialize_predictors
-        self.current_sen_id = self.start_sen_id-1
+    def set_current_sen_id(self, sen_id):
+        self.current_sen_id = sen_id - 1  # -1 because incremented in init()
             
     def initialize_predictors(self, src_sentence):
         """First, increases the sentence id counter and calls
@@ -931,6 +1029,7 @@ class Decoder(Observable):
         Returns:
             float. Weighted sum out1*weight1+out2*weight2...
         """
+        #return sum(f*w for f, w in x)
         (fAcc, _) = reduce(lambda (f1,w1), (f2,w2):(f1*w1 + f2*w2, 1.0),
                            x,
                            (0.0, 1.0))

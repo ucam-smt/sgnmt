@@ -36,7 +36,7 @@ class GreedyDecoder(Decoder):
         trgt_word = None
         score = 0.0
         while trgt_word != utils.EOS_ID and len(trgt_sentence) <= self.max_len:
-            posterior,breakdown = self.apply_predictors()
+            posterior,breakdown = self.apply_predictors(1)
             trgt_word = utils.argmax(posterior)
             score += posterior[trgt_word]
             trgt_sentence.append(trgt_word)

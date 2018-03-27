@@ -882,7 +882,8 @@ class RuleXtractPredictor(Predictor):
     
     def initialize(self, src_sentence):
         """Delete all bins and add the initial cell to the first bin """
-        self.reset()
+        self.stacks = []
+        self.n_consumed = 0
         self.src_seq = [utils.GO_ID] + src_sentence + [utils.EOS_ID]
         self.src_len = len(self.src_seq)
         span = Span([-self.start_nt], (0, self.src_len))
@@ -913,9 +914,4 @@ class RuleXtractPredictor(Predictor):
     def set_state(self, state):
         """Set the predictor state. """
         self.stacks,self.finals,self.n_consumed = state
-
-    def reset(self):
-        """Empty the stack and delete history. """
-        self.stacks = []
-        self.n_consumed = 0
 

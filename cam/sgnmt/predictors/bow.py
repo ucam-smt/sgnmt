@@ -160,10 +160,6 @@ class BagOfWordsPredictor(Predictor):
         """State of this predictor is the current bag """
         self.bag = state
 
-    def reset(self):
-        """Empty method. """
-        pass
-    
     def initialize_heuristic(self, src_sentence):
         """Calls ``reset`` of the used unigram table with estimates
         ``self.estimates`` to clear all statistics from the previous

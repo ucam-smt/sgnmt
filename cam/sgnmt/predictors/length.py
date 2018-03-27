@@ -230,10 +230,6 @@ class NBLengthPredictor(Predictor):
         """Set the predictor state """
         self.n_consumed,self.prev_eos_probs = state
 
-    def reset(self):
-        """Empty method. """
-        pass
-    
     def is_equal(self, state1, state2):
         """Returns true if the number of consumed words is the same """
         n1,_ = state1
@@ -303,10 +299,6 @@ class WordCountPredictor(Predictor):
         """Empty """
         pass
 
-    def reset(self):
-        """Empty method. """
-        pass
-    
     def is_equal(self, state1, state2):
         """Returns true """
         return True
@@ -435,10 +427,6 @@ class ExternalLengthPredictor(Predictor):
         """Set the number of consumed words """
         self.n_consumed = state
 
-    def reset(self):
-        """Empty method. """
-        pass
-    
     def is_equal(self, state1, state2):
         """Returns true if the number of consumed words is the same """
         return state1 == state2
@@ -495,6 +483,7 @@ class NgramCountPredictor(Predictor):
         """Sets up self.max_history_len and self.ngrams """
         self.max_history_len = 0
         self.ngrams = SimpleTrie()
+        logging.debug("Loading n-gram scores from %s..." % path)
         with open(path) as f:
             for line in f:
                 ngram,score = line.split(':')
@@ -550,10 +539,6 @@ class NgramCountPredictor(Predictor):
         """Current history is the predictor state """
         self.cur_history,self.discounts = state
 
-    def reset(self):
-        """Empty method. """
-        pass
-    
     def is_equal(self, state1, state2):
         """Hypothesis recombination is
         not supported if discounting is enabled.
@@ -666,10 +651,6 @@ class UnkCountPredictor(Predictor):
     def set_state(self, state):
         """Set the number of consumed words """
         self.n_unk,self.n_consumed,self.unk_prob,self.consumed_prob = state
-
-    def reset(self):
-        """Empty method. """
-        pass
 
     def is_equal(self, state1, state2):
         """Returns true if the state is the same"""
@@ -796,10 +777,6 @@ class NgramizePredictor(Predictor):
     def set_state(self, state):
         """State is the current n-gram history. """
         self.history, self.cur_unk_score = state
-
-    def reset(self):
-        """Pass through to slave predictor """
-        self.slave_predictor.reset()
 
     def set_current_sen_id(self, cur_sen_id):
         """We need to override this method to propagate current\_

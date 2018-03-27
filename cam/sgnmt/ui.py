@@ -1,16 +1,11 @@
 """This module handles configuration and user interface when using 
 blocks. ``yaml`` and ``ArgumentParser`` are used for parsing config
 files and command line arguments.
-
-TODO: Remove Blocks dependency
 """
 
 import argparse
 import logging
 import os
-
-from cam.sgnmt.blocks.nmt import blocks_add_nmt_config
-
 
 YAML_AVAILABLE = True
 try:
@@ -79,203 +74,6 @@ def parse_param_string(param):
     return config
 
 
-def get_blocks_train_parser():
-    """Get the parser object for NMT training configuration. """
-    parser = argparse.ArgumentParser()
-    parser.register('type','bool',str2bool)
-    parser.add_argument("--bokeh",  default=False, action="store_true",
-                        help="Use bokeh server for plotting")
-    parser.add_argument("--reshuffle",  default=False, action="store_true",
-                        help="Reshuffle before each epoch")
-    parser.add_argument("--slim_iteration_state",  default=False, action="store_true",
-                        help="Per default the iteration state stores the data "
-                        "stream and the main loop epoch iterator. Enabling "
-                        "this option only stores the epoch iterator. This "
-                        "results in a much smaller iteration state, but the "
-                        "data stream is reset after reloading. Normally, you "
-                        "can use slim iteration states if your data stream "
-                        "does reshuffling")
-    parser.add_argument("--reset_epoch",  default=False, action="store_true",
-                        help="Set epoch_started in main loop status to false. "
-                        "Sometimes required if you change training parameters "
-                        "such as --mono_data_integration")
-    parser.add_argument("--mono_data_integration", default="none",
-                        choices=['none'],
-                        help="This parameter specifies how to use "
-                        "monolingual data. Currently, we only support "
-                        "using the target data.\n\n"
-                        "* 'none': Do not use monolingual data\n")
-    parser.add_argument("--loss", default="default",
-                        choices=['default', 'gleu'],
-                        help="Training loss function.\n\n"
-                        "* 'default': Standard loss function: squared error "
-                        "with target feature maps, else cross entropy\n"
-                        "* 'gleu': Reinforcement learning objective function "
-                        "as proposed by Wu et al., 2016 (Googles NMT)")
-    parser.add_argument("--add_mono_dummy_data", default=True, type='bool',
-                        help="If the method specified with mono_data_"
-                        "integration uses monolingual data, it usually "
-                        "combines synthetic and dummy source sentences. Set "
-                        "this to false to disable dummy source sentences.")
-    parser.add_argument("--backtrans_nmt_config",  default="",
-                        help="A string describing the configuration of the "
-                        "back-translating NMT system. Syntax is equal to nmt_"
-                        "config2 in decode.py: Comma separated list of name-"
-                        "value pairs, where name is one of the NMT "
-                        "configuration parameters. E.g. saveto=train.back,"
-                        "src_vocab_size=50000,trg_vocab_size=50000")
-    parser.add_argument("--backtrans_reload_frequency", default=0, type=int,
-                        help="The back-translating NMT model is reloaded every"
-                        " n updates. This is useful if the back-translating "
-                        "NMT system is currently trained by itself with the "
-                        "same policy. This enables us to train two NMT "
-                        "systems in opposite translation directions and "
-                        "benefit from gains in the other system immediately. "
-                        "Set to 0 to disable reloading")
-    parser.add_argument("--backtrans_store", default=True, type='bool',
-                        help="Write the back-translated sentences to the "
-                        "file system.")
-    parser.add_argument("--backtrans_max_same_word", default=0.3, type=float,
-                        help="Used for sanity check of the backtranslation. "
-                        "If the most frequent word in the backtranslated "
-                        "sentence has relative frequency higher than this, "
-                         "discard this sentence pair")
-    parser.add_argument("--learning_rate", default=0.002, type=float,
-                        help="Learning rate for AdaGrad and Adam")
-    parser.add_argument("--prune_every", default=-1, type=int,
-                        help="Prune model every n iterations. Pruning is " 
-                        "disabled if this is < 1")
-    parser.add_argument("--prune_reset_every", default=-1, type=int,
-                        help="Reset pruning statistics every n iterations. If " 
-                        "set to -1, use --prune_every")
-    parser.add_argument("--prune_n_steps", default=10, type=int,
-                        help="Number of pruning steps until the target layer "
-                        "sizes should be reached")
-    parser.add_argument("--prune_layers",  
-                        default="encfwdgru:1000,encbwdgru:1000,decgru:1000",
-                        help="A comma separated list of <layer>:<size> pairs. "
-                        "<layer> is one of 'encfwdgru', 'encbwdgru', 'decgru',"
-                        " 'decmaxout' which should be shrunk to <size> during "
-                        "training. Pruned neurons are marked by setting all "
-                        "in- and output connection to zero.")
-    parser.add_argument("--prune_layout_path",  
-                        default="prune.layout",
-                        help="Points to a file which defines which weight "
-                        "matrices are connected to which prunable layers. The "
-                        "rows/columns of these matrices are set to zero for "
-                        "all removed neurons. The format of this file is \n"
-                        "<layer> <in|out> <mat_name> <dim> <start-idx>=0.0\n"
-                        "<layer> is one of the layer names specified via "
-                        "--prune_layers. Set <start-idx> to 0.5 to add an "
-                        "offset of half the matrix dimension to the indices.")
-    parser.add_argument("--sampling_freq", default=13, type=int,
-                        help="NOT USED, just to prevent old code from breaking")
-    parser.add_argument("--hook_samples", default=0, type=int,
-                        help="NOT USED, just to prevent old code from breaking")
-    blocks_add_nmt_config(parser)
-    return parser
-
-
-def get_blocks_align_parser():
-    """Get the parser object for NMT alignment configuration. """
-    parser = argparse.ArgumentParser()
-    parser.register('type','bool',str2bool)
-    
-    parser.add_argument("--iterations", default=50, type=int,
-                        help="Number of optimization iterations for each token")
-    parser.add_argument("--nmt_model_selector", default="bleu",
-                        choices=['params', 'bleu', 'time'],
-                        help="NMT training normally creates several files in "
-                        "the ./train/ directory from which we can load the NMT"
-                        " model. Possible options:\n\n"
-                        "* 'params': Load parameters from params.npz. This is "
-                        "usually the most recent model.\n"
-                        "* 'bleu': Load from the best_bleu_params_* file with "
-                        "the best BLEU score.\n"
-                        "* 'time': Load from the most recent "
-                        "best_bleu_params_* file.")
-    parser.add_argument("--alignment_model", default="nam",
-                        choices=['nam', 'nmt'],
-                        help="Defines the alignment model.\n\n"
-                        "* 'nam': Neural alignment model. Similar to NMT but "
-                        "trains the alignment weights explicitly for each "
-                        "sentence pair instead of using the NMT attention "
-                        "model.\n"
-                        "* 'nmt': Standard NMT attention model following "
-                        "Bahdanau et. al., 2015.")
-    parser.add_argument("--output_path", default="sgnmt-out.%s",
-                        help="Path to the output files generated by SGNMT. You "
-                        "can use the placeholder %%s for the format specifier.")
-    parser.add_argument("--outputs", default="",
-                        help="Comma separated list of output formats: \n\n"
-                        "* 'csv': Plain text file with alignment matrix\n"
-                        "* 'npy': Alignment matrices in numpy's npy format\n"
-                        "* 'align': Usual (Pharaoh) alignment format.\n")
-    
-    blocks_add_nmt_config(parser)
-    return parser
-
-
-def get_blocks_batch_decode_parser():
-    """Get the parser object for NMT batch decoding. """
-    parser = argparse.ArgumentParser()
-    parser.register('type','bool',str2bool)
-    
-    parser.add_argument("--src_test", default="test_en",
-                        help="Path to source test set. This is expected to be "
-                        "a plain text file with one source sentence in each "
-                        "line. Words need to be indexed, i.e. use word IDs "
-                        "instead of their string representations.")
-    parser.add_argument("--range", default="",
-                         help="Defines the range of sentences to be processed. "
-                         "Syntax is equal to HiFSTs printstrings and lmerts "
-                         "idxrange parameter: <start-idx>:<end-idx> (both "
-                         "inclusive, start with 1). E.g. 2:5 means: skip the "
-                         "first sentence, process next 4 sentences")
-    parser.add_argument("--enc_max_words", default=5000, type=int,
-                        help="Maximum number of words in an encoder batch. "
-                        "These batches compute source side annotations. "
-                        "Encoder batches are clustered by source sentence "
-                        "length, so smaller batches are possible.")
-    parser.add_argument("--min_jobs", default=2, type=int,
-                        help="The CPU scheduler starts to construct small "
-                        "jobs when the total number of jobs in the pipelines "
-                        "is below this threshold. This prevents the computation "
-                        "thread from being idle, at the cost of smaller " 
-                        "batches")
-    parser.add_argument("--max_tasks_per_job", default=450, type=int,
-                        help="The maximum number of tasks in a single decoder "
-                        "batch. Larger batches can exploit GPU parallelism "
-                        "more efficiently, but limit the flexibility of the "
-                        "CPU scheduler")
-    parser.add_argument("--max_tasks_per_state_update_job", default=100, type=int,
-                        help="Maximum number of tasks in a state update batch. "
-                        "Larger batches are more efficient to compute on the "
-                        "GPU, but delaying state updates for too long may "
-                        "lead to smaller forward pass jobs.")
-    parser.add_argument("--max_rows_per_job", default=20, type=int,
-                        help="Maximum number of entries in a forward pass "
-                        "batch. Note that each task in the batch gets at least "
-                        "one entry, so this parameters applies only if there "
-                        "are less than this threshold tasks left.")
-    parser.add_argument("--min_tasks_per_bucket", default=100, type=int,
-                        help="Minimum number of tasks in a bucket. Large "
-                        "buckets give the CPU scheduler more flexibility, "
-                        "but more padding may be required on the source "
-                        "side, leading to more wasted computation.")
-    parser.add_argument("--min_bucket_tolerance", default=8, type=int,
-                        help="Minimum padding width in a bucket. Increasing "
-                        "this leads to larger buckets and more flexible "
-                        "scheduling and larger batches, but potentially "
-                        "more wasteful state update computation due to "
-                        "padding.")
-    parser.add_argument("--beam", default=5, type=int,
-                        help="Size of the beam.")
-    
-    blocks_add_nmt_config(parser)
-    return parser
-
-
 def get_parser():
     """Get the parser object which is used to build the configuration
     argument ``args``. This is a helper method for ``get_args()``
@@ -303,8 +101,11 @@ def get_parser():
                         "Syntax is equal to HiFSTs printstrings and lmerts "
                         "idxrange parameter: <start-idx>:<end-idx> (both "
                         "inclusive, start with 1). E.g. 2:5 means: skip the "
-                        "first sentence, process next 4 sentences")
-    group.add_argument("--src_test", default="test_en",
+                        "first sentence, process next 4 sentences. If this "
+                        "points to a file, we grap sentence IDs to translate "
+                        "from that file and delete the decoded IDs. This can "
+                        "be used for distributed decoding.")
+    group.add_argument("--src_test", default="",
                         help="Path to source test set. This is expected to be "
                         "a plain text file with one source sentence in each "
                         "line. Words need to be indexed, i.e. use word IDs "
@@ -319,6 +120,9 @@ def get_parser():
                         "* 't2t': unk: 3, <s>: 2, </s>: 1.")
     group.add_argument("--legacy_indexing", default=False, type='bool',
                         help="DEPRECATED: Use --indexing_scheme=tf instead")
+    group.add_argument("--ignore_sanity_checks", default=False, type='bool',
+                       help="SGNMT terminates when a sanity check fails by "
+                       "default. Set this to true to ignore sanity checks.")
     group.add_argument("--input_method", default="file",
                         choices=['dummy', 'file', 'shell', 'stdin'],
                         help="This parameter controls how the input to SGNMT "
@@ -352,17 +156,15 @@ def get_parser():
     
     ## Decoding options
     group = parser.add_argument_group('Decoding options')
-    group.add_argument("--beam", default=12, type=int,
-                        help="Size of beam. Only used if --decoder is set to "
-                        "'beam' or 'astar'. For 'astar' it limits the capacity"
-                        " of the queue. Use --beam 0 for unlimited capacity.")
     group.add_argument("--decoder", default="beam",
                         choices=['greedy',
                                  'beam',
                                  'multisegbeam',
                                  'syncbeam',
                                  'sepbeam',
+                                 'mbrbeam',
                                  'syntaxbeam',
+                                 'combibeam',
                                  'dfs',
                                  'restarting',
                                  'bow',
@@ -391,9 +193,13 @@ def get_parser():
                         "of after each iteration.\n"
                         "* 'syntaxbeam': beam search which ensures terminal "
                         "symbol diversity.\n"
+                        "* 'mbrbeam': Uses an MBR-based criterion to select "
+                        "the next hypotheses at each time step.\n"
                         "* 'sepbeam': Associates predictors with hypos in "
                         "beam search and applies only one predictor instead "
                         "of all for hypo expansion.\n"
+                        "* 'combibeam': Applies combination_scheme at each "
+                        "time step.\n"
                         "* 'bow': Restarting decoder optimized for bag-of-words "
                         "problems.\n"
                         "* 'flip': This decoder works only for bag problems. "
@@ -408,12 +214,21 @@ def get_parser():
                         "Do not use bow predictor with this search strategy.\n"
                         "* 'astar': A* search. The heuristic function is "
                         "configured using the --heuristics options.\n"
-                        "* 'vanilla': Original blocks beam decoder. This "
+                        "* 'vanilla': Original Blocks beam decoder. This "
                         "bypasses the predictor framework and directly "
                         "performs pure NMT beam decoding on the GPU. Use this "
                         "when you do pure NMT decoding as this is usually "
                         "faster then using a single nmt predictor as the "
                         "search can be parallelized on the GPU.")
+    group.add_argument("--beam", default=12, type=int,
+                        help="Size of beam. Only used if --decoder is set to "
+                        "'beam' or 'astar'. For 'astar' it limits the capacity"
+                        " of the queue. Use --beam 0 for unlimited capacity.")
+    group.add_argument("--sub_beam", default=0, type=int,
+                        help="This denotes the maximum number of children of "
+                        "a partial hypothesis in beam-like decoders. If zero, "
+                        "this is set to --beam to reproduce standard beam "
+                        "search.")
     group.add_argument("--hypo_recombination", default=False, type='bool',
                         help="Activates hypothesis recombination. Has to be "
                         "supported by the decoder. Applicable to beam, "
@@ -599,10 +414,29 @@ def get_parser():
     group.add_argument("--sync_symbol", default=-1, type=int,
                        help="Used for the syncbeam decoder. Synchronization "
                        "symbol for hypothesis comparision. If negative, use "
-                       "the </w> entry in --trg_cmap.")
+                       "syntax_[min|max]_terminal_id.")
     group.add_argument("--max_word_len", default=25, type=int,
                        help="Maximum length of a single word. Only applicable "
                        "to the decoders multisegbeam and syncbeam.")
+    group.add_argument("--mbrbeam_smooth_factor", default=0.01, type=float,
+                       help="If positive, apply mix the evidence space "
+                       "distribution with the uniform distribution using "
+                       "this factor")
+    group.add_argument("--mbrbeam_selection_strategy", default="oracle_bleu",
+                        choices=['bleu','oracle_bleu'],
+                        help="Defines the hypo selection strategy for mbrbeam."
+                        " See the mbrbeam docstring for more information.\n"
+                        "'bleu': Select the n best hypotheses with the best "
+                        "expected BLEU.\n"
+                        "'oracle_bleu': Optimize the expected oracle BLEU "
+                        "score of the n-best list.")
+    group.add_argument("--mbrbeam_evidence_strategy", default="renorm",
+                        choices=['maxent','renorm'],
+                        help="Defines the way the evidence space is estimated "
+                        "for mbrbeam. See the mbrbeam docstring for more.\n"
+                        "'maxent': Maximum entropy criterion on n-gram probs.\n"
+                        "'renorm': Only use renormalized scores of the hypos "
+                        "which are currently in the beam.")
 
     ## Output options
     group = parser.add_argument_group('Output options')
@@ -637,6 +471,10 @@ def get_parser():
                         "* 'timecsv': Generate CSV files with separate "
                         "predictor scores for each time step.\n"
                         "* 'ngram': MBR-style n-gram posteriors.\n\n"
+                        "For extract_scores_along_reference.py, select "
+                        "one of the following output formats:\n"
+                        "* 'json': Dump data in pretty JSON format.\n"
+                        "* 'pickle': Dump data as binary pickle.\n"
                         "The path to the output files can be specified with "
                         "--output_path")
     group.add_argument("--remove_eos", default=True, type='bool',
@@ -677,29 +515,31 @@ def get_parser():
                         "         Options: t2t_usr_dir, t2t_model, "
                         "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
                         "pred_src_vocab_size, pred_trg_vocab_size\n"
+                        "* 'fertt2t': T2T predictor for fertility models.\n"
+                        "       Options: syntax_pop_id, t2t_usr_dir, t2t_model,"
+                        " t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
+                        "pred_src_vocab_size, pred_trg_vocab_size\n"
                         "* 'nizza': Nizza alignment models.\n"
                         "           Options: nizza_model, nizza_hparams_set, "
                         "nizza_checkpoint_dir, pred_src_vocab_size, "
                         "pred_trg_vocab_size\n"
-                        "* 'bfslayerbylayer': Layerbylayer models (BFS).\n"
-                        "                  Options: t2t_usr_dir, t2t_model, "
-                        "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
-                        "syntax_root_id, syntax_max_terminal_id, "
-                        "syntax_terminal_list, syntax_pop_id,"
-                        "layerbylayer_terminal_strategy, syntax_max_depth, "
-                        "pred_src_vocab_size, pred_trg_vocab_size\n"
-                        "* 'dfslayerbylayer': Layerbylayer models (DFS).\n"
-                        "                  Options: t2t_usr_dir, t2t_model, "
-                        "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
-                        "syntax_root_id, syntax_max_terminal_id, "
-                        "syntax_terminal_list, syntax_pop_id,"
-                        "layerbylayer_terminal_strategy, syntax_max_depth, "
-                        "pred_src_vocab_size, pred_trg_vocab_size\n"
+                        "* 'lexnizza': Uses Nizza lexical scores for checking "
+                        "the source word coverage.\n"
+                        "           Options: nizza_model, nizza_hparams_set, "
+                        "nizza_checkpoint_dir, pred_src_vocab_size, "
+                        "pred_trg_vocab_size, lexnizza_alpha, lexnizza_beta, "
+                        "lexnizza_shortlist_strategies, "
+                        "lexnizza_max_shortlist_length, lexnizza_trg2src_model, "
+                        "lexnizza_trg2src_hparams_set, lexnizza_trg2src_"
+                        "checkpoint_dir, lexnizza_min_id\n"
                         "* 'bracket': Well-formed bracketing.\n"
                         "             Options: syntax_max_terminal_id, "
                         "syntax_pop_id, syntax_max_depth, extlength_path\n"
                         "* 'osm': Well-formed operation sequences.\n"
                         "         Options: None\n"
+                        "* 'forcedosm': Forced decoding under OSM. Use in "
+                        "combination with osm predictor.\n"
+                        "         Options: trg_test\n"
                         "* 'srilm': n-gram language model.\n"
                         "          Options: srilm_path, srilm_order\n"
                         "* 'nplm': neural n-gram language model (NPLM).\n"
@@ -710,8 +550,8 @@ def get_parser():
                         "            Options: trg_test\n"
                         "* 'forcedlst': Forced decoding with a Moses n-best "
                         "list (n-best list rescoring)\n"
-                        "               Options: trg_test, "
-                        "forcedlst_sparse_feat, use_nbest_weights\n"
+                        "               Options: trg_test, forcedlst_match_unk"
+                        " forcedlst_sparse_feat, use_nbest_weights\n"
                         "* 'bow': Forced decoding with one bag-of-words ref.\n"
                         "         Options: trg_test, heuristic_scores_file, "
                         "bow_heuristic_strategies, bow_accept_subsets, "
@@ -793,7 +633,36 @@ def get_parser():
                         "--predictor_weights bla-weight_fst-weight,nmt-weight,"
                         " e.g. '--predictor_weights 0.1_0.3,0.6'. Default "
                         "(empty string) means that each predictor gets "
-                        "assigned the weight 1.")
+                        "assigned the weight 1. You may specify a single "
+                        "weight for wrapped predictors (e.g. 0.3,0.6) if the "
+                        "wrapper is unweighted.")
+    group.add_argument("--interpolation_strategy", default="",
+                        help="This parameter specifies how the predictor "
+                        "weights are used.\n"
+                        "'fixed': Predictor weights do not change.\n"
+                        "'entropy': Set predictor weight according the (cross-"
+                        ") entropy of its posterior to all other predictors.\n"
+                        "'moe': Use a Mixture of Experts gating network "
+                        "to decide predictor weights at each time step. See "
+                        "the sgnmt_moe project on how to train it.\n"
+                        "Interpolation strategies can be specified for each "
+                        "predictor separately, eg 'fixed|moe,moe,fixed,moe,moe'"
+                        " means that a MoE network with output dimensionality "
+                        "4 will decide for the 2nd, 4th, and 5th predictors, "
+                        "the 1st predictor mixes the prior weight with the MoE"
+                        " prediction, and the rest keep their weight from "
+                        "predictor_weights.")
+    group.add_argument("--interpolation_weights_mean", default="arith",
+                        choices=['arith', 'geo', 'prob'],
+                        help="Used when --interpolation_strategy contains |. "
+                        "Specifies the way interpolation weights are combined."
+                        "'arith'metirc, 'geo'metric, 'prob'abilistic.")
+    group.add_argument("--moe_config", default="",
+                        help="Only for MoE interpolation strategy: Semicolon-"
+                        "separated key=value pairs specifying the MoE network")
+    group.add_argument("--moe_checkpoint_dir", default="",
+                        help="Only for MoE interpolation strategy: Path to "
+                        "the TensorFlow checkpoint directory.")
     group.add_argument("--closed_vocabulary_normalization", default="none",
                         choices=['none', 'exact', 'reduced', 'rescale_unk', 'non_zero'],
                         help="This parameter specifies the way closed "
@@ -815,7 +684,8 @@ def get_parser():
                        "* 'non_zero': only keep scores which are strictly < 0 "
                        "after combination.")
     group.add_argument("--combination_scheme", default="sum",
-                        choices=['sum', 'length_norm', 'bayesian'],
+                        choices=['sum', 'length_norm', 'bayesian', 
+                          'bayesian_loglin'],
                         help="This parameter controls how the combined "
                         "hypothesis score is calculated from the predictor "
                         "scores and weights.\n\n"
@@ -825,7 +695,9 @@ def get_parser():
                         "hypotheses.\n"
                         "* 'bayesian': Apply the Bayesian LM interpolation "
                         "scheme from Allauzen and Riley to interpolate the "
-                        "predictor scores")
+                        "predictor scores\n"
+                        "* 'bayesian_loglin': Like bayesian, but retain "
+                        "loglinear framework.")
     group.add_argument("--gnmt_alpha", type=float, default=0.0, 
                        help="Power of length normalization penalty - see "
                        "https://arxiv.org/abs/1609.08144 section 7")
@@ -893,17 +765,8 @@ def get_parser():
     group.add_argument("--gnmt_beta", default=0.0, type=float,
                        help="If this is greater than zero, add a coverage "
                        "penalization term following Google's NMT (Wu et al., "
-                       "2016) to the NMT score.")
-    group.add_argument("--layerbylayer_terminal_strategy", default="force", 
-                        choices=['none', 'force', 'skip'],
-                        help="Strategy for dealing with terminals as parents "
-                        "in layerbylayer predictors with POP attention.\n"
-                        "'none': Treat terminal parents like any other token\n"
-                        "'force': Force the output to the terminal parent "
-                        "label.\n"
-                        "'skip': Like 'force', but with log(1)=0 scores. This "
-                        "is usually faster, and must be used if the model is "
-                        "trained with use_loss_mask.")
+                       "2016) to the NMT score. Only works for the Blocks "
+                       "NMT predictor.")
     group.add_argument("--syntax_max_depth", default=30, type=int,
                        help="Maximum depth of generated trees. After this "
                        "depth is reached, only terminals and POP are allowed "
@@ -919,6 +782,11 @@ def get_parser():
                        " layerbylayer and t2t predictors support single "
                        "integer values. The bracket predictor can take a comma"
                        "-separated list of integers.")
+    group.add_argument("--syntax_min_terminal_id", default=0,
+                       type=int,
+                       help="All token IDs smaller than this are considered to "
+                       "be non-terminal symbols except the ones specified by "
+                       "--syntax_terminal_list")
     group.add_argument("--syntax_max_terminal_id", default=30003,
                        type=int,
                        help="All token IDs larger than this are considered to "
@@ -969,6 +837,37 @@ def get_parser():
                        help="Available for the nizza predictor. Path to the "
                        "nizza checkpoint directory. Same as "
                        "--model_dir in nizza_trainer.")
+    group.add_argument("--lexnizza_trg2src_model", default="model1",
+                       help="Available for the lexnizza predictor. Name of "
+                       "the target-to-source nizza model.")
+    group.add_argument("--lexnizza_trg2src_hparams_set",
+                       default="model1_default",
+                       help="Available for the lexnizza predictor. Name of "
+                       "the target-to-source nizza hparams set.")
+    group.add_argument("--lexnizza_trg2src_checkpoint_dir", default="",
+                       help="Available for the lexnizza predictor. Path to "
+                       "the target-to-source nizza checkpoint directory. Same "
+                       "as --model_dir in nizza_trainer.")
+    group.add_argument("--lexnizza_shortlist_strategies", 
+                       default="top10",
+                       help="Comma-separated list of strategies to extract "
+                       "a short list of likely translations from lexical "
+                       "Model1 scores. Strategies are combined using the "
+                       "union operation. Available strategies:\n"
+                       "* top<N>: Select the top N words.\n"
+                       "* prob<p>: Select the top words such that their "
+                       " combined probability mass is greater than p.")
+    group.add_argument("--lexnizza_alpha", default=0.0, type=float,
+                       help="Score of each word which matches a short list.")
+    group.add_argument("--lexnizza_beta", default=1.0, type=float,
+                       help="Penalty for each uncovered word at the end.")
+    group.add_argument("--lexnizza_max_shortlist_length", default=0, type=int,
+                        help="If positive and a shortlist is longer than this "
+                        "limit, initialize the coverage vector at this "
+                        "position with 1")
+    group.add_argument("--lexnizza_min_id", default=0, type=int,
+                        help="Word IDs lower than this are not considered by "
+                        "lexnizza. Can be used to filter out frequent words.")
 
     # Length predictors
     group = parser.add_argument_group('Length predictor options')
@@ -1049,7 +948,7 @@ def get_parser():
 
     # Forced predictors
     group = parser.add_argument_group('Forced decoding predictor options')
-    group.add_argument("--trg_test", default="test_fr",
+    group.add_argument("--trg_test", default="",
                         help="Path to target test set (with integer tokens). "
                         "This is only required for the predictors 'forced' "
                         "and 'forcedlst'. For 'forcedlst' this needs to point "
@@ -1062,6 +961,9 @@ def get_parser():
                         " for nbest lists in sparse feature format, you can "
                         "specify the name of the features which should be "
                         "used instead.")
+    group.add_argument("--forcedlst_match_unk", default=False, type='bool',
+                        help="Only required for forcedlst predictor. If true, "
+                        "allow any word where the n-best list has an UNK.")
     group.add_argument("--use_nbest_weights", default=False, type='bool',
                         help="Only required for forcedlst predictor. Whether "
                         "to use the scores in n-best lists.")
@@ -1169,7 +1071,7 @@ def get_parser():
                         help="Whether to normalize nplm probabilities over "
                         "the current unbounded predictor vocabulary.")
     
-    # Automaton predictors
+    # FSM predictors
     group = parser.add_argument_group('FST and RTN predictor options')
     group.add_argument("--fst_path", default="fst/%d.fst",
                         help="Only required for fst and nfst predictor. Sets "
@@ -1289,8 +1191,6 @@ def get_parser():
                         "the ones in this parameter." % (w, w))
         group.add_argument("--rnnlm_path%s" % n, default="",
                         help="Overrides --rnnlm_path for the %s nmt" % w)
-        group.add_argument("--src_test%s" % n, default="",
-                        help="Overrides --src_test for the %s src" % w)                        
         group.add_argument("--altsrc_test%s" % n, default="",
                         help="Overrides --altsrc_test for the %s altsrc" % w)
         group.add_argument("--word2char_map%s" % n, default="",
@@ -1318,9 +1218,7 @@ def get_args():
     """Get the arguments for the current SGNMT run from both command
     line arguments and configuration files. This method contains all
     available SGNMT options, i.e. configuration is not encapsulated e.g.
-    by predictors. Additionally, we add blocks NMT model options as
-    parameters to specify how the loaded NMT model was trained. These
-    are defined in ``machine_translation.configurations``.
+    by predictors. 
     
     Returns:
         object. Arguments object like for ``ArgumentParser``
@@ -1366,29 +1264,31 @@ def validate_args(args):
             logging.warn("Using deprecated argument %s. Please check the "
                          "documentation for the replacement." % depr)
     # Validate --range
-    if args.range:
-        if args.input_method == 'shell':
-            logging.warn("The --range parameter can lead to unexpected "
-                         "behavior in the 'shell' mode.")
-        if ":" in args.range:
-            try:
-                f,t = [int(i) for i in args.range.split(":")]
-                if f > t:
-                    logging.fatal("Start index in range greater than end index")
-            except:
-                pass # Deal with it later
+    if args.range and args.input_method == 'shell':
+        logging.warn("The --range parameter can lead to unintuitive "
+                     "behavior in 'shell' mode.")
         
     # Some common pitfalls
+    sanity_check_failed = False
     if args.input_method == 'dummy' and args.max_len_factor < 10:
         logging.warn("You are using the dummy input method but a low value "
                      "for max_len_factor (%d). This means that decoding will "
                      "not consider hypotheses longer than %d tokens. Consider "
                      "increasing max_len_factor to the length longest relevant"
                      " hypothesis" % (args.max_len_factor, args.max_len_factor))
+        sanity_check_failed = True
     if (args.decoder == "beam" and args.combination_scheme == "length_norm"
                                and args.early_stopping):
         logging.warn("You are using beam search with length normalization but "
                      "with early stopping. All hypotheses found with beam "
                      "search with early stopping have the same length. You "
                      "might want to disable early stopping.")
+        sanity_check_failed = True
+    if "t2t" in args.predictors and args.indexing_scheme != "t2t":
+        logging.warn("You are using the t2t predictor, but indexing_scheme "
+                     "is not set to t2t.")
+        sanity_check_failed = True
+    if sanity_check_failed and not args.ignore_sanity_checks:
+        raise AttributeError("Sanity check failed (see warnings). If you want "
+            "to proceed despite these warnings, use --ignore_sanity_checks.")
 

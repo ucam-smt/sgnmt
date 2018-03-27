@@ -93,10 +93,6 @@ class NPLMPredictor(UnboundedVocabularyPredictor):
         """Sets the current history """
         self.history = state
 
-    def reset(self):
-        """Set the n-gram history to initial value."""
-        self.history = [self.bos_id] * self.history_len
-    
     def is_equal(self, state1, state2):
         """Returns true if the ngram history is the same"""
         return state1 == state2

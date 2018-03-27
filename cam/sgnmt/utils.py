@@ -341,6 +341,12 @@ TMP_FILENAME = '/tmp/sgnmt.%s.fst' % os.getpid()
 """Temporary file name to use if an FST file is zipped. """
 
 
+def split_comma(s):
+    """Splits a string at commas and removes blanks."""
+    parts = s.split(",")
+    return [el.strip() for el in parts]
+
+
 def w2f(fstweight):
     """Converts an arc weight to float """
     return float(str(fstweight))

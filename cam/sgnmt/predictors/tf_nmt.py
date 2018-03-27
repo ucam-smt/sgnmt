@@ -50,7 +50,11 @@ class TensorFlowNMTPredictor(Predictor):
 
   def initialize(self, src_sentence):
     # src_sentence is list of integers, without <s> and </s>
-    self.reset()
+    self.enc_out = {}
+    self.decoder_input = [tf_data_utils.GO_ID]
+    self.dec_state = {}
+    self.word_count = 0
+    self.consumed = []
     self.posterior_cache = SimpleTrie()
     self.states_cache = SimpleTrie()
 
@@ -156,13 +160,6 @@ class TensorFlowNMTPredictor(Predictor):
 
   def set_state(self, state):
     self.decoder_input, self.dec_state, self.word_count, self.consumed = state
-
-  def reset(self):
-    self.enc_out = {}
-    self.decoder_input = [tf_data_utils.GO_ID]
-    self.dec_state = {}
-    self.word_count = 0
-    self.consumed = []
 
   def is_equal(self, state1, state2):
     """Returns true if the history is the same """

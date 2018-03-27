@@ -25,28 +25,26 @@ class BigramGreedyDecoder(Decoder):
     scores.
     """
     
-    def __init__(self, 
-                 decoder_args,
-                 trg_test_file, 
-                 max_expansions=0,
-                 early_stopping=True):
+    def __init__(self, decoder_args):
         """Creates a new bigram greedy decoder. Do not use this decoder
         in combination with the bow predictor as it inherently already
-        satisfies the bag-of-word constrains.
+        satisfies the bag-of-word constrains. The following values
+        are fetched from `decoder_args`:
+        
+            trg_test (string): Path to a plain text file which 
+                               defines the bag of words
+            max_node_expansions (int): Maximum number of node expansions
+                                       for inadmissible pruning.
+            early_stopping (boolean): Activates admissible pruning
         
         Args:
             decoder_args (object): Decoder configuration passed through
                                    from the configuration API.
-            trg_test_file (string): Path to a plain text file which 
-                                    defines the bag of words
-            max_expansions (int): Maximum number of node expansions for
-                                  inadmissible pruning.
-            early_stopping (boolean): Activates admissible pruning
         """
         super(BigramGreedyDecoder, self).__init__(decoder_args)
-        self.max_expansions_param = max_expansions
-        self.early_stopping = early_stopping
-        with open(trg_test_file) as f:
+        self.max_expansions_param = decoder_args.max_node_expansions
+        self.early_stopping = decoder_args.early_stopping
+        with open(decoder_args.trg_test) as f:
             self.lines = f.read().splitlines()
     
     def _greedy_decode(self):

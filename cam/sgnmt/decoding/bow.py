@@ -60,39 +60,36 @@ class BOWDecoder(Decoder):
     Therefore, you still need to use the bow predictor.
     """
     
-    def __init__(self, 
-                 decoder_args,
-                 hypo_recombination,
-                 max_expansions = 0,
-                 stochastic=False,
-                 early_stopping=True,
-                 always_single_step=False):
-        """Creates a new bag decoder.
+    def __init__(self, decoder_args):
+        """Creates a new bag decoder. The following values
+        are fetched from `decoder_args`:
         
-        Args:
-            decoder_args (object): Decoder configuration passed through
-                                   from the configuration API.
             hypo_recombination (bool): Activates hypo recombination
-            max_expansions (int): Maximum number of node expansions for
-                                  inadmissible pruning.
-            stochastic (bool): If true, select the next node to restart
-                               from randomly. If false, take the one
-                               with the best node score
+            max_node_expansions (int): Maximum number of node expansions 
+                                       for inadmissible pruning.
+            stochastic_decoder (bool): If true, select the next node to 
+                                       restart from randomly. If false, 
+                                       take the one with the best 
+                                       node score
             early_stopping (bool): Activates inadmissible pruning. Do
                                    not use if you have positive scores
-            always_single_step (bool): If true, we do only a single 
+            decode_always_single_step (bool): If true, we do only a single 
                                        expansion from the backtraced
                                        node and select a new node. If
                                        false, we perform greedy 
                                        decoding from that node until
                                        we reach a final node
+                                       
+        Args:
+            decoder_args (object): Decoder configuration passed through
+                                   from the configuration API.
         """
         super(BOWDecoder, self).__init__(decoder_args) 
-        self.max_expansions_param = max_expansions
-        self.early_stopping = early_stopping
-        self.hypo_recombination = hypo_recombination
-        self.always_single_step = always_single_step
-        if stochastic:
+        self.max_expansions_param = decoder_args.max_node_expansions
+        self.early_stopping = decoder_args.early_stopping
+        self.hypo_recombination = decoder_args.hypo_recombination
+        self.always_single_step = decoder_args.decode_always_single_step
+        if decoder_args.stochastic_decoder:
             self.select_node = self._select_node_stochastic
         else:
             self.select_node = self._select_node_max

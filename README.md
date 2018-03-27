@@ -17,7 +17,7 @@ SGNMT is compatible with multiple NMT implementations based on [Theano](http://d
 - Ensemble NMT decoding
 - Forced NMT decoding
 - Integrating language models (Kneser-Ney, NPLM, RNNLM)
-- Different search algorithms (beam, A*, depth first search, greedy...)
+- Different search algorithms (beam, A\*, depth first search, greedy...)
 - Target sentence length modelling
 - Bag2Sequence models and decoding algorithms
 - Joint decoding with word- and subword/character-level models
@@ -30,6 +30,11 @@ SGNMT is compatible with multiple NMT implementations based on [Theano](http://d
 ### Documentation
 
 Please see the [full SGNMT documentation](http://ucam-smt.github.io/sgnmt/html/) for more information.
+
+### Contributors
+
+- Felix Stahlberg, University of Cambridge
+- Eva Hasler, SDL Research
 
 ### Citing
 
