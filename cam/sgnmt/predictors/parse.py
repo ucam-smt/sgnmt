@@ -109,7 +109,6 @@ class ParsePredictor(Predictor):
         top_tokens = utils.argmax_n(posterior, self.beam_size)
         hypos = []
         top_terminals = []
-        #self.new_unk_hypo(posterior, 0)
         for tok in top_tokens:
             new_hypo = InternalHypo(posterior[tok],
                                     posterior[tok],
