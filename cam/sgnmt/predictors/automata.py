@@ -605,7 +605,7 @@ class RtnPredictor(Predictor):
         """Unloads the current RTN """ 
         self.cur_fst = None
 
-=======
+
 """This module encapsulates the predictor interface to OpenFST. This
 module depends on OpenFST. To enable Python support in OpenFST, use a 
 recent version (>=1.5.4) and compile with ``--enable_python``. 

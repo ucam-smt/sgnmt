@@ -792,11 +792,6 @@ def get_parser():
                        help="All token IDs larger than this are considered to "
                        "be non-terminal symbols except the ones specified by "
                        "--syntax_terminal_list")
-    group.add_argument("--syntax_min_terminal_id", default=0,
-                       type=int,
-                       help="All token IDs smaller than this are considered to "
-                       "be non-terminal symbols except the ones specified by "
-                       "--syntax_terminal_list")
     group.add_argument("--syntax_terminal_list", default="",
                        help="List of IDs which are explicitly treated as "
                        "terminals, in addition to all IDs lower or equal "

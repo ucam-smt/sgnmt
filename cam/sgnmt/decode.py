@@ -16,128 +16,13 @@ import sys
 import codecs
 
 from cam.sgnmt import utils
-<<<<<<< HEAD
 from cam.sgnmt.decoding import core
-
-=======
->>>>>>> 1f8bd07fc9af0d86dd00d2f9971cfd36879888db
 from cam.sgnmt import decode_utils
 from cam.sgnmt.ui import get_args, get_parser
 
 # Load configuration from command line arguments or configuration file
 args = get_args()
-<<<<<<< HEAD
-
-# Set up logger
-logger = logging.getLogger(__name__)
-logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s')
-logging.getLogger().setLevel(logging.INFO)
-if args.verbosity == 'debug':
-    logging.getLogger().setLevel(logging.DEBUG)
-elif args.verbosity == 'info':
-    logging.getLogger().setLevel(logging.INFO)
-elif args.verbosity == 'warn':
-    logging.getLogger().setLevel(logging.WARN)
-elif args.verbosity == 'error':
-    logging.getLogger().setLevel(logging.ERROR)
-
-validate_args(args)
-
-# Set reserved word IDs
-if args.indexing_scheme == 'blocks':
-    utils.switch_to_blocks_indexing()
-elif args.indexing_scheme == 'tf':
-    utils.switch_to_tf_indexing()
-elif args.indexing_scheme == 't2t':
-    utils.switch_to_t2t_indexing()
-    
-# Log summation (how to compute log(exp(l1)+exp(l2)) for log values l1,l2)
-if args.log_sum == 'tropical':
-    utils.log_sum = utils.log_sum_tropical_semiring
-
-# Predictor combination schemes
-if args.combination_scheme == 'length_norm':
-    core.GNMT_ALPHA = args.gnmt_alpha
-    if args.apply_combination_scheme_to_partial_hypos:
-        core.breakdown2score_partial = core.breakdown2score_length_norm
-    else:
-        core.breakdown2score_full = core.breakdown2score_length_norm
-if args.combination_scheme == 'bayesian':
-    if args.apply_combination_scheme_to_partial_hypos:
-        core.breakdown2score_partial = core.breakdown2score_bayesian
-    else:
-        core.breakdown2score_full = core.breakdown2score_bayesian  
-
-
-def _update_decoder(decoder, key, val):
-    """This method is called on a configuration update in an interactive 
-    (stdin or shell) mode. It tries to update the decoder such that it 
-    realizes the new configuration specified by key and val without
-    rebuilding the decoder. This can save time because rebuilding the
-    decoder involves reloading the predictors which can be expensive
-    (e.g. the NMT predictor would reload the model). If an update on
-    ``key`` cannot be realized efficiently, rebuild the whole decoder.
-    
-    Args:
-        decoder (Decoder):  Current decoder instance
-        key (string):  Parameter name to update
-        val (string):  New parameter value
-    
-    Returns:
-        Decoder. Returns an updated decoder instance
-    """
-    if key == 'beam':
-        decoder.beam_size = int(val)
-        args.beam = int(val)
-    elif key == 'nbest':
-        args.nbest = int(val)
-    elif key == 'range':
-        idx,_ = args.range.split(":")
-        decoder.set_start_sen_id(int(idx)-1) # -1 because indices start with 1
-    elif key == 'predictor_weights' and val:
-        logging.debug("Set predictor weights to %s on the fly" % val)
-        for idx,weight in enumerate(val.split(',')):
-            if '_' in weight: # wrapper predictor
-                wrapper_weights = [float(w) for w in weight.split('_')]
-                slave_pred = decoder.predictors[idx][0]
-                for i in xrange(len(wrapper_weights)-1):
-                    slave_pred.my_weight = wrapper_weights[i]
-                    slave_pred = slave_pred.slave_predictor
-                slave_pred.slave_weight = wrapper_weights[-1]
-            else: # normal predictor (not wrapped)
-                decoder.predictors[idx] = (decoder.predictors[idx][0],
-                                           float(weight))
-    else:
-        logging.info("Need to rebuild the decoder from scratch...")
-        decoder = decode_utils.create_decoder(args)
-    return decoder
-
-
-def _process_inputs():
-    """Helper method to support multiple input files."""
-    inputfiles = [ args.src_test ]
-    while True:
-        inputfile = getattr(args, "src_test%d" % (len(inputfiles)+1), None)
-        if not inputfile:
-            break
-        inputfiles.append(inputfile)
-    # Read all input files
-    inputs_tmp = [ [] for i in xrange(len(inputfiles)) ]
-    for i in xrange(len(inputfiles)):
-        with codecs.open(inputfiles[i], encoding='utf-8') as f:
-            for line in f:
-                inputs_tmp[i].append(line.strip().split())
-    # Gather multiple input sentences for each line
-    inputs = []
-    for i in xrange(len(inputs_tmp[0])):
-        input_lst = []
-        for j in xrange(len(inputfiles)):
-            input_lst.append(inputs_tmp[j][i])
-        inputs.append(input_lst)
-    return inputs
-=======
 decode_utils.base_init(args)
->>>>>>> 1f8bd07fc9af0d86dd00d2f9971cfd36879888db
 
 
 def _print_shell_help():
