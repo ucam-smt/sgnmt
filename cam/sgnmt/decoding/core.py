@@ -775,23 +775,12 @@ class Decoder(Observable):
             src_sentence (list): List of source word ids without <S> or
                                  </S> which make up the source sentence
         """
-        if isinstance(src_sentence[0], list):
-            self.max_len = self.max_len_factor * len(src_sentence[0])
-        else:
-            self.max_len = self.max_len_factor * len(src_sentence)
+        self.max_len = self.max_len_factor * len(src_sentence)
         self.full_hypos = []
         self.current_sen_id += 1
         for idx, (p, _) in enumerate(self.predictors):
             p.set_current_sen_id(self.current_sen_id)
-            if isinstance(src_sentence[0], list):
-                # Assign inputs to predictors by index if available
-                if idx < len(src_sentence):
-                    logging.info("Initialize predictor {} with input idx={}".format(p, idx))
-                    p.initialize(src_sentence[idx])
-                else:
-                    p.initialize(src_sentence[0])
-            else:
-                p.initialize(src_sentence)
+            p.initialize(src_sentence)
         for h in self.heuristics:
             h.initialize(src_sentence)
     
