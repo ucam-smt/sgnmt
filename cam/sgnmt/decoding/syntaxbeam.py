@@ -32,14 +32,9 @@ class SyntaxBeamDecoder(BeamDecoder):
         super(SyntaxBeamDecoder, self).__init__(decoder_args)
         self.min_terminal_id = decoder_args.syntax_min_terminal_id
         self.max_terminal_id = decoder_args.syntax_max_terminal_id
-        self.min_terminal_id = decoder_args.syntax_min_terminal_id
-        self.max_depth = decoder_args.syntax_max_depth
-        self.use_max_depth = decoder_args.syntax_use_max_depth
 
     def is_terminal(self, tok):
-        if tok <= self.max_terminal_id and tok >= self.min_terminal_id:
-            return True
-        return False
+        return (tok <= self.max_terminal_id and tok >= self.min_terminal_id)
 
     def _get_next_hypos_diverse(self, hypos, scores):
         """Get hypotheses of the next time step.
@@ -55,7 +50,8 @@ class SyntaxBeamDecoder(BeamDecoder):
         terminal_history_counts = {}
         for idx in reversed(np.argsort(scores)):
             candidate = hypos[idx]
-            key = " ".join([str(i) for i in candidate.trgt_sentence if self.is_terminal(i)])
+            key = " ".join([str(i) for i in candidate.trgt_sentence
+                            if self.is_terminal(i)])
             cnt = terminal_history_counts.get(key, 0)
             if cnt >= self.beam_size:
                 continue

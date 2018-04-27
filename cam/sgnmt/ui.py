@@ -697,16 +697,6 @@ def get_parser():
                         "predictor scores\n"
                         "* 'bayesian_loglin': Like bayesian, but retain "
                         "loglinear framework.")
-    group.add_argument("--gnmt_alpha", type=float, default=0.0, 
-                       help="Power of length normalization penalty - see "
-                       "https://arxiv.org/abs/1609.08144 section 7")
-
-    group.add_argument("--apply_combination_scheme_to_partial_hypos", 
-                        default=False, type='bool',
-                        help="If true, apply the combination scheme specified "
-                        "with --combination_scheme after each node expansion. "
-                        "If false, apply it only to complete hypotheses at "
-                        "the end of decoding")
     group.add_argument("--t2t_unk_id", default=-1, type=int,
                         help="unk id for t2t. Used by the t2t predictor")
 

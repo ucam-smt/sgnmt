@@ -22,7 +22,7 @@ def load_external_ids(path):
     return ids
 
 class InternalHypo(object):
-    """Helper class for internal beam search in skipvocab."""
+    """Helper class for internal parse predictor beam search over nonterminals"""
 
     def __init__(self, score, token_score, predictor_state, word_to_consume):
         self.score = score
@@ -40,11 +40,11 @@ class InternalHypo(object):
 
 
 class ParsePredictor(Predictor):
-    def __init__(self, nmt_predictor, word_out,
+    def __init__(self, slave_predictor, word_out,
                  normalize_scores=True, to_log=True, beam_size=4,
                  norm_alpha=1.0, max_internal_len=35, nonterminal_ids=None):
         super(ParsePredictor, self).__init__()
-        self.nmt = nmt_predictor
+        self.predictor = slave_predictor
         self.weight_factor = -1.0 if to_log else 1.0
         self.word_out = word_out
         self.use_weights = True
@@ -53,10 +53,10 @@ class ParsePredictor(Predictor):
         self.add_bos_to_eos_score = False
         self.internal_alpha = norm_alpha
         self.max_internal_len = max_internal_len
-        self.UNK_ID = 3
+        utils.UNK_ID = 3
         self.nonterminals = load_external_ids(nonterminal_ids)
         self.nonterminals.discard(utils.EOS_ID)
-        self.nonterminals.discard(self.UNK_ID)
+        self.nonterminals.discard(utils.UNK_ID)
         self.tok_to_hypo = {}
 
     def get_unk_probability(self, posterior):
@@ -83,9 +83,9 @@ class ParsePredictor(Predictor):
         """predict next tokens.
         we allow non-terminals in the beam only if we're not doing an internal search
         """
-        nmt_posterior = self.nmt.predict_next()
-        all_keys = utils.common_viewkeys(nmt_posterior)
-        scores = {rule_id: nmt_posterior[rule_id] for rule_id in all_keys}
+        original_posterior = self.predictor.predict_next()
+        all_keys = utils.common_viewkeys(original_posterior)
+        scores = {rule_id: original_posterior[rule_id] for rule_id in all_keys}
 
         scores = self.finalize_posterior(scores, 
                                          self.use_weights,
@@ -95,14 +95,14 @@ class ParsePredictor(Predictor):
         return scores
     
     def new_unk_hypo(self, posterior, path_score):
-        new_unk_path_score = posterior[self.UNK_ID] + path_score
-        if (self.UNK_ID not in self.tok_to_hypo or 
-            new_unk_path_score > self.tok_to_hypo[self.UNK_ID].score):
+        new_unk_path_score = posterior[utils.UNK_ID] + path_score
+        if (utils.UNK_ID not in self.tok_to_hypo or 
+            new_unk_path_score > self.tok_to_hypo[utils.UNK_ID].score):
             best_unk_hypo = InternalHypo(new_unk_path_score,
-                                         posterior[self.UNK_ID],
-                                         copy.deepcopy(self.nmt.get_state()),
-                                         self.UNK_ID)
-            self.tok_to_hypo[self.UNK_ID] = best_unk_hypo
+                                         posterior[utils.UNK_ID],
+                                         copy.deepcopy(self.predictor.get_state()),
+                                         utils.UNK_ID)
+            self.tok_to_hypo[utils.UNK_ID] = best_unk_hypo
 
 
     def find_word_beam(self, posterior):
@@ -112,7 +112,7 @@ class ParsePredictor(Predictor):
         for tok in top_tokens:
             new_hypo = InternalHypo(posterior[tok],
                                     posterior[tok],
-                                    copy.deepcopy(self.nmt.get_state()),
+                                    copy.deepcopy(self.predictor.get_state()),
                                     tok)
             if tok not in self.nonterminals:
                 self.tok_to_hypo[tok] = new_hypo
@@ -129,11 +129,11 @@ class ParsePredictor(Predictor):
             for hypo in hypos:
                 if not hypo.word_to_consume in self.nonterminals:
                     continue
-                self.nmt.set_state(copy.deepcopy(hypo.predictor_state))
+                self.predictor.set_state(copy.deepcopy(hypo.predictor_state))
                 self.consume(hypo.word_to_consume, internal=True)
                 new_post = self.predict_next(predicting_internally=True)
                 top_tokens = utils.argmax_n(new_post, self.beam_size)
-                next_state = copy.deepcopy(self.nmt.get_state())
+                next_state = copy.deepcopy(self.predictor.get_state())
                 for tok in top_tokens:
                     score = hypo.score + new_post[tok]
                     new_hypo = InternalHypo(score, new_post[tok], next_state, tok)
@@ -165,38 +165,31 @@ class ParsePredictor(Predictor):
         return return_post
 
     def initialize(self, src_sentence):
-        """Loads the FST from the file system and consumes the start
-        of sentence symbol. 
+        """Initializes slave predictor with source sentence 
         
         Args:
             src_sentence (list)
         """
-        self.nmt.initialize(src_sentence)
+        self.predictor.initialize(src_sentence)
     
     def consume(self, word, internal=False):
         try:
             if self.word_out and not internal:
-                self.nmt.set_state(copy.deepcopy(self.tok_to_hypo[word].predictor_state))
+                self.predictor.set_state(copy.deepcopy(self.tok_to_hypo[word].predictor_state))
         except KeyError:
             logging.info('trying to consume {}, not in tok-to-hypo'.format(word))
-        return self.nmt.consume(word) 
+        return self.predictor.consume(word) 
     
     def get_state(self):
         """Returns the current node. """
-        return self.nmt.get_state(), self.tok_to_hypo
+        return self.predictor.get_state(), self.tok_to_hypo
     
     def set_state(self, state):
         """Sets the current node. """
-        nmt_state, tok_to_hypo = state
+        slave_state, tok_to_hypo = state
         self.tok_to_hypo = tok_to_hypo
-        self.nmt.set_state(nmt_state)
-        
-
-    def reset(self):
-        """Resets the loaded FST object and current node. """
-        self.nmt.reset()
-        self.tok_to_hypo = {}
-    
+        self.predictor.set_state(slave_state)
+            
     def initialize_heuristic(self, src_sentence):
         """Creates a matrix of shortest distances between nodes. """
         pass
@@ -211,7 +204,7 @@ class TokParsePredictor(Predictor):
     Use BPEParsePredictor if including rules to connect BPE units inside words.
     """
     
-    def __init__(self, grammar_path, nmt_predictor, word_out=True,
+    def __init__(self, grammar_path, slave_predictor, word_out=True,
                  normalize_scores=True, to_log=True, norm_alpha=1.0, 
                  beam_size=1, max_internal_len=35, allow_early_eos=False,
                  consume_out_of_class=False):
@@ -221,8 +214,7 @@ class TokParsePredictor(Predictor):
         """
         super(TokParsePredictor, self).__init__()
         self.grammar_path = grammar_path
-        self.nmt = nmt_predictor
-        self.UNK_ID = 3
+        self.predictor = slave_predictor
         self.weight_factor = -1.0 if to_log else 1.0
         self.internal_alpha = norm_alpha
         self.word_out = word_out
@@ -261,9 +253,9 @@ class TokParsePredictor(Predictor):
             if 0 in following:
                 following.remove(0)
                 self.last_nt_in_rule[nt] = False
-            if self.allow_early_eos and self.UNK_ID in following:
+            if self.allow_early_eos and utils.UNK_ID in following:
                 self.lhs_to_can_follow[nt].add(utils.EOS_ID)
-        self.lhs_to_can_follow[utils.EOS_ID].add(self.UNK_ID)
+        self.lhs_to_can_follow[utils.EOS_ID].add(utils.UNK_ID)
                     
     def is_nt(self, word):
         if word in self.lhs_to_can_follow:
@@ -273,8 +265,8 @@ class TokParsePredictor(Predictor):
     def get_unk_probability(self, posterior):
         """Return probability of unk from most recent posterior
         """
-        if self.UNK_ID in posterior:
-            return posterior[self.UNK_ID] 
+        if utils.UNK_ID in posterior:
+            return posterior[utils.UNK_ID] 
         else:
             return utils.NEG_INF
 
@@ -294,7 +286,7 @@ class TokParsePredictor(Predictor):
         return True
 
     def initialize(self, src_sentence):
-        self.nmt.initialize(src_sentence)
+        self.predictor.initialize(src_sentence)
         self.current_lhs = None
         self.current_rhs = []
         self.stack = [utils.EOS_ID]
@@ -318,9 +310,9 @@ class TokParsePredictor(Predictor):
         """predict next tokens as permitted by 
         the current stack and the grammar
         """
-        nmt_posterior = self.nmt.predict_next()
+        original_posterior = self.predictor.predict_next()
         outgoing_rules = self.lhs_to_can_follow[self.current_lhs]       
-        scores = {rule_id: nmt_posterior[rule_id] for rule_id in outgoing_rules}
+        scores = {rule_id: original_posterior[rule_id] for rule_id in outgoing_rules}
         if utils.EOS_ID in scores and self.add_bos_to_eos_score:
             scores[utils.EOS_ID] += self.bos_score
         scores = self.finalize_posterior(scores, 
@@ -404,8 +396,8 @@ class TokParsePredictor(Predictor):
         change_to_unk = ((word == utils.UNK_ID) or
                        (not self.consume_ooc and word not in self.get_current_allowed()))
         if change_to_unk:
-            word = self.UNK_ID
-        self.nmt.consume(word) 
+            word = utils.UNK_ID
+        self.predictor.consume(word) 
         self.update_stacks(word)
         return self.weight_factor
     
@@ -419,19 +411,19 @@ class TokParsePredictor(Predictor):
 
     def get_state(self):
         """Returns the current node. """
-        return self.stack, self.current_lhs, self.current_rhs, self.nmt.get_state()
+        return self.stack, self.current_lhs, self.current_rhs, self.predictor.get_state()
     
     def set_state(self, state):
         """Sets the current node. """
-        self.stack, self.current_lhs, self.current_rhs, nmt_state = state
-        self.nmt.set_state(nmt_state)
+        self.stack, self.current_lhs, self.current_rhs, slave_state = state
+        self.predictor.set_state(slave_state)
         
 
     def reset(self):
         self.stack = [utils.EOS_ID]
         self.current_lhs = None
         self.current_rhs = []
-        self.nmt.reset()
+        self.predictor.reset()
     
     def initialize_heuristic(self, src_sentence):
         """Creates a matrix of shortest distances between nodes. """
@@ -450,7 +442,7 @@ class BpeParsePredictor(TokParsePredictor):
     Predict BPE units with separate internal rules. 
     """
 
-    def __init__(self, grammar_path, bpe_rule_path, nmt_predictor, word_out=True,
+    def __init__(self, grammar_path, bpe_rule_path, slave_predictor, word_out=True,
                  normalize_scores=True, to_log=True, norm_alpha=1.0,
                  beam_size=1, max_internal_len=35, allow_early_eos=False,
                  consume_out_of_class=False, eow_ids=None, terminal_restrict=True,
@@ -459,7 +451,7 @@ class BpeParsePredictor(TokParsePredictor):
         Args: 
         """
         super(BpeParsePredictor, self).__init__(grammar_path,
-                                                nmt_predictor,
+                                                slave_predictor,
                                                 word_out,
                                                 normalize_scores,
                                                 to_log, norm_alpha,
@@ -529,12 +521,12 @@ class BpeParsePredictor(TokParsePredictor):
         """predict next tokens as permitted by 
         the current stack and the BPE grammar
         """
-        nmt_posterior = self.nmt.predict_next()
+        original_posterior = self.predictor.predict_next()
         outgoing_rules = self.lhs_to_can_follow[self.current_lhs]
-        scores = {rule_id: nmt_posterior[rule_id] for rule_id in outgoing_rules}
+        scores = {rule_id: original_posterior[rule_id] for rule_id in outgoing_rules}
         if self.internal_only_restrict and self.are_best_terminal(scores):
             outgoing_rules = self.all_terminals
-            scores = {rule_id: nmt_posterior[rule_id] for rule_id in outgoing_rules}
+            scores = {rule_id: original_posterior[rule_id] for rule_id in outgoing_rules}
 
         if utils.EOS_ID in scores and self.add_bos_to_eos_score:
             scores[utils.EOS_ID] += self.bos_score

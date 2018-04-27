@@ -14,7 +14,7 @@ from cam.sgnmt.decoding.interpolation import FixedInterpolationStrategy, \
                                              EntropyInterpolationStrategy, \
                                              MoEInterpolationStrategy
 from cam.sgnmt.utils import Observable, Observer, MESSAGE_TYPE_DEFAULT, \
-    MESSAGE_TYPE_POSTERIOR, MESSAGE_TYPE_FULL_HYPO, NEG_INF
+    MESSAGE_TYPE_POSTERIOR, MESSAGE_TYPE_FULL_HYPO, NEG_INF, EPS_P
 import numpy as np
 from operator import mul
 import logging
@@ -199,8 +199,6 @@ CLOSED_VOCAB_SCORE_NORM_NON_ZERO = 5
 strictly < 0.0. """
 
 
-GNMT_ALPHA = 0.0
-
 class Heuristic(Observer):
     """A ``Heuristic`` instance can be used to estimate the future 
     costs for a given word in a given state. See the ``heuristics``
@@ -265,107 +263,6 @@ class Heuristic(Observer):
         """
         pass
     
-def breakdown2score_sum(working_score, score_breakdown):
-    """Implements the combination scheme 'sum' by always returning
-    ``working_score``. This function is designed to be assigned to
-    the globals ``breakdown2score_partial`` or ``breakdown2score_full``
-    
-    Args:
-        working_score (float): Working combined score, which is the 
-                               weighted sum of the scores in
-                               ``score_breakdown``
-        score_breakdown (list): Breakdown of the combined score into
-                                predictor scores
-    
-    Returns:
-        float. Returns ``working_score``
-    """
-    return working_score
-
-
-def breakdown2score_length_norm(working_score, score_breakdown):
-    """Implements the combination scheme 'length_norm' by normalizing
-    the sum of the predictor scores by the length of the current 
-    sequence (i.e. the length of ``score_breakdown``. This function is
-    designed to be assigned to the globals ``breakdown2score_partial``
-    or ``breakdown2score_full``. 
-    TODO could make more efficient use of ``working_score``
-    
-    Args:
-        working_score (float): Working combined score, which is the 
-                               weighted sum of the scores in
-                               ``score_breakdown``. Not used.
-        score_breakdown (list): Breakdown of the combined score into
-                                predictor scores
-    
-    Returns:
-        float. Returns a length normalized ``working_score``
-    """
-    score = sum([Decoder.combi_arithmetic_unnormalized(s) 
-                        for s in score_breakdown])
-    if GNMT_ALPHA > 0.0:
-        length_penalty = np.power(((5. + float(len(score_breakdown))) / 6.), GNMT_ALPHA)
-    else: 
-        length_penalty = len(score_breakdown)
-    return score / len(score_breakdown)
-
-
-def breakdown2score_bayesian(working_score, score_breakdown):
-    """This realizes score combination following the Bayesian LM 
-    interpolation scheme from (Allauzen and Riley, 2011)
-    
-      Bayesian Language Model Interpolation for Mobile Speech Input
-    
-    By setting K=T we define the predictor weights according the score
-    the predictors give to the current partial hypothesis. The initial
-    predictor weights are used as priors. This function is designed to 
-    be assigned to the globals ``breakdown2score_partial`` or 
-    ``breakdown2score_full``. 
-    TODO could make more efficient use of ``working_score``
-    
-    Args:
-        working_score (float): Working combined score, which is the 
-                               weighted sum of the scores in
-                               ``score_breakdown``. Not used.
-        score_breakdown (list): Breakdown of the combined score into
-                                predictor scores
-    
-    Returns:
-        float. Bayesian interpolated predictor scores
-    """
-    if not score_breakdown:
-        return working_score
-    acc = []
-    prev_alphas = [] # list of all alpha_i,k
-    # Write priors to alphas
-    for (p,w) in score_breakdown[0]:
-        prev_alphas.append(np.log(w))
-    for pos in score_breakdown: # for each position in the hypothesis
-        alphas = []
-        sub_acc = []
-        # for each predictor (p: p_k(w_i|h_i), w: prior p(k))
-        for k,(p,w) in enumerate(pos): 
-            alpha = prev_alphas[k] + p
-            alphas.append(alpha)
-            sub_acc.append(p + alpha)
-        acc.append(utils.log_sum(sub_acc) - utils.log_sum(alphas))
-        prev_alphas = alphas
-    return sum(acc)
-
-
-"""The function breakdown2score_partial is called at each hypothesis
-expansion. This should only be changed if --combination_scheme is not 
-'sum' and --apply_combination_scheme_to_partial_hypos is set to true.
-""" 
-breakdown2score_partial = breakdown2score_sum
-
-
-"""The function breakdown2score_full is called at each creation of a 
-full hypothesis, i.e. only once per hypothesis
-"""
-breakdown2score_full = breakdown2score_sum
-
-
 class Decoder(Observable):    
     """A ``Decoder`` instance represents a particular search strategy
     such as A*, beam search, greedy search etc. Decisions are made 
@@ -708,23 +605,11 @@ class Decoder(Observable):
             combined,score_breakdown: like in ``apply_predictors()``
         """
         if isinstance(non_zero_words, xrange) and top_n > 0:
-            n_words = len(non_zero_words)
-            scaled_posteriors = []
-            for posterior, unk_prob, weight in zip(
-                          posteriors, unk_probs, pred_weights):
-                if isinstance(posterior, dict):
-                    arr = np.full(n_words, unk_prob)
-                    for word, score in posterior.iteritems():
-                        arr[word] = score
-                    scaled_posteriors.append(arr * weight)
-                else:
-                    n_unks = n_words - len(posterior)
-                    if n_unks:
-                        posterior = np.concatenate((
-                               posterior, np.full(n_unks, unk_prob)))
-                    scaled_posteriors.append(posterior * weight)
-            combined_scores = np.sum(scaled_posteriors, axis=0)
-            non_zero_words = utils.argmax_n(combined_scores, top_n)
+          non_zero_words = Decoder._scale_combine_non_zero_scores(len(non_zero_words),
+                                                                  posteriors,
+                                                                  unk_probs,
+                                                                  pred_weights,
+                                                                  top_n)
         combined = {}
         score_breakdown = {}
         for trgt_word in non_zero_words:
@@ -762,7 +647,7 @@ class Decoder(Observable):
         n_predictors = len(self.predictors)
         unk_counts = [0.0] * n_predictors
         for idx, w in enumerate(pred_weights):
-            if unk_probs[idx] >= -0.00001 or unk_probs[idx] == NEG_INF:
+            if unk_probs[idx] >= EPS_P or unk_probs[idx] == NEG_INF:
                 continue
             for trgt_word in non_zero_words:
                 if not utils.common_contains(posteriors[idx], trgt_word):
@@ -854,6 +739,31 @@ class Decoder(Observable):
                             for preds in score_breakdown_raw.itervalues()]))
         return self._combine_posteriors_with_renorm(score_breakdown_raw, sums)
     
+    @staticmethod
+    def _scale_combine_non_zero_scores(non_zero_word_count,
+                                       posteriors,
+                                       unk_probs,
+                                       pred_weights,
+                                       top_n):
+      scaled_posteriors = []
+      for posterior, unk_prob, weight in zip(
+              posteriors, unk_probs, pred_weights):
+        if isinstance(posterior, dict):
+          arr = np.full(non_zero_word_count, unk_prob)
+          for word, score in posterior.iteritems():
+            arr[word] = score
+            scaled_posteriors.append(arr * weight)
+        else:
+          n_unks = non_zero_word_count - len(posterior)
+          if n_unks:
+            posterior = np.concatenate((
+                posterior, np.full(n_unks, unk_prob)))
+            scaled_posteriors.append(posterior * weight)
+    combined_scores = np.sum(scaled_posteriors, axis=0)
+    return utils.argmax_n(combined_scores, top_n)
+
+
+
     def _combine_posteriors_norm_non_zero(self,
                                           non_zero_words,
                                           posteriors,
@@ -871,28 +781,19 @@ class Decoder(Observable):
                         with ``predict_next()``
             unk_probs: UNK probabilities of the predictors, calculated
                        with ``get_unk_probability``
+            pred_weights (list): Predictor weights
+            top_n (int): If positive, return only top n words
+
         
         Returns:
             combined,score_breakdown: like in ``apply_predictors()``
         """
         if isinstance(non_zero_words, xrange) and top_n > 0:
-          n_words = len(non_zero_words)
-          scaled_posteriors = []
-          for posterior, unk_prob, weight in zip(
-                  posteriors, unk_probs, pred_weights):
-            if isinstance(posterior, dict):
-              arr = np.full(n_words, unk_prob)
-              for word, score in posterior.iteritems():
-                  arr[word] = score
-                  scaled_posteriors.append(arr * weight)
-            else:
-              n_unks = n_words - len(posterior)
-              if n_unks:
-                posterior = np.concatenate((
-                    posterior, np.full(n_unks, unk_prob)))
-                scaled_posteriors.append(posterior * weight)
-          combined_scores = np.sum(scaled_posteriors, axis=0)
-          non_zero_words = utils.argmax_n(combined_scores, top_n)
+          non_zero_words = Decoder._scale_combine_non_zero_scores(len(non_zero_words), 
+                                                                  posteriors,
+                                                                  unk_probs,
+                                                                  pred_weights,
+                                                                  top_n)
         combined = {}
         score_breakdown = {}
         for trgt_word in non_zero_words:
@@ -900,7 +801,7 @@ class Decoder(Observable):
                                        trgt_word, unk_probs[idx]), w)
                         for idx, w in enumerate(pred_weights)]
             combi_score = self.combi_predictor_method(preds)
-            if combi_score == 0.0:
+            if abs(combi_score) <= EPS_P:
                 continue
             combined[trgt_word] = combi_score  
             score_breakdown[trgt_word] = preds
@@ -979,7 +880,7 @@ class Decoder(Observable):
             float. Lower bound on the best score for current sentence
         """ 
         if self.current_sen_id < len(self.lower_bounds):
-            return self.lower_bounds[self.current_sen_id] - 0.00001
+            return self.lower_bounds[self.current_sen_id] - EPS_P
         return NEG_INF    
     
     def get_max_expansions(self, max_expansions_param, src_sentence):

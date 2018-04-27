@@ -20,7 +20,7 @@ import numpy as np
 
 NUM_FEATURES = 5
 EPS_R = 0.1;
-EPS_P = 0.00001;
+
 
 
 def load_external_lengths(path):
@@ -51,11 +51,8 @@ def load_external_ids(path):
     """
     load file of ids to list
     """
-    ids = []
     with open(path) as f:
-        for line in f:
-            ids.append(int(line.strip()))
-    return ids
+       return [int(line.strip())) for line in f]
 
 class NBLengthPredictor(Predictor):
     """This predictor assumes that target sentence lengths are 
@@ -205,7 +202,7 @@ class NBLengthPredictor(Predictor):
         self.cur_r  = max(EPS_R, np.dot(feat, self.r_weights));
         p = np.dot(feat, self.p_weights)
         p = 1.0 / (1.0 + math.exp(-p))
-        self.cur_p = max(EPS_P, min(1.0 - EPS_P, p))
+        self.cur_p = max(utils.EPS_P, min(1.0 - utils.EPS_P, p))
         self.n_consumed = 0
         self.prev_eos_probs = []
         if self.use_point_probs:
@@ -243,7 +240,12 @@ class WordCountPredictor(Predictor):
     used with a positive weight.
     """
     
-    def __init__(self, word = -1, nonterminal_penalty=False, nonterminal_ids=None, min_terminal_id=0, max_terminal_id=30003, vocab_size=30003):
+    def __init__(self, word=-1,
+                 nonterminal_penalty=False,
+                 nonterminal_ids=None,
+                 min_terminal_id=0,
+                 max_terminal_id=30003,
+                 vocab_size=30003):
         """Creates a new word count predictor instance.
         
         Args:
@@ -253,8 +255,10 @@ class WordCountPredictor(Predictor):
             nonterminal_penalty (bool): If true, apply penalty only to tokens in a range 
                                         (the range *outside* min/max terminal id)
             nonterminal_ids: file containing ids of nonterminal tokens
-            min_terminal_id: lower bound of tokens *not* to penalize, if nonterminal_penalty selected
-            max_terminal_id: upper bound of tokens *not* to penalize, if nonterminal_penalty selected
+            min_terminal_id: lower bound of tokens *not* to penalize,
+                              if nonterminal_penalty selected
+            max_terminal_id: upper bound of tokens *not* to penalize,
+                             if nonterminal_penalty selected
             vocab_size: upper bound of tokens, used to find nonterminal range
 
         """
@@ -311,8 +315,13 @@ class WeightNonTerminalPredictor(Predictor):
     """This wrapper multiplies the weight of given tokens (those outside
     the min/max terminal range) by a factor."""
     
-    def __init__(self, slave_predictor, penalty_factor=1.0, nonterminal_ids=None, min_terminal_id=0, max_terminal_id=30003, vocab_size=30003):
-        """Creates a new word count predictor instance.
+    def __init__(self, slave_predictor,
+                 penalty_factor=1.0,
+                 nonterminal_ids=None,
+                 min_terminal_id=0,
+                 max_terminal_id=30003,
+                 vocab_size=30003):
+        """Creates a new id-weighting wrapper for a predictor
         
         Args:
             slave_predictor: predictor to apply penalty to.
@@ -330,9 +339,7 @@ class WeightNonTerminalPredictor(Predictor):
             max_nt_range = range(max_terminal_id + 1, vocab_size)
             nts = min_nt_range + max_nt_range
         self.slave_predictor = slave_predictor
-        self.mult = dict()
-        for tok in nts:
-            self.mult[tok] = penalty_factor
+        self.mult = {tok: penalty_factor for tok in nts}
         self.mult[utils.EOS_ID] = 1.0
         self.mult[utils.UNK_ID] = 1.0
         
@@ -358,9 +365,6 @@ class WeightNonTerminalPredictor(Predictor):
     
     def set_state(self, state):
         self.slave_predictor.set_state(state)
-
-    def reset(self):
-        self.slave_predictor.reset()
     
     def is_equal(self, state1, state2):
         return self.slave_predictor.is_equal(state1, state2)
