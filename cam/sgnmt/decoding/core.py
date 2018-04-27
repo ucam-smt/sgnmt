@@ -855,9 +855,11 @@ class Decoder(Observable):
         return self._combine_posteriors_with_renorm(score_breakdown_raw, sums)
     
     def _combine_posteriors_norm_non_zero(self,
-                                      non_zero_words,
-                                      posteriors,
-                                      unk_probs):
+                                          non_zero_words,
+                                          posteriors,
+                                          unk_probs,
+                                          pred_weights,
+                                          top_n=0):
         """Combine predictor posteriors according the normalization
         scheme ``CLOSED_VOCAB_SCORE_NORM_NON_ZERO``. For more information
         on closed vocabulary predictor score normalization see the 
@@ -873,12 +875,30 @@ class Decoder(Observable):
         Returns:
             combined,score_breakdown: like in ``apply_predictors()``
         """
+        if isinstance(non_zero_words, xrange) and top_n > 0:
+          n_words = len(non_zero_words)
+          scaled_posteriors = []
+          for posterior, unk_prob, weight in zip(
+                  posteriors, unk_probs, pred_weights):
+            if isinstance(posterior, dict):
+              arr = np.full(n_words, unk_prob)
+              for word, score in posterior.iteritems():
+                  arr[word] = score
+                  scaled_posteriors.append(arr * weight)
+            else:
+              n_unks = n_words - len(posterior)
+              if n_unks:
+                posterior = np.concatenate((
+                    posterior, np.full(n_unks, unk_prob)))
+                scaled_posteriors.append(posterior * weight)
+          combined_scores = np.sum(scaled_posteriors, axis=0)
+          non_zero_words = utils.argmax_n(combined_scores, top_n)
         combined = {}
         score_breakdown = {}
         for trgt_word in non_zero_words:
             preds = [(utils.common_get(posteriors[idx],
                                        trgt_word, unk_probs[idx]), w)
-                        for idx, (_,w) in enumerate(self.predictors)]
+                        for idx, w in enumerate(pred_weights)]
             combi_score = self.combi_predictor_method(preds)
             if combi_score == 0.0:
                 continue
