@@ -76,7 +76,6 @@ class ParsePredictor(Predictor):
         for tok in best_rule_ids:
             if tok in self.nonterminals:
                 return False
-
         return True
 
 
@@ -97,7 +96,8 @@ class ParsePredictor(Predictor):
     
     def new_unk_hypo(self, posterior, path_score):
         new_unk_path_score = posterior[self.UNK_ID] + path_score
-        if self.UNK_ID not in self.tok_to_hypo or new_unk_path_score > self.tok_to_hypo[self.UNK_ID].score:
+        if (self.UNK_ID not in self.tok_to_hypo or 
+            new_unk_path_score > self.tok_to_hypo[self.UNK_ID].score):
             best_unk_hypo = InternalHypo(new_unk_path_score,
                                          posterior[self.UNK_ID],
                                          copy.deepcopy(self.nmt.get_state()),
@@ -122,7 +122,6 @@ class ParsePredictor(Predictor):
         if top_terminals:
             top_terminals.sort(key=lambda h: -self.tok_to_hypo[h].score)
             min_score = self.tok_to_hypo[top_terminals[-1]].score
-        # at least one of top-terminals or hypos must exist
         hypos.sort(key=lambda h: -h.score)
         # search until we have n terminal hypos with path scores better than further internal search can give us
         while hypos and hypos[0].score > min_score:
@@ -135,7 +134,6 @@ class ParsePredictor(Predictor):
                 new_post = self.predict_next(predicting_internally=True)
                 top_tokens = utils.argmax_n(new_post, self.beam_size)
                 next_state = copy.deepcopy(self.nmt.get_state())
-                #self.new_unk_hypo(new_post, hypo.score)                    
                 for tok in top_tokens:
                     score = hypo.score + new_post[tok]
                     new_hypo = InternalHypo(score, new_post[tok], next_state, tok)
@@ -164,8 +162,6 @@ class ParsePredictor(Predictor):
                 min_score = self.tok_to_hypo[top_terminals[-1]].score
         token_scores = [self.tok_to_hypo[t].score for t in top_terminals]
         return_post = {t: s for t, s in zip(top_terminals, token_scores)}
-        #return_post[self.UNK_ID] = self.tok_to_hypo[self.UNK_ID].score
-        #logging.info('returning {}'.format(return_post))
         return return_post
 
     def initialize(self, src_sentence):
@@ -183,9 +179,6 @@ class ParsePredictor(Predictor):
                 self.nmt.set_state(copy.deepcopy(self.tok_to_hypo[word].predictor_state))
         except KeyError:
             logging.info('trying to consume {}, not in tok-to-hypo'.format(word))
-            #word = self.UNK_ID
-            #self.nmt.set_state(copy.deepcopy(self.tok_to_hypo[word].predictor_state))
-
         return self.nmt.consume(word) 
     
     def get_state(self):
@@ -214,7 +207,8 @@ class ParsePredictor(Predictor):
 
 class TokParsePredictor(Predictor):
     """
-    Unlike ParsePredictor, the grammar predicts tokens according to a grammar
+    Unlike ParsePredictor, the grammar predicts tokens according to a grammar. 
+    Use BPEParsePredictor if including rules to connect BPE units inside words.
     """
     
     def __init__(self, grammar_path, nmt_predictor, word_out=True,
@@ -459,10 +453,10 @@ class BpeParsePredictor(TokParsePredictor):
     def __init__(self, grammar_path, bpe_rule_path, nmt_predictor, word_out=True,
                  normalize_scores=True, to_log=True, norm_alpha=1.0,
                  beam_size=1, max_internal_len=35, allow_early_eos=False,
-                 consume_out_of_class=False, eow_ids=None, terminal_restrict=True, terminal_ids=None, internal_only_restrict=False):
-        """Creates a new parse predictor.                                                                            
-        Args:                                                                                                        
-            grammar_path (string): Path to the grammar file                                                          
+                 consume_out_of_class=False, eow_ids=None, terminal_restrict=True,
+                 terminal_ids=None, internal_only_restrict=False):
+        """Creates a new parse predictor.                             
+        Args: 
         """
         super(BpeParsePredictor, self).__init__(grammar_path,
                                                 nmt_predictor,
@@ -533,7 +527,7 @@ class BpeParsePredictor(TokParsePredictor):
 
     def predict_next(self, predicting_next_word=False):
         """predict next tokens as permitted by 
-        the current stack and the grammar
+        the current stack and the BPE grammar
         """
         nmt_posterior = self.nmt.predict_next()
         outgoing_rules = self.lhs_to_can_follow[self.current_lhs]

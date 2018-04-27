@@ -218,7 +218,7 @@ class FSTTokPredictor(Predictor):
                 self._collect_chars(state, arc.nextstate, arc_first_olabel)
             else:
                 score = state.score(arc_first_olabel, self.slave_predictor)
-                if arc.ilabel in self.last_prediction:
+                if arc.ilabel in self.last_prediction: 
                     self.last_prediction[arc.ilabel] = max(
                                             self.last_prediction[arc.ilabel], 
                                             score)
