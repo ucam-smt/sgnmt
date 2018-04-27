@@ -238,7 +238,10 @@ class NBLengthPredictor(Predictor):
 
 
 class WordCountPredictor(Predictor):
-    """This predictor adds the (negative) number of words as feature. """
+    """This predictor adds the (negative) number of words as feature.
+    This means that this predictor encourages shorter hypotheses when
+    used with a positive weight.
+    """
     
     def __init__(self, word = -1, nonterminal_penalty=False, nonterminal_ids=None, min_terminal_id=0, max_terminal_id=30003, vocab_size=30003):
         """Creates a new word count predictor instance.
