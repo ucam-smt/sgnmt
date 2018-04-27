@@ -55,7 +55,6 @@ def parse_param_string(param):
     """
     if not param:
         return {}
-    logging.debug(param)
     if os.path.isfile(param):
         param = "config_file=%s" % param
     config = {}
@@ -771,9 +770,6 @@ def get_parser():
                        help="Maximum depth of generated trees. After this "
                        "depth is reached, only terminals and POP are allowed "
                        "on the next layer.")
-    parser.add_argument("--syntax_use_max_depth",  default=False, action="store_true",
-                        help="syntax decoding to use max depth option")
-
     group.add_argument("--syntax_root_id", default=-1, type=int,
                        help="Must be set for the layerbylayer predictor. ID "
                        "of the initial target root label.")

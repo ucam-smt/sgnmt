@@ -222,11 +222,11 @@ class UnkvocabPredictor(Predictor):
 class SkipvocabInternalHypothesis(object):
     """Helper class for internal beam search in skipvocab."""
 
-    def __init__(self, score, predictor_state, word_to_consume, history):
+    def __init__(self, score, predictor_state, word_to_consume):
         self.score = score
         self.predictor_state = predictor_state
         self.word_to_consume = word_to_consume
-        self.history = history
+
     
 class SkipvocabPredictor(Predictor):
     """This predictor wrapper masks predictors with a larger vocabulary

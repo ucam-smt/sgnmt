@@ -21,7 +21,6 @@ from cam.sgnmt import utils
 from cam.sgnmt.blocks.nmt import blocks_get_nmt_predictor, \
                                  blocks_get_nmt_vanilla_decoder, \
     blocks_get_default_nmt_config
-from cam.sgnmt.decoding import core
 from cam.sgnmt.predictors.parse import ParsePredictor, TokParsePredictor, BpeParsePredictor
 from cam.sgnmt.decoding import combination
 from cam.sgnmt.decoding.astar import AstarDecoder
@@ -161,27 +160,14 @@ def _parse_config_param(field, default):
     """
     add_config = ui.parse_param_string(_get_override_args(field))
     for (k,v) in default.iteritems():
-        logging.info('here, parsing {} {}'.format(k, v))
         if k in add_config:
             if type(v) is type(None):
                 default[k] = add_config[k]
             else:
                 default[k] = type(v)(add_config[k])
+        else:
+            logging.debug('Unknown key {}, not adding to config'.format(k))
     return default
-
-def create_nmt_predictor(nmt_engine, nmt_path, nmt_config_str):
-    if nmt_engine == 'blocks':
-        get_nmt_predictor = blocks_get_nmt_predictor
-        get_default_nmt_config = blocks_get_default_nmt_config
-    elif nmt_engine == 'tensorflow':
-        get_nmt_predictor = tf_get_nmt_predictor
-        get_default_nmt_config = tf_get_default_nmt_config
-    elif nmt_engine != 'none':
-        logging.fatal("NMT engine %s is not supported (yet)!" % nmt_engine)
-    nmt_config =  _parse_config_param(nmt_config_str,
-                                      get_default_nmt_config())
-    p = get_nmt_predictor(args, nmt_path, nmt_config)
-    return p
 
 
 def add_predictors(decoder):
@@ -483,8 +469,7 @@ def add_predictors(decoder):
                     p = FSTTokPredictor(fsttok_path,
                                         args.fst_unk_id,
                                         args.fsttok_max_pending_score,
-                                        p,
-                                        len_penalty=args.fsttok_internal_penalty)
+                                        p)
                 elif wrapper == "ngramize":
                     # ngramize always wraps bounded predictors
                     p = NgramizePredictor(args.min_ngram_order, 

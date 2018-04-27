@@ -7,8 +7,9 @@ import logging
 import numpy as np
 
 from cam.sgnmt.misc.trie import SimpleTrie
-from models.rnn.translate.utils import data_utils as tf_data_utils
-from models.rnn.translate.utils import model_utils as tf_model_utils
+from tensorflow.models.rnn.translate.utils import data_utils as tf_data_utils
+from tensorflow.models.rnn.translate.utils import model_utils as tf_model_utils
+
 NEG_INF = float("-inf")
 
 class TensorFlowNMTPredictor(Predictor):
@@ -17,7 +18,6 @@ class TensorFlowNMTPredictor(Predictor):
       super(TensorFlowNMTPredictor, self).__init__()
       self.config = config
       self.session = session
-      self.UNK_ID = utils.UNK_ID
       # Add missing entries in config
       if self.config['encoder'] == "bow":
         self.config['init_backward'] = False
@@ -129,9 +129,7 @@ class TensorFlowNMTPredictor(Predictor):
     # posterior is the returned value of the last predict_next call
     return posterior[utils.UNK_ID] if len(posterior) > 1 else float("-inf")
 
-  def consume(self, word, external=False):
-    #if external:
-      #logging.info('NMT consuming {}'.format(word))
+  def consume(self, word):
     if word >= self.config['trg_vocab_size']:
       word = tf_data_utils.UNK_ID  # history is kept according to nmt vocab
     self.consumed.append(word)

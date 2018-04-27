@@ -154,6 +154,8 @@ class _BaseTensor2TensorPredictor(Predictor):
 
     def get_unk_probability(self, posterior):
         """Fetch posterior[t2t_unk_id]"""
+        if self._t2t_unk_id is None:
+            return utils.NEG_INF
         return posterior[self._t2t_unk_id]
 
 

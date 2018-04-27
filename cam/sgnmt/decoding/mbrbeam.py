@@ -232,8 +232,9 @@ class MBRBeamDecoder(BeamDecoder):
                     continue 
                 for next_hypo in self._expand_hypo(hypo):
                     next_score = self._get_combined_score(next_hypo)
-                    next_hypos.append(next_hypo)
-                    next_scores.append(next_score)
+                    if next_score > utils.NEG_INF:
+                        next_hypos.append(next_hypo)
+                        next_scores.append(next_score)
             hypos = self._get_next_hypos_mbr(next_hypos, next_scores)
         for hypo in hypos:
             hypo.score = hypo.bleu

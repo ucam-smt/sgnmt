@@ -16,7 +16,6 @@ import sys
 import codecs
 
 from cam.sgnmt import utils
-from cam.sgnmt.decoding import core
 from cam.sgnmt import decode_utils
 from cam.sgnmt.ui import get_args, get_parser
 
