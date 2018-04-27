@@ -326,8 +326,10 @@ class WeightNonTerminalPredictor(Predictor):
         Args:
             slave_predictor: predictor to apply penalty to.
             penalty_factor (float): factor by which to multiply tokens in range
-            min_terminal_id: lower bound of tokens *not* to penalize, if nonterminal_penalty selected
-            max_terminal_id: upper bound of tokens *not* to penalize, if nonterminal_penalty selected
+            min_terminal_id: lower bound of tokens *not* to penalize, 
+        if nonterminal_penalty selected
+            max_terminal_id: upper bound of tokens *not* to penalize,
+        if nonterminal_penalty selected
             vocab_size: upper bound of tokens, used to find nonterminal range
 
         """
