@@ -14,7 +14,7 @@ from cam.sgnmt.decoding.interpolation import FixedInterpolationStrategy, \
                                              EntropyInterpolationStrategy, \
                                              MoEInterpolationStrategy
 from cam.sgnmt.utils import Observable, Observer, MESSAGE_TYPE_DEFAULT, \
-    MESSAGE_TYPE_POSTERIOR, MESSAGE_TYPE_FULL_HYPO, NEG_INF
+    MESSAGE_TYPE_POSTERIOR, MESSAGE_TYPE_FULL_HYPO, NEG_INF, EPS_P
 import numpy as np
 from operator import mul
 import logging
@@ -194,6 +194,10 @@ CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK = 4
 vocabulary. Results in a valid distribution if predictor scores are
 stochastic. """
 
+CLOSED_VOCAB_SCORE_NORM_NON_ZERO = 5
+"""Apply no normalization, but ensure posterior contains only tokens with scores
+strictly < 0.0. """
+
 
 class Heuristic(Observer):
     """A ``Heuristic`` instance can be used to estimate the future 
@@ -259,7 +263,6 @@ class Heuristic(Observer):
         """
         pass
     
-
 class Decoder(Observable):    
     """A ``Decoder`` instance represents a particular search strategy
     such as A*, beam search, greedy search etc. Decisions are made 
@@ -302,6 +305,7 @@ class Decoder(Observable):
         self.combi_predictor_method = Decoder.combi_arithmetic_unnormalized
         self.combine_posteriors = self._combine_posteriors_norm_none
         self.closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_NONE
+
         if decoder_args.closed_vocabulary_normalization == 'exact':
             self.closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_EXACT
             self.combine_posteriors = self._combine_posteriors_norm_exact
@@ -311,7 +315,10 @@ class Decoder(Observable):
         elif decoder_args.closed_vocabulary_normalization == 'rescale_unk':
             self.closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_RESCALE_UNK
             self.combine_posteriors = self._combine_posteriors_norm_rescale_unk
-        
+        elif decoder_args.closed_vocabulary_normalization == 'non_zero':
+            self.closed_vocab_norm = CLOSED_VOCAB_SCORE_NORM_NON_ZERO
+            self.combine_posteriors = self._combine_posteriors_norm_non_zero
+
         self.current_sen_id = -1
         self.apply_predictors_count = 0
         self.lower_bounds = []
@@ -598,23 +605,11 @@ class Decoder(Observable):
             combined,score_breakdown: like in ``apply_predictors()``
         """
         if isinstance(non_zero_words, xrange) and top_n > 0:
-            n_words = len(non_zero_words)
-            scaled_posteriors = []
-            for posterior, unk_prob, weight in zip(
-                          posteriors, unk_probs, pred_weights):
-                if isinstance(posterior, dict):
-                    arr = np.full(n_words, unk_prob)
-                    for word, score in posterior.iteritems():
-                        arr[word] = score
-                    scaled_posteriors.append(arr * weight)
-                else:
-                    n_unks = n_words - len(posterior)
-                    if n_unks:
-                        posterior = np.concatenate((
-                               posterior, np.full(n_unks, unk_prob)))
-                    scaled_posteriors.append(posterior * weight)
-            combined_scores = np.sum(scaled_posteriors, axis=0)
-            non_zero_words = utils.argmax_n(combined_scores, top_n)
+          non_zero_words = Decoder._scale_combine_non_zero_scores(len(non_zero_words),
+                                                                  posteriors,
+                                                                  unk_probs,
+                                                                  pred_weights,
+                                                                  top_n)
         combined = {}
         score_breakdown = {}
         for trgt_word in non_zero_words:
@@ -652,7 +647,7 @@ class Decoder(Observable):
         n_predictors = len(self.predictors)
         unk_counts = [0.0] * n_predictors
         for idx, w in enumerate(pred_weights):
-            if unk_probs[idx] >= -0.00001 or unk_probs[idx] == NEG_INF:
+            if unk_probs[idx] >= EPS_P or unk_probs[idx] == NEG_INF:
                 continue
             for trgt_word in non_zero_words:
                 if not utils.common_contains(posteriors[idx], trgt_word):
@@ -744,6 +739,74 @@ class Decoder(Observable):
                             for preds in score_breakdown_raw.itervalues()]))
         return self._combine_posteriors_with_renorm(score_breakdown_raw, sums)
     
+    @staticmethod
+    def _scale_combine_non_zero_scores(non_zero_word_count,
+                                       posteriors,
+                                       unk_probs,
+                                       pred_weights,
+                                       top_n):
+      scaled_posteriors = []
+      for posterior, unk_prob, weight in zip(
+              posteriors, unk_probs, pred_weights):
+        if isinstance(posterior, dict):
+          arr = np.full(non_zero_word_count, unk_prob)
+          for word, score in posterior.iteritems():
+            arr[word] = score
+            scaled_posteriors.append(arr * weight)
+        else:
+          n_unks = non_zero_word_count - len(posterior)
+          if n_unks:
+            posterior = np.concatenate((
+                posterior, np.full(n_unks, unk_prob)))
+            scaled_posteriors.append(posterior * weight)
+    combined_scores = np.sum(scaled_posteriors, axis=0)
+    return utils.argmax_n(combined_scores, top_n)
+
+
+
+    def _combine_posteriors_norm_non_zero(self,
+                                          non_zero_words,
+                                          posteriors,
+                                          unk_probs,
+                                          pred_weights,
+                                          top_n=0):
+        """Combine predictor posteriors according the normalization
+        scheme ``CLOSED_VOCAB_SCORE_NORM_NON_ZERO``. For more information
+        on closed vocabulary predictor score normalization see the 
+        documentation on the ``CLOSED_VOCAB_SCORE_NORM_*`` vars.
+        
+        Args:
+            non_zero_words (set): All words with positive probability
+            posteriors: Predictor posterior distributions calculated
+                        with ``predict_next()``
+            unk_probs: UNK probabilities of the predictors, calculated
+                       with ``get_unk_probability``
+            pred_weights (list): Predictor weights
+            top_n (int): If positive, return only top n words
+
+        
+        Returns:
+            combined,score_breakdown: like in ``apply_predictors()``
+        """
+        if isinstance(non_zero_words, xrange) and top_n > 0:
+          non_zero_words = Decoder._scale_combine_non_zero_scores(len(non_zero_words), 
+                                                                  posteriors,
+                                                                  unk_probs,
+                                                                  pred_weights,
+                                                                  top_n)
+        combined = {}
+        score_breakdown = {}
+        for trgt_word in non_zero_words:
+            preds = [(utils.common_get(posteriors[idx],
+                                       trgt_word, unk_probs[idx]), w)
+                        for idx, w in enumerate(pred_weights)]
+            combi_score = self.combi_predictor_method(preds)
+            if abs(combi_score) <= EPS_P:
+                continue
+            combined[trgt_word] = combi_score  
+            score_breakdown[trgt_word] = preds
+        return combined, score_breakdown
+
     def _combine_posteriors_with_renorm(self,
                                         score_breakdown_raw,
                                         renorm_factors):
@@ -817,7 +880,7 @@ class Decoder(Observable):
             float. Lower bound on the best score for current sentence
         """ 
         if self.current_sen_id < len(self.lower_bounds):
-            return self.lower_bounds[self.current_sen_id] - 0.00001
+            return self.lower_bounds[self.current_sen_id] - EPS_P
         return NEG_INF    
     
     def get_max_expansions(self, max_expansions_param, src_sentence):

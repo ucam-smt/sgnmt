@@ -21,6 +21,7 @@ from cam.sgnmt import utils
 from cam.sgnmt.blocks.nmt import blocks_get_nmt_predictor, \
                                  blocks_get_nmt_vanilla_decoder, \
     blocks_get_default_nmt_config
+from cam.sgnmt.predictors.parse import ParsePredictor, TokParsePredictor, BpeParsePredictor
 from cam.sgnmt.decoding import combination
 from cam.sgnmt.decoding.astar import AstarDecoder
 from cam.sgnmt.decoding.beam import BeamDecoder
@@ -60,7 +61,7 @@ from cam.sgnmt.predictors.forced import ForcedPredictor, ForcedLstPredictor
 from cam.sgnmt.predictors.grammar import RuleXtractPredictor
 from cam.sgnmt.predictors.length import WordCountPredictor, NBLengthPredictor, \
     ExternalLengthPredictor, NgramCountPredictor, UnkCountPredictor, \
-    NgramizePredictor
+    NgramizePredictor, WeightNonTerminalPredictor
 from cam.sgnmt.predictors.structure import BracketPredictor, OSMPredictor, \
                                            ForcedOSMPredictor
 from cam.sgnmt.predictors.misc import UnboundedAltsrcPredictor, AltsrcPredictor
@@ -164,6 +165,8 @@ def _parse_config_param(field, default):
                 default[k] = add_config[k]
             else:
                 default[k] = type(v)(add_config[k])
+        else:
+            logging.debug('Unknown key {}, not adding to config'.format(k))
     return default
 
 
@@ -260,6 +263,7 @@ def add_predictors(decoder):
                                  _get_override_args("t2t_hparams_set"),
                                  args.t2t_usr_dir,
                                  _get_override_args("t2t_checkpoint_dir"),
+                                 t2t_unk_id=_get_override_args("t2t_unk_id"),
                                  single_cpu_thread=args.single_cpu_thread,
                                  max_terminal_id=args.syntax_max_terminal_id,
                                  pop_id=args.syntax_pop_id)
@@ -346,7 +350,12 @@ def add_predictors(decoder):
                                            _get_override_args("rnnlm_config"),
                                            tf_get_rnnlm_prefix())
             elif pred == "wc":
-                p = WordCountPredictor(args.wc_word)
+                p = WordCountPredictor(args.wc_word,
+                                       args.wc_nonterminal_penalty,
+                                       args.syntax_nonterminal_ids,
+                                       args.syntax_min_terminal_id,
+                                       args.syntax_max_terminal_id,
+                                       _get_override_args("pred_trg_vocab_size"))
             elif pred == "ngramc":
                 p = NgramCountPredictor(_get_override_args("ngramc_path"),
                                         _get_override_args("ngramc_order"),
@@ -389,6 +398,50 @@ def add_predictors(decoder):
                         p = UnboundedIdxmapPredictor(src_path, trg_path, p, 1.0) 
                     else: # idxmap predictor for bounded predictors
                         p = IdxmapPredictor(src_path, trg_path, p, 1.0)
+                elif wrapper == "weightnt":
+                    p = WeightNonTerminalPredictor(
+                        p, 
+                        args.syntax_nonterminal_factor,
+                        args.syntax_nonterminal_ids,
+                        args.syntax_min_terminal_id,
+                        args.syntax_max_terminal_id,
+                        _get_override_args("pred_trg_vocab_size"))
+                elif wrapper == "parse":
+                    if args.parse_tok_grammar:
+                        if args.parse_bpe_path:
+                            p = BpeParsePredictor(
+                                args.syntax_path,
+                                args.syntax_bpe_path,
+                                p,
+                                args.syntax_word_out,
+                                args.normalize_fst_weights,
+                                norm_alpha=args.syntax_norm_alpha,
+                                beam_size=args.syntax_internal_beam,
+                                max_internal_len=args.syntax_max_internal_len,
+                                allow_early_eos=args.syntax_allow_early_eos,
+                                consume_out_of_class=args.syntax_consume_ooc,
+                                terminal_restrict=args.syntax_terminal_restrict,
+                                internal_only_restrict=args.syntax_internal_only,
+                                eow_ids=args.syntax_eow_ids,
+                                terminal_ids=args.syntax_terminal_ids)
+                        else:
+                            p = TokParsePredictor(
+                                args.syntax_path,
+                                p,
+                                args.syntax_word_out,
+                                args.normalize_fst_weights,
+                                norm_alpha=args.syntax_norm_alpha,
+                                beam_size=args.syntax_internal_beam,
+                                max_internal_len=args.syntax_max_internal_len,
+                                allow_early_eos=args.syntax_allow_early_eos,
+                                consume_out_of_class=args.syntax_consume_ooc)
+                    else:
+                        p = ParsePredictor(
+                            p,
+                            args.normalize_fst_weights,
+                            beam_size=args.syntax_internal_beam,
+                            max_internal_len=args.syntax_max_internal_len,
+                            nonterminal_ids=args.syntax_nonterminal_ids)
                 elif wrapper == "altsrc":
                     src_test = _get_override_args("altsrc_test")
                     if isinstance(p, UnboundedVocabularyPredictor): 

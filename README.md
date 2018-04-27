@@ -35,6 +35,7 @@ Please see the [full SGNMT documentation](http://ucam-smt.github.io/sgnmt/html/)
 
 - Felix Stahlberg, University of Cambridge
 - Eva Hasler, SDL Research
+- Danielle Saunders, University of Cambridge
 
 ### Citing
 

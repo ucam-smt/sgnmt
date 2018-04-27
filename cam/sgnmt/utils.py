@@ -38,6 +38,7 @@ NEG_INF = float("-inf")
 
 INF = float("inf")
 
+EPS_P = 0.00001
 
 def switch_to_tf_indexing():
     """Calling this method overrides the global definitions of the 

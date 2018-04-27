@@ -134,7 +134,6 @@ class TensorFlowNMTPredictor(Predictor):
   def consume(self, word):
     if word >= self.config['trg_vocab_size']:
       word = tf_data_utils.UNK_ID  # history is kept according to nmt vocab
-    logging.debug("Consume word={}".format(word))
     self.consumed.append(word)
 
     use_cache = self.is_history_cachable()
