@@ -401,7 +401,7 @@ def add_predictors(decoder):
                 elif wrapper == "weightnt":
                     p = WeightNonTerminalPredictor(
                         p, 
-                        args.nonterminal_factor,
+                        args.syntax_nonterminal_factor,
                         args.syntax_nonterminal_ids,
                         args.syntax_min_terminal_id,
                         args.syntax_max_terminal_id,
@@ -410,42 +410,37 @@ def add_predictors(decoder):
                     if args.parse_tok_grammar:
                         if args.parse_bpe_path:
                             p = BpeParsePredictor(
-                                args.parse_path,
-                                args.parse_bpe_path,
+                                args.syntax_path,
+                                args.syntax_bpe_path,
                                 p,
-                                args.parse_word_out,
+                                args.syntax_word_out,
                                 args.normalize_fst_weights,
-                                to_log=args.fst_to_log,
-                                norm_alpha=args.parse_norm_alpha,
-                                beam_size=args.parse_beam,
-                                max_internal_len=args.parse_max_internal_len,
-                                allow_early_eos=args.parse_allow_early_eos,
-                                consume_out_of_class=args.parse_consume_ooc,
-                                terminal_restrict=args.parse_terminal_restrict,
-                                internal_only_restrict=args.parse_internal_only,
-                                eow_ids=args.parse_eow_ids,
-                                terminal_ids=args.parse_terminal_ids)
+                                norm_alpha=args.syntax_norm_alpha,
+                                beam_size=args.syntax_internal_beam,
+                                max_internal_len=args.syntax_max_internal_len,
+                                allow_early_eos=args.syntax_allow_early_eos,
+                                consume_out_of_class=args.syntax_consume_ooc,
+                                terminal_restrict=args.syntax_terminal_restrict,
+                                internal_only_restrict=args.syntax_internal_only,
+                                eow_ids=args.syntax_eow_ids,
+                                terminal_ids=args.syntax_terminal_ids)
                         else:
                             p = TokParsePredictor(
-                                args.parse_path,
+                                args.syntax_path,
                                 p,
-                                args.parse_word_out,
+                                args.syntax_word_out,
                                 args.normalize_fst_weights,
-                                to_log=args.fst_to_log,
-                                norm_alpha=args.parse_norm_alpha,
-                                beam_size=args.parse_beam,
-                                max_internal_len=args.parse_max_internal_len,
-                                allow_early_eos=args.parse_allow_early_eos,
-                                consume_out_of_class=args.parse_consume_ooc)
+                                norm_alpha=args.syntax_norm_alpha,
+                                beam_size=args.syntax_internal_beam,
+                                max_internal_len=args.syntax_max_internal_len,
+                                allow_early_eos=args.syntax_allow_early_eos,
+                                consume_out_of_class=args.syntax_consume_ooc)
                     else:
                         p = ParsePredictor(
                             p,
-                            args.parse_word_out,
                             args.normalize_fst_weights,
-                            to_log=args.fst_to_log,
-                            beam_size=args.parse_beam,
-                            norm_alpha=args.parse_norm_alpha,
-                            max_internal_len=args.parse_max_internal_len,
+                            beam_size=args.syntax_internal_beam,
+                            max_internal_len=args.syntax_max_internal_len,
                             nonterminal_ids=args.syntax_nonterminal_ids)
                 elif wrapper == "altsrc":
                     src_test = _get_override_args("altsrc_test")

@@ -893,11 +893,8 @@ def get_parser():
                        action='store_true', help="if true, "
                        "use syntax_[max|min]_terminal_id to apply penalty to all non-terminals")
 
-    group.add_argument("--nonterminal_factor", default=1.0, type=float,
+    group.add_argument("--syntax_nonterminal_factor", default=1.0, type=float,
                        help="penalty factor for WeightNonTerminalWrapper to apply")
-
-    group.add_argument("--fsttok_internal_penalty", default=0.0, type=float,
-                       help="penalty to apply to fsttok scores with internal output label EPS")
 
     group.add_argument("--ngramc_path", default="ngramc/%d.txt",
                         help="Only required for ngramc predictor. The ngramc "
@@ -1059,37 +1056,37 @@ def get_parser():
                         "the path to the OpenFST translation lattices. You "
                         "can use the placeholder %%d for the sentence index.")
 
-    group.add_argument("--parse_path", default="ntmap",
+    group.add_argument("--syntax_path", default=None,
                         help="Only required for parse predictor. Sets "
                         "the path to the grammar non-terminal map determining"
                         "permitted parses")
-    group.add_argument("--parse_bpe_path", default=None,
+    group.add_argument("--syntax_bpe_path", default=None,
                         help="Internal can-follow syntax for subwords")
-    group.add_argument("--parse_word_out", default=True, type='bool',
+    group.add_argument("--syntax_word_out", default=True, type='bool',
                         help="Whether to output word tokens only from parse" 
                         "predictor.")
-    group.add_argument("--parse_allow_early_eos", default=False, type='bool',
+    group.add_argument("--syntax_allow_early_eos", default=False, type='bool',
                         help="Whether to let parse predictor output EOS instead of any terminal")
-    group.add_argument("--parse_norm_alpha", default=1.0, type=float,
+    group.add_argument("--syntax_norm_alpha", default=1.0, type=float,
                         help="Normalizing alpha for internal beam search")
-    group.add_argument("--parse_max_internal_len", default=35, type=int,
+    group.add_argument("--syntax_max_internal_len", default=35, type=int,
                         help="Max length of non-terminal sequences to consider")
-    group.add_argument("--parse_beam", default=1, type=int,
+    group.add_argument("--syntax_internal_beam", default=1, type=int,
                         help="Beam size when internally searching for words" 
                        "using parse predictor")
-    group.add_argument("--parse_consume_ooc", default=False, type='bool',
+    group.add_argument("--syntax_consume_ooc", default=False, type='bool',
                         help="Whether to let parse predictor consume tokens "
                        "which are not permitted by the current LHS")
-    group.add_argument("--parse_tok_grammar", default=False, type='bool',
+    group.add_argument("--syntax_tok_grammar", default=False, type='bool',
                         help="Whether to use a token-based grammar."
                         "Default uses no internal grammar")
-    group.add_argument("--parse_terminal_restrict", default=True, type='bool',
+    group.add_argument("--syntax_terminal_restrict", default=True, type='bool',
                         help="Whether to restrict inside terminals.")
-    group.add_argument("--parse_internal_only", default=False, type='bool',
+    group.add_argument("--syntax_internal_only", default=False, type='bool',
                         help="Whether to restrict only non-terminals.")
-    group.add_argument("--parse_eow_ids", default=None,
+    group.add_argument("--syntax_eow_ids", default=None,
                         help="ids for end-of-word tokens")
-    group.add_argument("--parse_terminal_ids", default=None,
+    group.add_argument("--syntax_terminal_ids", default=None,
                         help="ids for terminal tokens")
 
     group.add_argument("--rtn_path", default="rtn/",
