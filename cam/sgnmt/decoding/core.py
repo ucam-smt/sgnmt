@@ -759,10 +759,8 @@ class Decoder(Observable):
             posterior = np.concatenate((
                 posterior, np.full(n_unks, unk_prob)))
             scaled_posteriors.append(posterior * weight)
-    combined_scores = np.sum(scaled_posteriors, axis=0)
-    return utils.argmax_n(combined_scores, top_n)
-
-
+      combined_scores = np.sum(scaled_posteriors, axis=0)
+      return utils.argmax_n(combined_scores, top_n)
 
     def _combine_posteriors_norm_non_zero(self,
                                           non_zero_words,
