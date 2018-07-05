@@ -605,11 +605,12 @@ class Decoder(Observable):
             combined,score_breakdown: like in ``apply_predictors()``
         """
         if isinstance(non_zero_words, xrange) and top_n > 0:
-          non_zero_words = Decoder._scale_combine_non_zero_scores(len(non_zero_words),
-                                                                  posteriors,
-                                                                  unk_probs,
-                                                                  pred_weights,
-                                                                  top_n)
+          non_zero_words = Decoder._scale_combine_non_zero_scores(
+              len(non_zero_words),
+              posteriors,
+              unk_probs,
+              pred_weights,
+              top_n=top_n)
         combined = {}
         score_breakdown = {}
         for trgt_word in non_zero_words:
@@ -744,7 +745,7 @@ class Decoder(Observable):
                                        posteriors,
                                        unk_probs,
                                        pred_weights,
-                                       top_n):
+                                       top_n=0):
       scaled_posteriors = []
       for posterior, unk_prob, weight in zip(
               posteriors, unk_probs, pred_weights):
@@ -752,13 +753,13 @@ class Decoder(Observable):
           arr = np.full(non_zero_word_count, unk_prob)
           for word, score in posterior.iteritems():
             arr[word] = score
-            scaled_posteriors.append(arr * weight)
+          scaled_posteriors.append(arr * weight)
         else:
           n_unks = non_zero_word_count - len(posterior)
           if n_unks:
             posterior = np.concatenate((
                 posterior, np.full(n_unks, unk_prob)))
-            scaled_posteriors.append(posterior * weight)
+          scaled_posteriors.append(posterior * weight)
       combined_scores = np.sum(scaled_posteriors, axis=0)
       return utils.argmax_n(combined_scores, top_n)
 

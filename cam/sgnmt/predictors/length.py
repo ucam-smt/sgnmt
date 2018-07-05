@@ -52,7 +52,7 @@ def load_external_ids(path):
     load file of ids to list
     """
     with open(path) as f:
-       return [int(line.strip())) for line in f]
+       return [int(line.strip()) for line in f]
 
 class NBLengthPredictor(Predictor):
     """This predictor assumes that target sentence lengths are 
