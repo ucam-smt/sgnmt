@@ -121,11 +121,11 @@ class ParsePredictor(Predictor):
                             add_hypo = True
                             top_terminals.remove(t)
                         break
-                    if not found:
-                        add_hypo = True
-                    if add_hypo:
-                        top_terminals.append(tok)
-                        self.tok_to_hypo[tok] = new_hypo
+                if not found:
+                    add_hypo = True
+                if add_hypo:
+                    top_terminals.append(tok)
+                    self.tok_to_hypo[tok] = new_hypo
             else:
                 next_hypos.append(new_hypo)
 
