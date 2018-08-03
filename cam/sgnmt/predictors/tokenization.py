@@ -224,7 +224,7 @@ class FSTTokPredictor(Predictor):
                                             score)
                 else:
                     self.last_prediction[arc.ilabel] = score
-        
+
     def get_unk_probability(self, posterior):
         """Always returns negative infinity. Handling UNKs needs to be 
         realized by the FST.

@@ -111,7 +111,7 @@ class _BaseTensor2TensorPredictor(Predictor):
                           % checkpoint_dir)
             raise IOError
         self._single_cpu_thread = single_cpu_thread
-        self._t2t_unk_id = utils.UNK_ID if t2t_unk_id is None else t2t_unk_id
+        self._t2t_unk_id = utils.UNK_ID if t2t_unk_id < 0 else t2t_unk_id
         self._checkpoint_dir = checkpoint_dir
         _initialize_t2t(t2t_usr_dir)
 
@@ -153,8 +153,8 @@ class _BaseTensor2TensorPredictor(Predictor):
             raise AttributeError("Could not initialize TF session.")
 
     def get_unk_probability(self, posterior):
-        """Fetch posterior[t2t_unk_id] or return NEG_INF if None."""
-        if self._t2t_unk_id is None:
+        """Fetch posterior[t2t_unk_id]"""
+        if self._t2t_unk_id is None or self._t2t_unk_id not in posterior:
             return utils.NEG_INF
         return posterior[self._t2t_unk_id]
 
@@ -320,7 +320,8 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
             {self._inputs_var: self.src_sentence,
              self._targets_var: utils.oov_to_unk(
                  self.consumed + [text_encoder.PAD_ID],
-                 self.trg_vocab_size)})
+                 self.trg_vocab_size,
+                 self._t2t_unk_id)})
         log_probs[text_encoder.PAD_ID] = utils.NEG_INF
         return log_probs
     
@@ -329,7 +330,7 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
         self.consumed = []
         self.src_sentence = utils.oov_to_unk(
             src_sentence + [text_encoder.EOS_ID], 
-            self.src_vocab_size)
+            self.src_vocab_size, self._t2t_unk_id)
    
     def consume(self, word):
         """Append ``word`` to the current history."""

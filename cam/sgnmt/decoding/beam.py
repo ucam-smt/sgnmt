@@ -91,7 +91,7 @@ class BeamDecoder(Decoder):
         """Get the best beam size expansions of ``hypo``.
         
         Args:
-            hypo (PartialHypothesis): Hypothesis to expans
+            hypo (PartialHypothesis): Hypothesis to expand
         
         Returns:
             list. List of child hypotheses
