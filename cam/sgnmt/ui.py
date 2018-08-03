@@ -751,6 +751,11 @@ def get_parser():
                        "penalization term following Google's NMT (Wu et al., "
                        "2016) to the NMT score. Only works for the Blocks "
                        "NMT predictor.")
+    group.add_argument("--gnmt_alpha", default=0.0, type=float,
+                       help="If this is greater than zero and the combination "
+                       "scheme is set to length_norm, use Google-style length "
+                       " normalization (Wu et al., 2016) rather than simply "
+                       "dividing by translation length.")
     group.add_argument("--syntax_max_depth", default=30, type=int,
                        help="Maximum depth of generated trees. After this "
                        "depth is reached, only terminals and POP are allowed "
@@ -1209,6 +1214,10 @@ def validate_args(args):
                      "with early stopping. All hypotheses found with beam "
                      "search with early stopping have the same length. You "
                      "might want to disable early stopping.")
+        sanity_check_failed = True
+    if args.combination_scheme != "length_norm" and args.gnmt_alpha != 0.0:
+        logging.warn("Setting gnmt_alpha has no effect without using the "
+                     "combination scheme length_norm.")
         sanity_check_failed = True
     if "t2t" in args.predictors and args.indexing_scheme != "t2t":
         logging.warn("You are using the t2t predictor, but indexing_scheme "
