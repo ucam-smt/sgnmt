@@ -23,11 +23,14 @@ POP = "##POP##"
 
 try:
     # Requires tensor2tensor
-    from tensor2tensor.utils import trainer_utils
+    from tensor2tensor import models  # pylint: disable=unused-import
+    from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
     from tensor2tensor.utils import usr_dir
     from tensor2tensor.utils import registry
     from tensor2tensor.utils import devices
+    from tensor2tensor.utils import trainer_lib
     from tensor2tensor.data_generators.text_encoder import TextEncoder
+    from tensor2tensor.data_generators import problem  # pylint: disable=unused-import
     from tensor2tensor.data_generators import text_encoder
     import tensorflow as tf
     from tensorflow.python.training import saver
@@ -76,13 +79,12 @@ def _initialize_t2t(t2t_usr_dir):
         logging.info("Setting up tensor2tensor library...")
         tf.logging.set_verbosity(tf.logging.INFO)
         usr_dir.import_usr_dir(t2t_usr_dir)
-        trainer_utils.log_registry()
         T2T_INITIALIZED = True
 
 
 def log_prob_from_logits(logits):
     """Softmax function."""
-    return logits - tf.reduce_logsumexp(logits, keep_dims=True)
+    return logits - tf.reduce_logsumexp(logits, keepdims=True)
 
 
 class _BaseTensor2TensorPredictor(Predictor):
@@ -245,7 +247,7 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
         self.trg_vocab_size = trg_vocab_size
         predictor_graph = tf.Graph()
         with predictor_graph.as_default() as g:
-            hparams = trainer_utils.create_hparams(hparams_set_name, None)
+            hparams = trainer_lib.create_hparams(hparams_set_name)
             if self.pop_id >= 0:
               try:
                 hparams.add_hparam("pop_id", self.pop_id)
@@ -263,12 +265,11 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
                                                name="sgnmt_targets")
             features = {"inputs": expand_input_dims_for_t2t(self._inputs_var), 
                         "targets": expand_input_dims_for_t2t(self._targets_var)}
-            with translate_model._var_store.as_default():
-                translate_model.prepare_features_for_infer(features)
-                translate_model._fill_problem_hparams_features(features)
-                logits, _ = translate_model(features)
-                logits = tf.squeeze(logits, [0, 1, 2, 3])
-                self._log_probs = log_prob_from_logits(logits)
+            translate_model.prepare_features_for_infer(features)
+            translate_model._fill_problem_hparams_features(features)
+            logits, _ = translate_model(features)
+            logits = tf.squeeze(logits, [0, 1, 2, 3])
+            self._log_probs = log_prob_from_logits(logits)
             self.mon_sess = self.create_session()
 
     def _add_problem_hparams(
@@ -276,7 +277,7 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
         """Add problem hparams for the problems. 
 
         This method corresponds to create_hparams() in tensor2tensor's
-        trainer_utils module, but replaces the feature encoders with
+        trainer_lib module, but replaces the feature encoders with
         DummyFeatureEncoder's.
 
         Args:
@@ -310,8 +311,8 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
             "targets": DummyTextEncoder(vocab_size=trg_vocab_size)
         }
         p_hparams = problem.get_hparams(hparams)
-        hparams.problem_instances = [problem]
-        hparams.problems = [p_hparams]
+        hparams.problem = problem
+        hparams.problem_hparams = p_hparams
         return hparams
                 
     def predict_next(self):

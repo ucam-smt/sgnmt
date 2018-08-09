@@ -487,7 +487,8 @@ def add_predictors(decoder):
                       "predictors could not be read: %s" % e)
         decoder.remove_predictors()
     except AttributeError as e:
-        logging.fatal("Invalid argument for one of the predictors: %s" % e)
+        logging.fatal("Invalid argument for one of the predictors: %s."
+                       "Stack trace: %s" % (e, traceback.format_exc()))
         decoder.remove_predictors()
     except NameError as e:
         logging.fatal("Could not find external library: %s. Please make sure "
