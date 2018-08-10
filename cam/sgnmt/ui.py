@@ -539,8 +539,10 @@ def get_parser():
                         "* 'forcedosm': Forced decoding under OSM. Use in "
                         "combination with osm predictor.\n"
                         "         Options: trg_test\n"
-                        "* 'srilm': n-gram language model.\n"
-                        "          Options: srilm_path, srilm_order\n"
+                        "* 'kenlm': n-gram language model (KenLM).\n"
+                        "          Options: lm_pathr\n"
+                        "* 'srilm': n-gram language model (SRILM).\n"
+                        "          Options: lm_path, ngramc_order\n"
                         "* 'nplm': neural n-gram language model (NPLM).\n"
                         "          Options: nplm_path, normalize_nplm_probs\n"
                         "* 'rnnlm': RNN language model based on TensorFlow.\n"
@@ -1032,8 +1034,8 @@ def get_parser():
     
     # (NP)LM predictors
     group = parser.add_argument_group('(Neural) LM predictor options')
-    group.add_argument("--srilm_path", default="lm/ngram.lm.gz",
-                        help="Path to the ngram LM file in SRILM format")
+    group.add_argument("--lm_path", default="lm/ngram.lm.gz",
+                        help="Path to the ngram LM file in ARPA format")
     group.add_argument("--srilm_convert_to_ln", default=False,
                         help="Whether to convert srilm scores from log to ln.")
     group.add_argument("--nplm_path", default="nplm/nplm.gz",
@@ -1048,8 +1050,6 @@ def get_parser():
                         "the parameter string to use configuration files "
                         "with the second method. Use 'model_name=X' in the "
                         "parameter string to use one of the predefined models.")
-    group.add_argument("--srilm_order", default=5, type=int,
-                        help="Order of ngram for srilm predictor")
     group.add_argument("--normalize_nplm_probs", default=False, type='bool',
                         help="Whether to normalize nplm probabilities over "
                         "the current unbounded predictor vocabulary.")

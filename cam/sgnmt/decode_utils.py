@@ -20,7 +20,7 @@ from cam.sgnmt import ui
 from cam.sgnmt import utils
 from cam.sgnmt.blocks.nmt import blocks_get_nmt_predictor, \
                                  blocks_get_nmt_vanilla_decoder, \
-    blocks_get_default_nmt_config
+                                 blocks_get_default_nmt_config
 from cam.sgnmt.predictors.parse import ParsePredictor, TokParsePredictor, BpeParsePredictor
 from cam.sgnmt.decoding import combination
 from cam.sgnmt.decoding.astar import AstarDecoder
@@ -69,7 +69,7 @@ from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
                                             UnboundedIdxmapPredictor, \
                                             UnkvocabPredictor, \
                                             SkipvocabPredictor
-from cam.sgnmt.predictors.ngram import SRILMPredictor
+from cam.sgnmt.predictors.ngram import SRILMPredictor, KenLMPredictor
 from cam.sgnmt.predictors.tf_t2t import T2TPredictor, FertilityT2TPredictor
 from cam.sgnmt.predictors.tf_nizza import NizzaPredictor, LexNizzaPredictor
 from cam.sgnmt.predictors.tokenization import Word2charPredictor, FSTTokPredictor
@@ -340,9 +340,11 @@ def add_predictors(decoder):
                                  minimize_rtns=args.minimize_rtns,
                                  rmeps=args.remove_epsilon_in_rtns)
             elif pred == "srilm":
-                p = SRILMPredictor(args.srilm_path, 
-                                   args.srilm_order, 
+                p = SRILMPredictor(args.lm_path, 
+                                   _get_override_args("ngramc_order"),
                                    args.srilm_convert_to_ln)
+            elif pred == "kenlm":
+                p = KenLMPredictor(args.lm_path)
             elif pred == "nplm":
                 p = NPLMPredictor(args.nplm_path, args.normalize_nplm_probs)
             elif pred == "rnnlm":

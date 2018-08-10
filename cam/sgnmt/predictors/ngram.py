@@ -3,9 +3,8 @@ modeling. This is a ``UnboundedVocabularyPredictor`` as the vocabulary
 size ngram models normally do not permit complete enumeration of the
 posterior.
 
-This module is based on the swig-srilm package.
-
-https://github.com/desilinguist/swig-srilm
+This module contains two predictors, one for a SRILM backend and one
+for a KenLM backend.
 """
 
 from cam.sgnmt.predictors.core import UnboundedVocabularyPredictor
@@ -15,6 +14,12 @@ import math
 try:
     # Requires swig-srilm
     from srilm import readLM, initLM, getNgramProb, getIndexForWord, howManyNgrams
+except ImportError:
+    pass # Deal with it in decode.py
+
+try:
+    # Requires kenlm
+    import kenlm
 except ImportError:
     pass # Deal with it in decode.py
 
@@ -34,6 +39,7 @@ class SRILMPredictor(UnboundedVocabularyPredictor):
         Args:
             path (string): Path to the ARPA language model file
             ngram_order (int): Order of the language model
+            convert_to_ln (bool): Whether to convert ld scores to ln.
             
         Raises:
             NameError. If srilm-swig is not installed
@@ -103,3 +109,57 @@ class SRILMPredictor(UnboundedVocabularyPredictor):
         """Returns true if the ngram history is the same"""
         return self._replace_unks(state1) == self._replace_unks(state2)
     
+
+class KenLMPredictor(UnboundedVocabularyPredictor):
+    """KenLM predictor based on
+    https://github.com/kpu/kenlm 
+    
+    The predictor state is described by the n-gram history.
+    """
+    
+    def __init__(self, path):
+        """Creates a new n-gram language model predictor.
+        
+        Args:
+            path (string): Path to the ARPA language model file
+            
+        Raises:
+            NameError. If KenLM is not installed
+        """
+        super(KenLMPredictor, self).__init__()
+        self.lm = kenlm.Model(path)
+        self.lm_state2 = kenlm.State()
+    
+    def initialize(self, src_sentence):
+        """Initializes the KenLM state.
+        
+        Args:
+            src_sentence (list): Not used
+        """
+        self.lm_state = kenlm.State()
+        self.lm.BeginSentenceWrite(self.lm_state)
+    
+    def predict_next(self, words):
+        return {w: self.lm.BaseScore(self.lm_state, 
+                                     "</s>" if w == utils.EOS_ID else str(w),
+                                     self.lm_state2)
+                for w in words}
+    
+        
+    def get_unk_probability(self, posterior):
+        """Use the probability for '<unk>' in the language model """
+        return self.lm.BaseScore(self.lm_state, "<unk>", self.lm_state2)
+    
+    def consume(self, word):
+        self.lm.BaseScore(self.lm_state, str(word), self.lm_state2)
+        self.lm_state, self.lm_state2 = self.lm_state2, self.lm_state
+    
+    def get_state(self):
+        return self.lm_state
+    
+    def set_state(self, state):
+        self.lm_state = state
+
+    def is_equal(self, state1, state2):
+        return state == state2
+
