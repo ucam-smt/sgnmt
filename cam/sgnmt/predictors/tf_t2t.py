@@ -103,15 +103,8 @@ class _BaseTensor2TensorPredictor(Predictor):
                               None, UNK is always scored with -inf.
             single_cpu_thread (bool): If true, prevent tensorflow from
                                       doing multithreading.
-
-        Raises:
-            IOError if checkpoint file not found.
         """
         super(_BaseTensor2TensorPredictor, self).__init__()
-        if not os.path.isfile("%s/checkpoint" % checkpoint_dir):
-            logging.fatal("T2T checkpoint file %s/checkpoint not found!" 
-                          % checkpoint_dir)
-            raise IOError
         self._single_cpu_thread = single_cpu_thread
         self._t2t_unk_id = utils.UNK_ID if t2t_unk_id < 0 else t2t_unk_id
         self._checkpoint_dir = checkpoint_dir
@@ -141,7 +134,12 @@ class _BaseTensor2TensorPredictor(Predictor):
     def create_session(self):
         """Creates a MonitoredSession for this predictor."""
         try:
-            checkpoint_path = saver.latest_checkpoint(self._checkpoint_dir)
+            if os.path.isdir(self._checkpoint_dir):
+                checkpoint_path = saver.latest_checkpoint(self._checkpoint_dir)
+            else:
+                checkpoint_path = self._checkpoint_dir
+                logging.info("%s is not a directory. Interpreting as direct "
+                             "path to checkpoint..." % checkpoint_path)
             return training.MonitoredSession(
                 session_creator=training.ChiefSessionCreator(
                     checkpoint_filename_with_path=checkpoint_path,
