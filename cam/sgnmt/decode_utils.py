@@ -796,6 +796,8 @@ def _postprocess_complete_hypos(hypos):
             breakdown_fn = combination.breakdown2score_bayesian_loglin
         elif args.combination_scheme == 'bayesian':
             breakdown_fn = combination.breakdown2score_bayesian  
+        elif args.combination_scheme == 'bayesian_state_dependent':
+            breakdown_fn = combination.breakdown2score_bayesian_state_dependent  
         else:
             logging.warn("Unknown combination scheme '%s'" 
                          % args.combination_scheme)

@@ -88,7 +88,7 @@ class Hypothesis:
         return chypo
 
 
-class PartialHypothesis:
+class PartialHypothesis(object):
     """Represents a partial hypothesis in various decoders. """
     
     def __init__(self, initial_states = None):
@@ -114,6 +114,25 @@ class PartialHypothesis:
         """Create a ``Hypothesis`` instance from this hypothesis. """
         return Hypothesis(self.trgt_sentence, self.score, self.score_breakdown)
     
+    def _new_partial_hypo(self, states, word, score, score_breakdown):
+        """Create a new partial hypothesis, setting its state, score
+        translation prefix and score breakdown.
+        Args:
+            states (object): Predictor states for new hypo. May be state 
+                             after consuming word or current state, depending
+                             whether full or cheap expansion is used
+            word (int): New word to add to prefix
+            score (float): Word log probability to be added to score
+            score_breakdown (list): Predictor score breakdown for
+                                    the new word
+        """
+        new_hypo = PartialHypothesis(states)
+        new_hypo.score = self.score + score
+        new_hypo.score_breakdown = copy.copy(self.score_breakdown)
+        new_hypo.trgt_sentence = self.trgt_sentence + [word]
+        new_hypo.score_breakdown.append(score_breakdown)
+        return new_hypo
+
     def expand(self, word, new_states, score, score_breakdown):
         """Creates a new partial hypothesis adding a new word to the
         translation prefix with given probability and updates the
@@ -128,12 +147,7 @@ class PartialHypothesis:
             score_breakdown (list): Predictor score breakdown for
                                     the new word
         """
-        hypo = PartialHypothesis(new_states)
-        hypo.score = self.score + score
-        hypo.score_breakdown = copy.copy(self.score_breakdown)
-        hypo.trgt_sentence = self.trgt_sentence + [word]
-        hypo.score_breakdown.append(score_breakdown)
-        return hypo
+        return self._new_partial_hypo(new_states, word, score, score_breakdown)
     
     def cheap_expand(self, word, score, score_breakdown):
         """Creates a new partial hypothesis adding a new word to the
@@ -152,12 +166,9 @@ class PartialHypothesis:
             score_breakdown (list): Predictor score breakdown for
                                     the new word
         """
-        hypo = PartialHypothesis(self.predictor_states)
-        hypo.score = self.score + score
-        hypo.score_breakdown = copy.copy(self.score_breakdown)
-        hypo.trgt_sentence = self.trgt_sentence + [word]
+        hypo = self._new_partial_hypo(self.predictor_states,
+                                     word, score, score_breakdown)
         hypo.word_to_consume = word
-        hypo.score_breakdown.append(score_breakdown)
         return hypo
 
 

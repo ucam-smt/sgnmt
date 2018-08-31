@@ -686,7 +686,7 @@ def get_parser():
                        "after combination.")
     group.add_argument("--combination_scheme", default="sum",
                         choices=['sum', 'length_norm', 'bayesian', 
-                          'bayesian_loglin'],
+                                 'bayesian_loglin', 'bayesian_state_dependent'],
                         help="This parameter controls how the combined "
                         "hypothesis score is calculated from the predictor "
                         "scores and weights.\n\n"
