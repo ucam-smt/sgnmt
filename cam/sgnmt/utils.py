@@ -130,6 +130,8 @@ def argmax_n(arr, n):
     """
     if isinstance(arr, dict):
         return sorted(arr, key=arr.get, reverse=True)[:n]
+    elif len(arr) <= n:
+        return range(n)
     else:
         return numpy.argpartition(arr, -n)[-n:]
 

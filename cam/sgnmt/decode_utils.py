@@ -285,7 +285,7 @@ def add_predictors(decoder):
                                      max_depth=args.syntax_max_depth,
                                      extlength_path=args.extlength_path)
             elif pred == "osm":
-                p = OSMPredictor()
+                p = OSMPredictor(args.osm_type)
             elif pred == "forcedosm":
                 p = ForcedOSMPredictor(args.trg_test)
             elif pred == "fst":

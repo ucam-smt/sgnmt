@@ -109,16 +109,12 @@ def get_parser():
                         "a plain text file with one source sentence in each "
                         "line. Words need to be indexed, i.e. use word IDs "
                         "instead of their string representations.")
-    group.add_argument("--en_test", default="",
-                        help="DEPRECATED: Old name for --src_test")
-    group.add_argument("--indexing_scheme", default="blocks",
+    group.add_argument("--indexing_scheme", default="t2t",
                         choices=['blocks', 'tf', 't2t'],
                         help="This parameter defines the reserved IDs.\n\n"
                         "* 'blocks': eps,unk: 0, <s>: 1, </s>: 2.\n"
                         "* 'tf': unk: 3, <s>: 1, </s>: 2.\n"
                         "* 't2t': unk: 3, <s>: 2, </s>: 1.")
-    group.add_argument("--legacy_indexing", default=False, type='bool',
-                        help="DEPRECATED: Use --indexing_scheme=tf instead")
     group.add_argument("--ignore_sanity_checks", default=False, type='bool',
                        help="SGNMT terminates when a sanity check fails by "
                        "default. Set this to true to ignore sanity checks.")
@@ -219,7 +215,7 @@ def get_parser():
                         "when you do pure NMT decoding as this is usually "
                         "faster then using a single nmt predictor as the "
                         "search can be parallelized on the GPU.")
-    group.add_argument("--beam", default=12, type=int,
+    group.add_argument("--beam", default=4, type=int,
                         help="Size of beam. Only used if --decoder is set to "
                         "'beam' or 'astar'. For 'astar' it limits the capacity"
                         " of the queue. Use --beam 0 for unlimited capacity.")
@@ -535,7 +531,7 @@ def get_parser():
                         "             Options: syntax_max_terminal_id, "
                         "syntax_pop_id, syntax_max_depth, extlength_path\n"
                         "* 'osm': Well-formed operation sequences.\n"
-                        "         Options: None\n"
+                        "         Options: osm_type\n"
                         "* 'forcedosm': Forced decoding under OSM. Use in "
                         "combination with osm predictor.\n"
                         "         Options: trg_test\n"
@@ -792,7 +788,14 @@ def get_parser():
                        "exclude the POP symbol from the list of non-terminals "
                        "even though it has a ID higher than max_terminal_id.")
     group.add_argument("--syntax_nonterminal_ids", default="",
-                       help="explicitly define non-terminals with a file containing their ids. Useful when non-terminals do not occur consecutively in data (e.g. internal bpe units.)")
+                       help="Explicitly define non-terminals with a file "
+                       "containing their ids. Useful when non-terminals do "
+                       "not occur consecutively in data (e.g. internal bpe "
+                       "units.)")
+    group.add_argument("--osm_type", default="osm", type=str,
+                       help="Set of operations used for OSM predictor.\n"
+                       "- 'osm': Original OSNMT of Stahlberg et al. (2018)\n"
+                       "- 'pbosm': Phrase-based OSNMT")
     group.add_argument("--t2t_usr_dir", default="",
                        help="Available for the t2t predictor. See the "
                        "--t2t_usr_dir argument in tensor2tensor.")
@@ -898,7 +901,8 @@ def get_parser():
                        "words. Otherwise, count only the specific word")
     group.add_argument("--wc_nonterminal_penalty", default=False, 
                        action='store_true', help="if true, "
-                       "use syntax_[max|min]_terminal_id to apply penalty to all non-terminals")
+                       "use syntax_[max|min]_terminal_id to apply penalty to "
+                       "all non-terminals")
 
     group.add_argument("--syntax_nonterminal_factor", default=1.0, type=float,
                        help="penalty factor for WeightNonTerminalWrapper to apply")
@@ -938,8 +942,6 @@ def get_parser():
                         "This is only required for the predictors 'forced' "
                         "and 'forcedlst'. For 'forcedlst' this needs to point "
                         "to an n-best list in Moses format.")
-    group.add_argument("--fr_test", default="", 
-                        help="DEPRECATED. Old name for --trg_test")
     group.add_argument("--forcedlst_sparse_feat", default="", 
                         help="Per default, the forcedlst predictor uses the "
                         "combined score in the Moses nbest list. Alternatively,"
@@ -985,15 +987,11 @@ def get_parser():
                         " to the source side mapping file. The format is "
                         "'<index> <alternative_index>'. The mapping must be "
                         "complete and should be a bijection.")
-    group.add_argument("--en_idxmap", default="",
-                        help="DEPRECATED. Old name for --src_idxmap")
     group.add_argument("--trg_idxmap", default="idxmap.fr",
                         help="Only required for idxmap wrapper predictor. Path"
                         " to the target side mapping file. The format is "
                         "'<index> <alternative_index>'. The mapping must be "
                         "complete and should be a bijection.")
-    group.add_argument("--fr_idxmap", default="",
-                        help="DEPRECATED. Old name for --trg_idxmap")
     group.add_argument("--altsrc_test", default="test_en.alt",
                         help="Only required for altsrc wrapper predictor. Path"
                         " to the alternative source sentences.")
@@ -1071,7 +1069,8 @@ def get_parser():
                         help="Whether to output word tokens only from parse" 
                         "predictor.")
     group.add_argument("--syntax_allow_early_eos", default=False, type='bool',
-                        help="Whether to let parse predictor output EOS instead of any terminal")
+                        help="Whether to let parse predictor output EOS "
+                        "instead of any terminal")
     group.add_argument("--syntax_norm_alpha", default=1.0, type=float,
                         help="Normalizing alpha for internal beam search")
     group.add_argument("--syntax_max_internal_len", default=35, type=int,
@@ -1093,7 +1092,6 @@ def get_parser():
                         help="ids for end-of-word tokens")
     group.add_argument("--syntax_terminal_ids", default=None,
                         help="ids for terminal tokens")
-
     group.add_argument("--rtn_path", default="rtn/",
                         help="Only required for rtn predictor. Sets "
                         "the path to the RTN directory as created by HiFST")
@@ -1214,18 +1212,8 @@ def get_args():
         args.pred_src_vocab_size = args.t2t_src_vocab_size
     if args.t2t_trg_vocab_size > 0:
         args.pred_trg_vocab_size = args.t2t_trg_vocab_size
-    if args.en_test:
-        args.src_test = args.en_test
-    if args.fr_test:
-        args.trg_test = args.fr_test
-    if args.en_idxmap:
-        args.src_idxmap = args.en_idxmap
-    if args.fr_idxmap:
-        args.trg_idxmap = args.fr_idxmap
     if args.length_normalization:
         args.combination_scheme = "length_norm"
-    if args.legacy_indexing:
-        args.indexing_scheme = "tf"
     if args.output_fst_unk_id:
         args.fst_unk_id = args.output_fst_unk_id 
     return args
@@ -1239,9 +1227,8 @@ def validate_args(args):
     Args:
         args (object):  Configuration as returned by ``get_args``
     """
-    for depr in ['en_test', 'fr_test',
-                 'length_normalization', 'legacy_indexing',
-                 'en_idxmap', 'fr_idxmap', 't2t_src_vocab_size',
+    for depr in ['length_normalization', 
+                 't2t_src_vocab_size',
                  't2t_trg_vocab_size']:
         if getattr(args, depr):
             logging.warn("Using deprecated argument %s. Please check the "
