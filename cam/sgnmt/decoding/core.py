@@ -605,12 +605,12 @@ class Decoder(Observable):
             combined,score_breakdown: like in ``apply_predictors()``
         """
         if isinstance(non_zero_words, xrange) and top_n > 0:
-          non_zero_words = Decoder._scale_combine_non_zero_scores(
-              len(non_zero_words),
-              posteriors,
-              unk_probs,
-              pred_weights,
-              top_n=top_n)
+            non_zero_words = Decoder._scale_combine_non_zero_scores(
+                len(non_zero_words),
+                posteriors,
+                unk_probs,
+                pred_weights,
+                top_n=top_n)
         combined = {}
         score_breakdown = {}
         for trgt_word in non_zero_words:
@@ -620,7 +620,6 @@ class Decoder(Observable):
             combined[trgt_word] = self.combi_predictor_method(preds) 
             score_breakdown[trgt_word] = preds
         return combined, score_breakdown
-
 
     def _combine_posteriors_norm_rescale_unk(self,
                                              non_zero_words,
@@ -749,17 +748,19 @@ class Decoder(Observable):
       scaled_posteriors = []
       for posterior, unk_prob, weight in zip(
               posteriors, unk_probs, pred_weights):
-        if isinstance(posterior, dict):
-          arr = np.full(non_zero_word_count, unk_prob)
-          for word, score in posterior.iteritems():
-            arr[word] = score
-          scaled_posteriors.append(arr * weight)
-        else:
-          n_unks = non_zero_word_count - len(posterior)
-          if n_unks:
-            posterior = np.concatenate((
-                posterior, np.full(n_unks, unk_prob)))
-          scaled_posteriors.append(posterior * weight)
+          if isinstance(posterior, dict):
+              arr = np.full(non_zero_word_count, unk_prob)
+              for word, score in posterior.iteritems():
+                  arr[word] = score
+              scaled_posteriors.append(arr * weight)
+          else:
+              n_unks = non_zero_word_count - len(posterior)
+              if n_unks > 0:
+                  posterior = np.concatenate((
+                      posterior, np.full(n_unks, unk_prob)))
+              elif n_unks < 0:
+                  posterior = posterior[:n_unks]
+              scaled_posteriors.append(posterior * weight)
       combined_scores = np.sum(scaled_posteriors, axis=0)
       return utils.argmax_n(combined_scores, top_n)
 

@@ -982,12 +982,12 @@ def get_parser():
     
     # Wrappers
     group = parser.add_argument_group('Wrapper predictor options')
-    group.add_argument("--src_idxmap", default="idxmap.en",
+    group.add_argument("--src_idxmap", default="",
                         help="Only required for idxmap wrapper predictor. Path"
                         " to the source side mapping file. The format is "
                         "'<index> <alternative_index>'. The mapping must be "
                         "complete and should be a bijection.")
-    group.add_argument("--trg_idxmap", default="idxmap.fr",
+    group.add_argument("--trg_idxmap", default="",
                         help="Only required for idxmap wrapper predictor. Path"
                         " to the target side mapping file. The format is "
                         "'<index> <alternative_index>'. The mapping must be "
