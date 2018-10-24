@@ -340,10 +340,14 @@ TMP_FILENAME = '/tmp/sgnmt.%s.fst' % os.getpid()
 """Temporary file name to use if an FST file is zipped. """
 
 
-def split_comma(s):
+def split_comma(s, func=None):
     """Splits a string at commas and removes blanks."""
+    if not s:
+        return []
     parts = s.split(",")
-    return [el.strip() for el in parts]
+    if func is None:
+        return [el.strip() for el in parts]
+    return [func(el.strip()) for el in parts]
 
 
 def w2f(fstweight):

@@ -51,10 +51,13 @@ class OSMPredictor(Predictor):
     def __init__(self, osm_type="osm"):
         """Creates a new osm predictor."""
         super(OSMPredictor, self).__init__()
-        self.pop_ids = set([OSM_EOP_ID])
-        if osm_type == "pbosm":
-            self.pop_ids.add(OSM_EOP2_ID)
-        elif osm_type != "osm":
+        if osm_type == "osm":
+            self.pop_ids = set([OSM_EOP_ID])
+        elif osm_type == "pbosm":
+            self.pop_ids = set([OSM_EOP_ID, OSM_EOP2_ID])
+        elif osm_type == "srcosm":
+            self.pop_ids = None
+        else:
             raise AttributeError("Unknown osm_type '%s'" % osm_type)
         self.illegal_sequences = [
             #[OSM_JUMP_FWD_ID, OSM_JUMP_BWD_ID],
@@ -65,6 +68,11 @@ class OSMPredictor(Predictor):
             #[OSM_JUMP_BWD_ID, OSM_GAP_ID, OSM_JUMP_BWD_ID],
             [OSM_GAP_ID, OSM_GAP_ID]
         ]
+
+    def _is_pop(self, token):
+        if self.pop_ids is None:
+            return token > OSM_JUMP_BWD_ID
+        return token in self.pop_ids
     
     def initialize(self, src_sentence):
         """Sets the number of source tokens.
@@ -106,9 +114,9 @@ class OSMPredictor(Predictor):
     
     def consume(self, word):
         """Updates the number of holes, EOPs, and the head position."""
-        if word not in self.pop_ids:
+        if not self._is_pop(word):
             self.history.append(word)
-        if word in self.pop_ids:
+        if self._is_pop(word):
             self.n_eop += 1
         elif word == OSM_GAP_ID:
             self.n_holes += 1

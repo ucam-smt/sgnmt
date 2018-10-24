@@ -167,6 +167,91 @@ class UnboundedIdxmapPredictor(IdxmapPredictor, UnboundedVocabularyPredictor):
                             for idx, prob in utils.common_iterable(posterior)}
 
 
+class MaskvocabPredictor(Predictor):
+    """This wrapper predictor hides certain words in the SGNMT 
+    vocabulary from the predictor. Those words are scored by the
+    masked predictor with zero. The wrapper passes through consume()
+    only for other words.
+    """
+    
+    def __init__(self, words, slave_predictor):
+        """Creates a new idxmap wrapper predictor. The index maps have
+        to be plain text files, each line containing the mapping from
+        a SGNMT word index to the slave predictor word index.
+        
+        Args:
+            words (set): List of masked words
+            slave_predictor (Predictor): Instance of the predictor with
+                                         a different wmap than SGNMT
+        """
+        super(MaskvocabPredictor, self).__init__()
+        self.words = set(words)
+        self.slave_predictor = slave_predictor
+
+    def initialize(self, src_sentence):
+        """Pass through to slave predictor """
+        self.slave_predictor.initialize(src_sentence)
+    
+    def predict_next(self):
+        """Pass through to slave predictor, set masked to 0.0 """
+        posterior = self.slave_predictor.predict_next()
+        for w in self.words:
+            posterior[w] = 0.0
+        return posterior
+        
+    def get_unk_probability(self, posterior):
+        """Pass through to slave predictor """
+        return self.slave_predictor.get_unk_probability(posterior)
+    
+    def consume(self, word):
+        """Pass through to slave predictor """
+        if word not in self.words:
+            self.slave_predictor.consume(word)
+    
+    def get_state(self):
+        """Pass through to slave predictor """
+        return self.slave_predictor.get_state()
+    
+    def set_state(self, state):
+        """Pass through to slave predictor """
+        self.slave_predictor.set_state(state)
+
+    def estimate_future_cost(self, hypo):
+        """Pass through to slave predictor """
+        return self.slave_predictor.estimate_future_cost(hypo)
+
+    def initialize_heuristic(self, src_sentence):
+        """Pass through to slave predictor """
+        self.slave_predictor.initialize_heuristic(src_sentence)
+
+    def set_current_sen_id(self, cur_sen_id):
+        """We need to override this method to propagate current\_
+        sentence_id to the slave predictor
+        """
+        super(MaskvocabPredictor, self).set_current_sen_id(cur_sen_id)
+        self.slave_predictor.set_current_sen_id(cur_sen_id)
+    
+    def is_equal(self, state1, state2):
+        """Pass through to slave predictor """
+        return self.slave_predictor.is_equal(state1, state2)
+        
+
+class UnboundedMaskvocabPredictor(MaskvocabPredictor,
+                                  UnboundedVocabularyPredictor):
+    """This class is a version of ``MaskvocabPredictor`` for unbounded 
+    vocabulary predictors. This needs an adjusted ``predict_next`` 
+    method to pass through the set of target words to score correctly.
+    """
+    
+    def predict_next(self, trgt_words):
+        """Pass through to slave predictor, set masked to 0.0 """
+        posterior = self.slave_predictor.predict_next(trgt_words)
+        for w in self.words:
+            if utils.common_contains(trgt_words, w):
+                posterior[w] = 0.0
+        return posterior
+
+
 class UnkvocabPredictor(Predictor):
     """If the predictor wrapped by the unkvocab wrapper produces an UNK
     with predict next, this wrapper adds explicit NEG_INF scores to all

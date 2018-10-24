@@ -594,6 +594,9 @@ def get_parser():
                         "* 'idxmap': Add this wrapper to predictors which use "
                         "an alternative word map."
                         "            Options: src_idxmap, trg_idxmap\n"
+                        "* 'maskvocab': Hides certain words in the SGNMT vocab"
+                        "ulary from the masked predictor.\n"
+                        "            Options: maskvocab_words\n"
                         "* 'altsrc': This wrapper loads source sentences from "
                         "an alternative source.\n"
                         "            Options: altsrc_test\n"
@@ -795,6 +798,7 @@ def get_parser():
     group.add_argument("--osm_type", default="osm", type=str,
                        help="Set of operations used for OSM predictor.\n"
                        "- 'osm': Original OSNMT of Stahlberg et al. (2018)\n"
+                       "- 'srcosm': Original OSNMT where IDs>7 are POP\n"
                        "- 'pbosm': Phrase-based OSNMT")
     group.add_argument("--t2t_usr_dir", default="",
                        help="Available for the t2t predictor. See the "
@@ -992,6 +996,10 @@ def get_parser():
                         " to the target side mapping file. The format is "
                         "'<index> <alternative_index>'. The mapping must be "
                         "complete and should be a bijection.")
+    group.add_argument("--maskvocab_words", default="",
+                        help="Only required for maskvocab wrapper predictor. "
+                        "Comma-separated list of token IDs which are masked "
+                        "out.")
     group.add_argument("--altsrc_test", default="test_en.alt",
                         help="Only required for altsrc wrapper predictor. Path"
                         " to the alternative source sentences.")
