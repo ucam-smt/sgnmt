@@ -101,7 +101,8 @@ class IdxmapPredictor(Predictor):
         if not self.trgt_map:
             self.slave_predictor.consume(word)
         else:
-            self.slave_predictor.consume(self.trgt_map[word])
+            self.slave_predictor.consume(utils.common_get(
+                self.trgt_map, word, utils.UNK_ID))
     
     def get_state(self):
         """Pass through to slave predictor """
