@@ -395,8 +395,10 @@ def get_path(tmpl, sub = 1):
     Returns:
         string. ``tmpl`` with %d replaced with ``sub`` if present
     """
-    if "%d" in tmpl:
+    try:
         return tmpl % sub
+    except TypeError:
+        pass
     return tmpl
 
 
