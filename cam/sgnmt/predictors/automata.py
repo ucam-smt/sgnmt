@@ -137,10 +137,15 @@ class FstPredictor(Predictor):
             return
         from_state = self.cur_node
         self.cur_node = None
+        unk_arc = None
         for arc in self.cur_fst.arcs(from_state):
             if arc.olabel == word:
                 self.cur_node = arc.nextstate
                 return self.weight_factor*w2f(arc.weight)
+            elif arc.olabel == utils.UNK_ID:
+                unk_arc = arc
+        if unk_arc is not None:
+            self.cur_node = unk_arc.nextstate
     
     def get_state(self):
         """Returns the current node. """
