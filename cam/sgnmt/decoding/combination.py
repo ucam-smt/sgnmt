@@ -55,11 +55,7 @@ def breakdown2score_length_norm(working_score, score_breakdown, full=False):
                         for s in score_breakdown])
     return score / len(score_breakdown)
 
-def write_priors_to_alphas(score_breakdown, alphas):
-    for (_, w) in score_breakdown[0]:
-        alphas.append(np.log(w))
-
-def breakdown2score_bayesian(working_score, score_breakdown, full=False, prev_score=None, pred_weights=None):
+def breakdown2score_bayesian(working_score, score_breakdown, full=False, prev_score=None):
     """This realizes score combination following the Bayesian LM 
     interpolation scheme from (Allauzen and Riley, 2011)
     
@@ -85,57 +81,34 @@ def breakdown2score_bayesian(working_score, score_breakdown, full=False, prev_sc
     """
     if not score_breakdown or working_score == utils.NEG_INF:
         return working_score
-    alphas = [] # list of all alpha_i,k
+    alphas = [np.log(w) for (_, w) in score_breakdown[0]]
     if full:
         acc = []
-        write_priors_to_alphas(score_breakdown, alphas)
         for pos in score_breakdown: # for each position in the hypothesis
-            for k, (p, w) in enumerate(pos): 
+            for k, (p, _) in enumerate(pos): 
                 alphas[k] += p
             alpha_part = utils.log_sum(alphas)
             scores = [alphas[k] - alpha_part + p 
-                    for k, (p, w) in enumerate(pos)]
+                      for k, (p, _) in enumerate(pos)]
             acc.append(utils.log_sum(scores)) 
         return sum(acc)
-    else: # Incremental: Alphas are in predictor weights
+    else: 
         if len(score_breakdown) == 1:
             scores = [np.log(w) + p for p, w in score_breakdown[0]]
             return utils.log_sum(scores)
-
         working_score = prev_score
-        # Compute updated alphas
-        if pred_weights is not None and not pred_weights:
-            write_priors_to_alphas(score_breakdown, pred_weights)
-        if len(score_breakdown) > 1:
-            for k, (p, _) in enumerate(score_breakdown[-2]):
-                pred_weights[k] += p
-        alpha_norm = pred_weights - utils.log_sum(pred_weights)
+        for k, (p, w) in enumerate(score_breakdown[-2]):
+            alphas[k] = np.log(w) + p
+        alpha_norm = alphas - utils.log_sum(alphas)
         scores = [alpha_norm[k] + p 
                 for k, (p, w) in enumerate(score_breakdown[-1])]
         updated_breakdown = [(p, np.exp(alpha_norm[k]))
                 for k, (p, w) in enumerate(score_breakdown[-1])]
-        '''
-        priors = [s[1] for s in score_breakdown[0]]
-        last_score = sum([w * s[0] 
-                          for w, s in zip(priors, score_breakdown[-1])])
-        working_score -= last_score
-        # Now, working score does not include the last time step anymore
-        # Compute updated alphas
-        alphas = [np.log(p) for p in priors]
-        for pos in score_breakdown[:-1]:
-            for k, (p, _) in enumerate(pos):
-                alphas[k] += p
-        alpha_part = utils.log_sum(alphas)
-        scores = [alphas[k] - alpha_part + p 
-                for k, (p, w) in enumerate(score_breakdown[-1])]
-        updated_breakdown = [(p, np.exp(alphas[k] - alpha_part))
-                for k, (p, w) in enumerate(score_breakdown[-1])]
-        '''
         score_breakdown[-1] = updated_breakdown
         working_score += utils.log_sum(scores)
         return working_score
 
-def breakdown2score_bayesian_state_dependent(working_score, score_breakdown, full=False, prev_score=None, pred_weights=None):
+def breakdown2score_bayesian_state_dependent(working_score, score_breakdown, full=False, prev_score=None, lambdas=None):
     """This realizes score combination following the Bayesian LM 
     interpolation scheme from (Allauzen and Riley, 2011)
     
@@ -143,12 +116,11 @@ def breakdown2score_bayesian_state_dependent(working_score, score_breakdown, ful
     
     By setting K=T we define the predictor weights according the score
     the predictors give to the current partial hypothesis. The initial
-    predictor weights are used as priors. 
+    predictor weights are used as priors .
 
     Unlike breakdown2score_bayesian, define state-independent weights
     which affect how much state-dependent mixture weights (alphas) are
     affected by scores from the other model.
-    TODO: these should not be hard-coded.
 
     Makes more efficient use of working_score and calculated priors
     when used incrementally.
@@ -161,24 +133,31 @@ def breakdown2score_bayesian_state_dependent(working_score, score_breakdown, ful
         full (bool): If True, reevaluate all time steps. If False,
                      assume that this function has been called in the
                       previous time step.
+        prev_score: score of hypothesis without final step
+        lambdas: np array of domain-task weights
     
     Returns:
         float. Bayesian interpolated predictor scores
     """
-    lambdas = [0.5, 0.5]
+    #lambdas = np.asarray([[1.0, 0.5], [0.0, 0.5]]) # state-independent weights scielo esen
+    #lambdas = np.asarray([[0.9, 0.5, 0.1], [0.1, 0.5, 0.0], [0.0, 0.0, 0.9]]) # single ende
+    #lambdas = np.asarray([[0.3, 0.3, 0.2], [0.4, 0.4, 0.2], [0.3, 0.3, 0.7]]) # continued ende
+
     if not score_breakdown or working_score == utils.NEG_INF:
         return working_score
     if full:
         acc = []
-        alphas = [] # list of all alpha_i,k                                  
-        write_priors_to_alphas(score_breakdown, alphas)
+        alphas = [np.log(w) for (_, w) in score_breakdown[0]]
         for pos in score_breakdown: # for each position in the hypothesis    
-            for k, (p, w) in enumerate(pos):
-                for i in range(len(alphas)):
-                    alphas[i] += p  + np.log(lambdas[i])
-            alpha_part = utils.log_sum(alphas)
-            scores = [alphas[k] - alpha_part + p
-                    for k, (p, w) in enumerate(pos)]
+            for k, (p_k, _) in enumerate(pos):
+                alphas[k] += p_k
+            alpha_prob = np.exp(alphas - utils.log_sum(alphas))
+            alpha_prob_lambdas = np.zeros_like(alpha_prob)
+            for k in range(len(alpha_prob)):
+                for t in range(len(alpha_prob)):
+                    alpha_prob_lambdas[k] += alpha_prob[t] * lambdas[k, t]
+            scores = [np.log(alpha_prob_lambdas[k]) + p
+                      for k, (p, _) in enumerate(pos)]
             acc.append(utils.log_sum(scores))
         return sum(acc)
     else: 
@@ -186,17 +165,20 @@ def breakdown2score_bayesian_state_dependent(working_score, score_breakdown, ful
             scores = [np.log(w) + p for p, w in score_breakdown[0]]
             return utils.log_sum(scores)
         working_score = prev_score
-        if pred_weights is not None and not pred_weights:
-            write_priors_to_alphas(score_breakdown, pred_weights)
-        elif len(score_breakdown) > 1:
-            for (pos, _) in score_breakdown[-2]:
-                for i in range(len(pred_weights)):
-                    pred_weights[i] += pos + np.log(lambdas[i])
-        alpha_norm = pred_weights - utils.log_sum(pred_weights)
-        scores = [alpha_norm[k] + p
+        alphas = [np.log(w) for (_, w) in score_breakdown[-2]]
+        for k, (p_k, _) in enumerate(score_breakdown[-2]):
+            alphas[k] += p_k 
+        alpha_prob = np.exp(alphas - utils.log_sum(alphas))
+        alpha_prob_lambdas = np.zeros_like(alpha_prob)
+        for k in range(len(alpha_prob)):
+            for t in range(len(alpha_prob)):
+                alpha_prob_lambdas[k] += alpha_prob[t] * lambdas[k, t]
+        scores = [np.log(alpha_prob_lambdas[k]) + p
                   for k, (p, _) in enumerate(score_breakdown[-1])]
-        updated_breakdown = [(p, np.exp(alpha_norm[k]))
+        updated_breakdown = [(p, alpha_prob[k])
                              for k, (p, _) in enumerate(score_breakdown[-1])]
+
+
         score_breakdown[-1] = updated_breakdown
         working_score += utils.log_sum(scores)
         return working_score
@@ -204,7 +186,7 @@ def breakdown2score_bayesian_state_dependent(working_score, score_breakdown, ful
 
 
 
-def breakdown2score_bayesian_loglin(working_score, score_breakdown, full=False, prev_score=None, pred_weights=None):
+def breakdown2score_bayesian_loglin(working_score, score_breakdown, full=False, prev_score=None):
     """Like bayesian combination scheme, but uses loglinear model
     combination rather than linear interpolation weights
    

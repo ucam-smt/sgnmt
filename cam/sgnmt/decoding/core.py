@@ -378,7 +378,14 @@ class Decoder(Observable):
         """Removes all predictors of this decoder. """
         self.predictors = []
         self.predictor_names = []
-    
+        
+    def change_predictor_weights(self, new_weights):
+        new_preds_and_weights = []
+        for w,  (p, _) in zip(new_weights, self.predictors):
+            new_preds_and_weights.append((p, w))
+        self.predictors = copy.copy(new_preds_and_weights)
+        logging.debug('Changed predictor weights: {}'.format([w for (_, w) in self.predictors]))
+
     def set_heuristic_predictors(self, heuristic_predictors):
         """Define the list of predictors used by heuristics. This needs
         to be called before adding heuristics with ``add_heuristic()``

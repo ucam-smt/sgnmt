@@ -15,6 +15,7 @@ import time
 import traceback
 import os
 import uuid
+import numpy as np
 
 from cam.sgnmt import ui
 from cam.sgnmt import utils
@@ -789,6 +790,8 @@ def _postprocess_complete_hypos(hypos):
                 hypo.trgt_sentence = hypo.trgt_sentence[:-1]
     if args.nbest > 0:
         hypos = hypos[:args.nbest]
+    domain_task_weights = None
+    kwargs={'full': True}
     if args.combination_scheme != 'sum': 
         if args.combination_scheme == 'length_norm':
             breakdown_fn = combination.breakdown2score_length_norm
@@ -798,12 +801,14 @@ def _postprocess_complete_hypos(hypos):
             breakdown_fn = combination.breakdown2score_bayesian  
         elif args.combination_scheme == 'bayesian_state_dependent':
             breakdown_fn = combination.breakdown2score_bayesian_state_dependent  
+            kwargs['lambdas'] = CombiBeamDecoder.get_domain_task_weights(
+                args.bayesian_domain_task_weights)
         else:
             logging.warn("Unknown combination scheme '%s'" 
                          % args.combination_scheme)
         for hypo in hypos:
             hypo.total_score = breakdown_fn(
-                    hypo.total_score, hypo.score_breakdown, full=True)
+                    hypo.total_score, hypo.score_breakdown, **kwargs)
         hypos.sort(key=lambda hypo: hypo.total_score, reverse=True)
     return hypos
 
@@ -846,8 +851,13 @@ def do_decode(decoder,
                 logging.info("Next sentence (ID: %d)" % (sen_idx + 1))
             else:
                 src = src_sentences[sen_idx]
-                logging.info("Next sentence (ID: %d): %s" % (sen_idx + 1, 
-                                                             ' '.join(src)))
+            if len(src) > 0 and ',' in src[-1]:
+                weights = src[-1].split(',')
+                weights = [float(x) for x in weights]
+                src = src[:-1]
+                logging.info('Changing predictor weights to {}'.format(weights))
+                decoder.change_predictor_weights(weights)
+            logging.info("Next sentence (ID: %d): %s" % (sen_idx + 1, ' '.join(src)))
             src = [int(x) for x in src]
             start_hypo_time = time.time()
             decoder.apply_predictors_count = 0

@@ -697,8 +697,13 @@ def get_parser():
                         "* 'bayesian': Apply the Bayesian LM interpolation "
                         "scheme from Allauzen and Riley to interpolate the "
                         "predictor scores\n"
+                        "* 'bayesian_state_dependent': Like Bayesian "
+                        "but with state-task weights defined by "
+                        "'bayesian_domain_task_weights' parameter"
                         "* 'bayesian_loglin': Like bayesian, but retain "
                         "loglinear framework.")
+    group.add_argument("--bayesian_domain_task_weights", default=None, 
+                       help="comma-separated string of num_predictors^2 weights, will be reshaped into a num_predictors x num_predictors matrix")
     group.add_argument("--t2t_unk_id", default=-1, type=int,
                         help="unk id for t2t. Used by the t2t predictor")
 
