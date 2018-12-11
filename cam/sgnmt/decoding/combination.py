@@ -139,10 +139,6 @@ def breakdown2score_bayesian_state_dependent(working_score, score_breakdown, ful
     Returns:
         float. Bayesian interpolated predictor scores
     """
-    #lambdas = np.asarray([[1.0, 0.5], [0.0, 0.5]]) # state-independent weights scielo esen
-    #lambdas = np.asarray([[0.9, 0.5, 0.1], [0.1, 0.5, 0.0], [0.0, 0.0, 0.9]]) # single ende
-    #lambdas = np.asarray([[0.3, 0.3, 0.2], [0.4, 0.4, 0.2], [0.3, 0.3, 0.7]]) # continued ende
-
     if not score_breakdown or working_score == utils.NEG_INF:
         return working_score
     if full:
@@ -168,7 +164,7 @@ def breakdown2score_bayesian_state_dependent(working_score, score_breakdown, ful
         alphas = [np.log(w) for (_, w) in score_breakdown[-2]]
         for k, (p_k, _) in enumerate(score_breakdown[-2]):
             alphas[k] += p_k 
-        alpha_prob = np.exp(alphas - utils.log_sum(alphas))
+        alpha_prob = np.exp(alphas - utils.log_sum(alphas)) 
         alpha_prob_lambdas = np.zeros_like(alpha_prob)
         for k in range(len(alpha_prob)):
             for t in range(len(alpha_prob)):
@@ -177,8 +173,6 @@ def breakdown2score_bayesian_state_dependent(working_score, score_breakdown, ful
                   for k, (p, _) in enumerate(score_breakdown[-1])]
         updated_breakdown = [(p, alpha_prob[k])
                              for k, (p, _) in enumerate(score_breakdown[-1])]
-
-
         score_breakdown[-1] = updated_breakdown
         working_score += utils.log_sum(scores)
         return working_score
