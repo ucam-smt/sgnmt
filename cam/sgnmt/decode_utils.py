@@ -15,7 +15,6 @@ import time
 import traceback
 import os
 import uuid
-import numpy as np
 
 from cam.sgnmt import ui
 from cam.sgnmt import utils
@@ -797,7 +796,6 @@ def _postprocess_complete_hypos(hypos):
                 hypo.trgt_sentence = hypo.trgt_sentence[:-1]
     if args.nbest > 0:
         hypos = hypos[:args.nbest]
-    domain_task_weights = None
     kwargs={'full': True}
     if args.combination_scheme != 'sum': 
         if args.combination_scheme == 'length_norm':
@@ -859,6 +857,7 @@ def do_decode(decoder,
             else:
                 src = src_sentences[sen_idx]
             if len(src) > 0 and ',' in src[-1]:
+                # change predictor weights per-sentence
                 weights = src[-1].split(',')
                 weights = [float(x) for x in weights]
                 src = src[:-1]

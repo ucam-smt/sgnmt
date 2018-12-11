@@ -190,7 +190,9 @@ def breakdown2score_bayesian_loglin(working_score, score_breakdown, full=False, 
         return working_score
     acc = []
     prev_alphas = [] # list of all alpha_i,k
-    write_priors_to_alphas(score_breakdown, prev_alphas)
+    # Write priors to alphas
+    for (p, w) in score_breakdown[0]:
+        prev_alphas.append(np.log(w)) 
     for pos in score_breakdown: # for each position in the hypothesis
         alphas = []
         sub_acc = []
