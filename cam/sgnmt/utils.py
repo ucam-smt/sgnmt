@@ -130,6 +130,8 @@ def argmax_n(arr, n):
     """
     if isinstance(arr, dict):
         return sorted(arr, key=arr.get, reverse=True)[:n]
+    elif len(arr) <= n:
+        return range(n)
     else:
         return numpy.argpartition(arr, -n)[-n:]
 
@@ -338,10 +340,14 @@ TMP_FILENAME = '/tmp/sgnmt.%s.fst' % os.getpid()
 """Temporary file name to use if an FST file is zipped. """
 
 
-def split_comma(s):
+def split_comma(s, func=None):
     """Splits a string at commas and removes blanks."""
+    if not s:
+        return []
     parts = s.split(",")
-    return [el.strip() for el in parts]
+    if func is None:
+        return [el.strip() for el in parts]
+    return [func(el.strip()) for el in parts]
 
 
 def w2f(fstweight):
@@ -389,8 +395,10 @@ def get_path(tmpl, sub = 1):
     Returns:
         string. ``tmpl`` with %d replaced with ``sub`` if present
     """
-    if "%d" in tmpl:
+    try:
         return tmpl % sub
+    except TypeError:
+        pass
     return tmpl
 
 

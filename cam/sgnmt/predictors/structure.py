@@ -11,6 +11,7 @@ OSM_EOP_ID = 4
 OSM_GAP_ID = 5
 OSM_JUMP_FWD_ID = 6
 OSM_JUMP_BWD_ID = 7
+OSM_EOP2_ID = 8
 
 
 def load_external_lengths(path):
@@ -47,9 +48,17 @@ class OSMPredictor(Predictor):
         bounds.
     """
     
-    def __init__(self):
+    def __init__(self, osm_type="osm"):
         """Creates a new osm predictor."""
         super(OSMPredictor, self).__init__()
+        if osm_type == "osm":
+            self.pop_ids = set([OSM_EOP_ID])
+        elif osm_type == "pbosm":
+            self.pop_ids = set([OSM_EOP_ID, OSM_EOP2_ID])
+        elif osm_type == "srcosm":
+            self.pop_ids = None
+        else:
+            raise AttributeError("Unknown osm_type '%s'" % osm_type)
         self.illegal_sequences = [
             #[OSM_JUMP_FWD_ID, OSM_JUMP_BWD_ID],
             #[OSM_JUMP_BWD_ID, OSM_JUMP_FWD_ID],
@@ -59,6 +68,11 @@ class OSMPredictor(Predictor):
             #[OSM_JUMP_BWD_ID, OSM_GAP_ID, OSM_JUMP_BWD_ID],
             [OSM_GAP_ID, OSM_GAP_ID]
         ]
+
+    def _is_pop(self, token):
+        if self.pop_ids is None:
+            return token > OSM_JUMP_BWD_ID
+        return token in self.pop_ids
     
     def initialize(self, src_sentence):
         """Sets the number of source tokens.
@@ -81,10 +95,8 @@ class OSMPredictor(Predictor):
         ret = {}
         if self.n_eop >= self.src_len:
             return {utils.EOS_ID: 0.0} # Force EOS
-            #ret[OSM_EOP_ID] = utils.NEG_INF
         else:
             ret[utils.EOS_ID] = utils.NEG_INF
-            #ret[utils.EOS_ID] = 0.0
         if self.head <= 0:
             ret[OSM_JUMP_BWD_ID] = utils.NEG_INF
         if self.head >= self.n_holes:
@@ -96,16 +108,15 @@ class OSMPredictor(Predictor):
         return ret
         
     def get_unk_probability(self, posterior):
-        """Always returns 0.0"""
         if self.n_eop >= self.src_len: # Force EOS
             return utils.NEG_INF
         return 0.0
     
     def consume(self, word):
         """Updates the number of holes, EOPs, and the head position."""
-        if word != OSM_EOP_ID:
+        if not self._is_pop(word):
             self.history.append(word)
-        if word == OSM_EOP_ID:
+        if self._is_pop(word):
             self.n_eop += 1
         elif word == OSM_GAP_ID:
             self.n_holes += 1
@@ -261,8 +272,6 @@ class ForcedOSMPredictor(Predictor):
                             break
                         cur_idx += 1
         return possible_words
-                
-        
 
     def predict_next(self):
         """Apply word reference constraints.

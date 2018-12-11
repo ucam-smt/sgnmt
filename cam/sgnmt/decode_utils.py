@@ -68,6 +68,8 @@ from cam.sgnmt.predictors.structure import BracketPredictor, OSMPredictor, \
 from cam.sgnmt.predictors.misc import UnboundedAltsrcPredictor, AltsrcPredictor
 from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
                                             UnboundedIdxmapPredictor, \
+                                            MaskvocabPredictor, \
+                                            UnboundedMaskvocabPredictor, \
                                             UnkvocabPredictor, \
                                             SkipvocabPredictor
 from cam.sgnmt.predictors.ngram import SRILMPredictor, KenLMPredictor
@@ -286,7 +288,7 @@ def add_predictors(decoder):
                                      max_depth=args.syntax_max_depth,
                                      extlength_path=args.extlength_path)
             elif pred == "osm":
-                p = OSMPredictor()
+                p = OSMPredictor(args.osm_type)
             elif pred == "forcedosm":
                 p = ForcedOSMPredictor(args.trg_test)
             elif pred == "fst":
@@ -365,11 +367,11 @@ def add_predictors(decoder):
                                         args.ngramc_discount_factor)
             elif pred == "unkc":
                 p = UnkCountPredictor(
-                         _get_override_args("pred_src_vocab_size"), 
-                         [float(l) for l in args.unk_count_lambdas.split(',')])
+                     _get_override_args("pred_src_vocab_size"), 
+                     utils.split_comma(args.unk_count_lambdas, float))
             elif pred == "length":
-                length_model_weights = [float(w) for w in 
-                                          args.length_model_weights.split(',')]
+                length_model_weights = utils.split_comma(
+                    args.length_model_weights, float)
                 p = NBLengthPredictor(args.src_test_raw, 
                                       length_model_weights, 
                                       args.use_length_point_probs,
@@ -379,8 +381,7 @@ def add_predictors(decoder):
             elif pred == "lrhiero":
                 fw = None
                 if args.grammar_feature_weights:
-                    fw = [float(w) for w in 
-                            args.grammar_feature_weights.split(',')]
+                    fw = utils.split_comma(args.grammar_feature_weights, float)
                 p = RuleXtractPredictor(args.rules_path,
                                         args.use_grammar_weights,
                                         fw)
@@ -401,6 +402,12 @@ def add_predictors(decoder):
                         p = UnboundedIdxmapPredictor(src_path, trg_path, p, 1.0) 
                     else: # idxmap predictor for bounded predictors
                         p = IdxmapPredictor(src_path, trg_path, p, 1.0)
+                elif wrapper == "maskvocab":
+                    words = utils.split_comma(args.maskvocab_words, int)
+                    if isinstance(p, UnboundedVocabularyPredictor): 
+                        p = UnboundedMaskvocabPredictor(words, p) 
+                    else: # idxmap predictor for bounded predictors
+                        p = MaskvocabPredictor(words, p)
                 elif wrapper == "weightnt":
                     p = WeightNonTerminalPredictor(
                         p, 

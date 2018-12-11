@@ -40,21 +40,25 @@ class IdxmapPredictor(Predictor):
         # src_map goes from sgnmt index -> slave index for the source 
         # trgt map goes from sgnmt index -> slave index for the target 
         # trgt map_inverse goes from slave index -> sgnmt index for the target 
-        self.src_map = self.load_map(src_idxmap_path)
-        self.trgt_map = self.load_map(trgt_idxmap_path)
+        self.src_map = self.load_map(src_idxmap_path, "source")
+        self.trgt_map = self.load_map(trgt_idxmap_path, "target")
         self.trgt_map_inverse = {slave_idx: gnmt_idx 
                         for gnmt_idx, slave_idx in enumerate(self.trgt_map)}
     
-    def load_map(self, path):
+    def load_map(self, path, name):
         """Load a index map file. Mappings should be bijections, but
         there is no sanity check in place to verify this.
         
         Args:
             path (string): Path to the mapping file
+            name (string): 'source' or 'target' for error messages
         
         Returns:
             dict. Mapping from SGNMT index to slave predictor index
         """
+        if not path:
+            logging.info("%s-side identity mapping (no idxmap specified)" % name)
+            return {}
         with open(path) as f:
             d = dict(map(int, line.strip().split(None, 1)) for line in f)
             if (d[utils.UNK_ID] != utils.UNK_ID
@@ -68,11 +72,16 @@ class IdxmapPredictor(Predictor):
     
     def initialize(self, src_sentence):
         """Pass through to slave predictor """
-        self.slave_predictor.initialize([self.src_map[idx]
+        if not self.src_map:
+            self.slave_predictor.initialize(src_sentence)
+        else:
+            self.slave_predictor.initialize([self.src_map[idx]
                                             for idx in src_sentence])
     
     def predict_next(self):
         """Pass through to slave predictor """
+        if not self.trgt_map:
+            return self.slave_predictor.predict_next()
         posterior = self.slave_predictor.predict_next()
         return {self.trgt_map_inverse.get(idx, utils.UNK_ID): self.slave_weight * prob 
             for idx, prob in utils.common_iterable(posterior)}
@@ -89,7 +98,11 @@ class IdxmapPredictor(Predictor):
     
     def consume(self, word):
         """Pass through to slave predictor """
-        self.slave_predictor.consume(self.trgt_map[word])
+        if not self.trgt_map:
+            self.slave_predictor.consume(word)
+        else:
+            self.slave_predictor.consume(utils.common_get(
+                self.trgt_map, word, utils.UNK_ID))
     
     def get_state(self):
         """Pass through to slave predictor """
@@ -101,6 +114,8 @@ class IdxmapPredictor(Predictor):
 
     def estimate_future_cost(self, hypo):
         """Pass through to slave predictor """
+        if not self.trgt_map:
+            return self.slave_predictor.estimate_future_cost(hypo)
         old_sen = hypo.trgt_sentence
         hypo.trgt_sentence = [self.trgt_map[idx] for idx in old_sen]
         ret = self.slave_predictor.estimate_future_cost(hypo)
@@ -109,7 +124,8 @@ class IdxmapPredictor(Predictor):
 
     def initialize_heuristic(self, src_sentence):
         """Pass through to slave predictor """
-        self.slave_predictor.initialize_heuristic([self.src_map[idx] 
+        if self.src_map:
+            self.slave_predictor.initialize_heuristic([self.src_map[idx] 
                                                     for idx in src_sentence])
 
     def set_current_sen_id(self, cur_sen_id):
@@ -124,7 +140,7 @@ class IdxmapPredictor(Predictor):
         return self.slave_predictor.is_equal(state1, state2)
         
 
-class UnboundedIdxmapPredictor(IdxmapPredictor,UnboundedVocabularyPredictor):
+class UnboundedIdxmapPredictor(IdxmapPredictor, UnboundedVocabularyPredictor):
     """This class is a version of ``IdxmapPredictor`` for unbounded 
     vocabulary predictors. This needs an adjusted ``predict_next`` 
     method to pass through the set of target words to score correctly.
@@ -143,11 +159,98 @@ class UnboundedIdxmapPredictor(IdxmapPredictor,UnboundedVocabularyPredictor):
 
     def predict_next(self, trgt_words):
         """Pass through to slave predictor """
+        if not self.trgt_map:
+            return self.slave_predictor.predict_next(trgt_words)
         posterior = self.slave_predictor.predict_next([self.trgt_map[w] 
                                                        for w in trgt_words])
         return {self.trgt_map_inverse.get(idx,
                                           utils.UNK_ID): self.slave_weight*prob 
                             for idx, prob in utils.common_iterable(posterior)}
+
+
+class MaskvocabPredictor(Predictor):
+    """This wrapper predictor hides certain words in the SGNMT 
+    vocabulary from the predictor. Those words are scored by the
+    masked predictor with zero. The wrapper passes through consume()
+    only for other words.
+    """
+    
+    def __init__(self, words, slave_predictor):
+        """Creates a new idxmap wrapper predictor. The index maps have
+        to be plain text files, each line containing the mapping from
+        a SGNMT word index to the slave predictor word index.
+        
+        Args:
+            words (set): List of masked words
+            slave_predictor (Predictor): Instance of the predictor with
+                                         a different wmap than SGNMT
+        """
+        super(MaskvocabPredictor, self).__init__()
+        self.words = set(words)
+        self.slave_predictor = slave_predictor
+
+    def initialize(self, src_sentence):
+        """Pass through to slave predictor """
+        self.slave_predictor.initialize(src_sentence)
+    
+    def predict_next(self):
+        """Pass through to slave predictor, set masked to 0.0 """
+        posterior = self.slave_predictor.predict_next()
+        for w in self.words:
+            posterior[w] = 0.0
+        return posterior
+        
+    def get_unk_probability(self, posterior):
+        """Pass through to slave predictor """
+        return self.slave_predictor.get_unk_probability(posterior)
+    
+    def consume(self, word):
+        """Pass through to slave predictor """
+        if word not in self.words:
+            self.slave_predictor.consume(word)
+    
+    def get_state(self):
+        """Pass through to slave predictor """
+        return self.slave_predictor.get_state()
+    
+    def set_state(self, state):
+        """Pass through to slave predictor """
+        self.slave_predictor.set_state(state)
+
+    def estimate_future_cost(self, hypo):
+        """Pass through to slave predictor """
+        return self.slave_predictor.estimate_future_cost(hypo)
+
+    def initialize_heuristic(self, src_sentence):
+        """Pass through to slave predictor """
+        self.slave_predictor.initialize_heuristic(src_sentence)
+
+    def set_current_sen_id(self, cur_sen_id):
+        """We need to override this method to propagate current\_
+        sentence_id to the slave predictor
+        """
+        super(MaskvocabPredictor, self).set_current_sen_id(cur_sen_id)
+        self.slave_predictor.set_current_sen_id(cur_sen_id)
+    
+    def is_equal(self, state1, state2):
+        """Pass through to slave predictor """
+        return self.slave_predictor.is_equal(state1, state2)
+        
+
+class UnboundedMaskvocabPredictor(MaskvocabPredictor,
+                                  UnboundedVocabularyPredictor):
+    """This class is a version of ``MaskvocabPredictor`` for unbounded 
+    vocabulary predictors. This needs an adjusted ``predict_next`` 
+    method to pass through the set of target words to score correctly.
+    """
+    
+    def predict_next(self, trgt_words):
+        """Pass through to slave predictor, set masked to 0.0 """
+        posterior = self.slave_predictor.predict_next(trgt_words)
+        for w in self.words:
+            if utils.common_contains(trgt_words, w):
+                posterior[w] = 0.0
+        return posterior
 
 
 class UnkvocabPredictor(Predictor):

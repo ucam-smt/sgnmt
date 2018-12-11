@@ -73,14 +73,13 @@ class FstPredictor(Predictor):
         self.cur_node = -1
         
     def get_unk_probability(self, posterior):
-        """Always returns negative infinity: Words outside the 
-        translation lattice are not possible according to this
-        predictor.
+        """Returns negative infinity if UNK is not in the lattice.
+        Otherwise, return UNK score.
         
         Returns:
             float. Negative infinity
         """
-        return utils.NEG_INF 
+        return utils.common_get(posterior, utils.UNK_ID, utils.NEG_INF)
     
     def predict_next(self):
         """Uses the outgoing arcs from the current node to build up the
@@ -116,7 +115,7 @@ class FstPredictor(Predictor):
         if self.cur_node is None:
             logging.warn("The lattice for sentence %d does not contain any "
                          "valid path. Please double-check that the lattice "
-                         "is not empty and that paths the begin-of-"
+                         "is not empty and that paths contain the begin-of-"
                          "sentence symbol %d. If you are using a different "
                          "begin-of-sentence symbol, double-check --indexing_"
                          "scheme." % (self.current_sen_id+1, utils.GO_ID))
@@ -138,10 +137,15 @@ class FstPredictor(Predictor):
             return
         from_state = self.cur_node
         self.cur_node = None
+        unk_arc = None
         for arc in self.cur_fst.arcs(from_state):
             if arc.olabel == word:
                 self.cur_node = arc.nextstate
                 return self.weight_factor*w2f(arc.weight)
+            elif arc.olabel == utils.UNK_ID:
+                unk_arc = arc
+        if unk_arc is not None:
+            self.cur_node = unk_arc.nextstate
     
     def get_state(self):
         """Returns the current node. """
