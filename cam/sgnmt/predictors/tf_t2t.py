@@ -254,7 +254,7 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
             self._add_problem_hparams(
                 hparams, src_vocab_size, trg_vocab_size, problem_name)
             translate_model = registry.model(model_name)(
-                hparams, tf.estimator.ModeKeys.PREDICT, p_hparams)
+                hparams, tf.estimator.ModeKeys.PREDICT)
             self._inputs_var = tf.placeholder(dtype=tf.int32, shape=[None],
                                               name="sgnmt_inputs")
             self._targets_var = tf.placeholder(dtype=tf.int32, shape=[None], 

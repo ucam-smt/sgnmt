@@ -637,7 +637,7 @@ def get_parser():
                         "weight for wrapped predictors (e.g. 0.3,0.6) if the "
                         "wrapper is unweighted.")
     group.add_argument("--per_sentence_predictor_weights", default=False,
-                       type=bool, 
+                       type='bool', 
                        help="Assign predictor weights for each sentence. "
                        "Must be set consistent with --predictors as for "
                        "--predictor_weights. Per-sentence weights are set "
