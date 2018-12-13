@@ -55,6 +55,7 @@ def breakdown2score_length_norm(working_score, score_breakdown, full=False):
                         for s in score_breakdown])
     return score / len(score_breakdown)
 
+
 def breakdown2score_bayesian(working_score, score_breakdown, full=False, prev_score=None):
     """This realizes score combination following the Bayesian LM 
     interpolation scheme from (Allauzen and Riley, 2011)
@@ -108,7 +109,10 @@ def breakdown2score_bayesian(working_score, score_breakdown, full=False, prev_sc
         working_score += utils.log_sum(scores)
         return working_score
 
-def breakdown2score_bayesian_state_dependent(working_score, score_breakdown, full=False, prev_score=None, lambdas=None):
+
+def breakdown2score_bayesian_state_dependent(working_score, score_breakdown, 
+                                             full=False, prev_score=None,
+                                             lambdas=None):
     """This realizes score combination following the Bayesian LM 
     interpolation scheme from (Allauzen and Riley, 2011)
     
@@ -144,7 +148,7 @@ def breakdown2score_bayesian_state_dependent(working_score, score_breakdown, ful
     if full:
         acc = []
         alphas = [np.log(w) for (_, w) in score_breakdown[0]]
-        for pos in score_breakdown: # for each position in the hypothesis    
+        for pos in score_breakdown: # for each position in the hypothesis
             for k, (p_k, _) in enumerate(pos):
                 alphas[k] += p_k
             alpha_prob = np.exp(alphas - utils.log_sum(alphas))
@@ -178,9 +182,8 @@ def breakdown2score_bayesian_state_dependent(working_score, score_breakdown, ful
         return working_score
 
 
-
-
-def breakdown2score_bayesian_loglin(working_score, score_breakdown, full=False, prev_score=None):
+def breakdown2score_bayesian_loglin(working_score, score_breakdown, full=False,
+                                    prev_score=None):
     """Like bayesian combination scheme, but uses loglinear model
     combination rather than linear interpolation weights
    

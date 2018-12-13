@@ -11,7 +11,8 @@ import logging
 import numpy as np
 
 class CombiStatePartialHypo(PartialHypothesis):
-    """Identical to PartialHypothesis, but tracks the last-score-but-one for score combination
+    """Identical to PartialHypothesis, but tracks the 
+    last-score-but-one for score combination
     """
     def __init__(self, initial_states=None):
         super(CombiStatePartialHypo, self).__init__(initial_states)
@@ -68,18 +69,27 @@ class CombiBeamDecoder(BeamDecoder):
         
     @staticmethod
     def get_domain_task_weights(w):
+        """Get array of domain-task weights from string w
+        Returns None if w is None or contains non-square number
+                of weights (currently invalid)
+                or 2D numpy float array of weights otherwise
+        """
         if w is None:
-            logging.critical('Need bayesian_domain_task_weights for state-dependent combination')
+            logging.critical(
+                'Need bayesian_domain_task_weights for state-dependent BI')
         else:
-            domain_weights = map(float, utils.split_comma(w))
+            domain_weights = utils.split_comma(w, float)
             num_domains = int(len(domain_weights) ** 0.5)
             if len(domain_weights) == num_domains ** 2:
-                weights_array = np.reshape(domain_weights, (num_domains, num_domains))
-                logging.info('Using {} for Bayesian Interpolation'.format(weights_array))
+                weights_array = np.reshape(domain_weights,
+                                           (num_domains, num_domains))
+                logging.info('Using {} for Bayesian Interpolation'.format(
+                    weights_array))
                 return weights_array
             else:
-                logging.critical('Require square number of domain-task weights, have {}'.format(
-                    len(domain_weights)))
+                logging.critical(
+                    'Need square number of domain-task weights, have {}'.format(
+                        len(domain_weights)))
 
     def _get_initial_hypos(self):
         """Get list containing an initial CombiStatePartialHypothesis"""

@@ -21,7 +21,8 @@ from cam.sgnmt import utils
 from cam.sgnmt.blocks.nmt import blocks_get_nmt_predictor, \
                                  blocks_get_nmt_vanilla_decoder, \
                                  blocks_get_default_nmt_config
-from cam.sgnmt.predictors.parse import ParsePredictor, TokParsePredictor, BpeParsePredictor
+from cam.sgnmt.predictors.parse import ParsePredictor, TokParsePredictor, \
+                                       BpeParsePredictor
 from cam.sgnmt.decoding import combination
 from cam.sgnmt.decoding.astar import AstarDecoder
 from cam.sgnmt.decoding.beam import BeamDecoder
@@ -856,13 +857,19 @@ def do_decode(decoder,
                 logging.info("Next sentence (ID: %d)" % (sen_idx + 1))
             else:
                 src = src_sentences[sen_idx]
-            if len(src) > 0 and ',' in src[-1]:
+            if len(src) > 0 and args.per_sentence_predictor_weights:
                 # change predictor weights per-sentence
                 weights = src[-1].split(',')
-                weights = [float(x) for x in weights]
-                src = src[:-1]
-                logging.info('Changing predictor weights to {}'.format(weights))
-                decoder.change_predictor_weights(weights)
+                if len(weights) > 1:
+                    weights = [float(x) for x in weights]
+                    src = src[:-1]
+                    logging.info('Changing predictor weights to {}'.format(
+                        weights))
+                    decoder.change_predictor_weights(weights)
+                else:
+                    logging.info(
+                        'No weights read in {} - leaving unchanged'.format(
+                            src))
             logging.info("Next sentence (ID: %d): %s" % (sen_idx + 1, ' '.join(src)))
             src = [int(x) for x in src]
             start_hypo_time = time.time()

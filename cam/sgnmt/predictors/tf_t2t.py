@@ -84,7 +84,7 @@ def _initialize_t2t(t2t_usr_dir):
 
 def log_prob_from_logits(logits):
     """Softmax function."""
-    return logits - tf.reduce_logsumexp(logits, keep_dims=True)
+    return logits - tf.reduce_logsumexp(logits, keepdims=True)
 
 
 class _BaseTensor2TensorPredictor(Predictor):
@@ -251,7 +251,7 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
                 if hparams.pop_id != self.pop_id:
                   logging.warn("T2T pop_id does not match (%d!=%d)"
                     % (hparams.pop_id, self.pop_id))
-            _, p_hparams = self._add_problem_hparams(
+            self._add_problem_hparams(
                 hparams, src_vocab_size, trg_vocab_size, problem_name)
             translate_model = registry.model(model_name)(
                 hparams, tf.estimator.ModeKeys.PREDICT, p_hparams)
@@ -309,7 +309,7 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
         p_hparams = problem.get_hparams(hparams)
         hparams.problem = problem
         hparams.problem_hparams = p_hparams
-        return hparams, p_hparams
+        return hparams
                 
     def predict_next(self):
         """Call the T2T model in self.mon_sess."""

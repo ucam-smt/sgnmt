@@ -383,8 +383,9 @@ class Decoder(Observable):
         new_preds_and_weights = []
         for w,  (p, _) in zip(new_weights, self.predictors):
             new_preds_and_weights.append((p, w))
-        self.predictors = copy.copy(new_preds_and_weights)
-        logging.debug('Changed predictor weights: {}'.format([w for (_, w) in self.predictors]))
+        self.predictors = new_preds_and_weights
+        logging.debug('Changed predictor weights: {}'.format(
+            [w for (_, w) in self.predictors]))
 
     def set_heuristic_predictors(self, heuristic_predictors):
         """Define the list of predictors used by heuristics. This needs
