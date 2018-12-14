@@ -636,6 +636,20 @@ def get_parser():
                         "assigned the weight 1. You may specify a single "
                         "weight for wrapped predictors (e.g. 0.3,0.6) if the "
                         "wrapper is unweighted.")
+    group.add_argument("--per_sentence_predictor_weights", default=False,
+                       type='bool', 
+                       help="Assign predictor weights for each sentence. "
+                       "Must be set consistent with --predictors as for "
+                       "--predictor_weights. Per-sentence weights are set "
+                       "by appending a comma-separated string of weights "
+                       "to the end of source sentences. e.g. 'X1 X2 X3' "
+                       "with two predictors might become "
+                       "'X1 X2 X3 pred1_w,pred2_w' "
+                       "a sentence with no weight str means each predictor is "
+                       "assigned the weights set in --predictor_weights "
+                       " or 1 if --predictor_weights is not set ")
+
+
     group.add_argument("--interpolation_strategy", default="",
                         help="This parameter specifies how the predictor "
                         "weights are used.\n"
@@ -685,7 +699,7 @@ def get_parser():
                        "after combination.")
     group.add_argument("--combination_scheme", default="sum",
                         choices=['sum', 'length_norm', 'bayesian', 
-                          'bayesian_loglin'],
+                                 'bayesian_loglin', 'bayesian_state_dependent'],
                         help="This parameter controls how the combined "
                         "hypothesis score is calculated from the predictor "
                         "scores and weights.\n\n"
@@ -696,8 +710,17 @@ def get_parser():
                         "* 'bayesian': Apply the Bayesian LM interpolation "
                         "scheme from Allauzen and Riley to interpolate the "
                         "predictor scores\n"
+                        "* 'bayesian_state_dependent': Like Bayesian "
+                        "but with model-task weights defined by "
+                        "'bayesian_domain_task_weights' parameter"
                         "* 'bayesian_loglin': Like bayesian, but retain "
                         "loglinear framework.")
+    group.add_argument("--bayesian_domain_task_weights", default=None, 
+                       help="comma-separated string of num_predictors^2 "
+                       "weights where rows are domains and "
+                       "tasks are columns, e.g. w[k, t] gives weight on domain k "
+                       "for task t. will be reshaped into "
+                       "a num_predictors x num_predictors matrix")
     group.add_argument("--t2t_unk_id", default=-1, type=int,
                         help="unk id for t2t. Used by the t2t predictor")
 

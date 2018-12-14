@@ -21,7 +21,8 @@ from cam.sgnmt import utils
 from cam.sgnmt.blocks.nmt import blocks_get_nmt_predictor, \
                                  blocks_get_nmt_vanilla_decoder, \
                                  blocks_get_default_nmt_config
-from cam.sgnmt.predictors.parse import ParsePredictor, TokParsePredictor, BpeParsePredictor
+from cam.sgnmt.predictors.parse import ParsePredictor, TokParsePredictor, \
+                                       BpeParsePredictor
 from cam.sgnmt.decoding import combination
 from cam.sgnmt.decoding.astar import AstarDecoder
 from cam.sgnmt.decoding.beam import BeamDecoder
@@ -796,6 +797,7 @@ def _postprocess_complete_hypos(hypos):
                 hypo.trgt_sentence = hypo.trgt_sentence[:-1]
     if args.nbest > 0:
         hypos = hypos[:args.nbest]
+    kwargs={'full': True}
     if args.combination_scheme != 'sum': 
         if args.combination_scheme == 'length_norm':
             breakdown_fn = combination.breakdown2score_length_norm
@@ -803,12 +805,16 @@ def _postprocess_complete_hypos(hypos):
             breakdown_fn = combination.breakdown2score_bayesian_loglin
         elif args.combination_scheme == 'bayesian':
             breakdown_fn = combination.breakdown2score_bayesian  
+        elif args.combination_scheme == 'bayesian_state_dependent':
+            breakdown_fn = combination.breakdown2score_bayesian_state_dependent  
+            kwargs['lambdas'] = CombiBeamDecoder.get_domain_task_weights(
+                args.bayesian_domain_task_weights)
         else:
             logging.warn("Unknown combination scheme '%s'" 
                          % args.combination_scheme)
         for hypo in hypos:
             hypo.total_score = breakdown_fn(
-                    hypo.total_score, hypo.score_breakdown, full=True)
+                    hypo.total_score, hypo.score_breakdown, **kwargs)
         hypos.sort(key=lambda hypo: hypo.total_score, reverse=True)
     return hypos
 
@@ -851,8 +857,20 @@ def do_decode(decoder,
                 logging.info("Next sentence (ID: %d)" % (sen_idx + 1))
             else:
                 src = src_sentences[sen_idx]
-                logging.info("Next sentence (ID: %d): %s" % (sen_idx + 1, 
-                                                             ' '.join(src)))
+            if len(src) > 0 and args.per_sentence_predictor_weights:
+                # change predictor weights per-sentence
+                weights = src[-1].split(',')
+                if len(weights) > 1:
+                    weights = [float(x) for x in weights]
+                    src = src[:-1]
+                    logging.info('Changing predictor weights to {}'.format(
+                        weights))
+                    decoder.change_predictor_weights(weights)
+                else:
+                    logging.info(
+                        'No weights read in {} - leaving unchanged'.format(
+                            src))
+            logging.info("Next sentence (ID: %d): %s" % (sen_idx + 1, ' '.join(src)))
             src = [int(x) for x in src]
             start_hypo_time = time.time()
             decoder.apply_predictors_count = 0
