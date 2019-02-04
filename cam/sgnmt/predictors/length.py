@@ -276,7 +276,8 @@ class WordCountPredictor(Predictor):
             self.unk_prob = 0.0
         elif word < 0:
             self.posterior = {utils.EOS_ID : 0.0}
-            self.unk_prob = -1.0
+            #self.unk_prob = -1.0
+            self.unk_prob = 1.0
         else:
             self.posterior = {word : -1.0}
             self.unk_prob = 0.0 

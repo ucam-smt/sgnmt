@@ -17,6 +17,7 @@ import os
 
 from cam.sgnmt import utils
 from cam.sgnmt.predictors.core import Predictor
+from cam.sgnmt.misc.trie import SimpleTrie
 
 POP = "##POP##"
 """Textual representation of the POP symbol."""
@@ -35,6 +36,7 @@ try:
     import tensorflow as tf
     from tensorflow.python.training import saver
     from tensorflow.python.training import training
+    import numpy as np
 
     class DummyTextEncoder(TextEncoder):
         """Dummy TextEncoder implementation. The TextEncoder 
@@ -84,13 +86,69 @@ def _initialize_t2t(t2t_usr_dir):
 
 def log_prob_from_logits(logits):
     """Softmax function."""
-    return logits - tf.reduce_logsumexp(logits, keepdims=True)
+    return logits - tf.reduce_logsumexp(logits, keepdims=True, axis=-1)
+
+
+def expand_input_dims_for_t2t(t, batched=False):
+    """Expands a plain input tensor for using it in a T2T graph.
+
+    Args:
+        t: Tensor
+        batched: Whether to expand on the left side
+
+    Returns:
+      Tensor `t` expanded by 1 dimension on the left and two dimensions
+      on the right.
+    """
+    if not batched:
+        t = tf.expand_dims(t, 0) # Because of batch_size
+    t = tf.expand_dims(t, -1) # Because of modality
+    t = tf.expand_dims(t, -1) # Because of random reason X
+    return t
+
+
+def gather_2d(params, indices):
+  """This is a batched version of tf.gather(), ie. it applies tf.gather() to
+  each batch separately.
+
+  Example:
+    params = [[10, 11, 12, 13, 14],
+              [20, 21, 22, 23, 24]]
+    indices = [[0, 0, 1, 1, 1, 2],
+               [1, 3, 0, 0, 2, 2]]
+    result = [[10, 10, 11, 11, 11, 12],
+              [21, 23, 20, 20, 22, 22]]
+
+  Args:
+    params: A [batch_size, n, ...] tensor with data
+    indices: A [batch_size, num_indices] int32 tensor with indices into params.
+             Entries must be smaller than n
+
+  Returns:
+    The result of tf.gather() on each entry of the batch.
+  """
+  # TODO(fstahlberg): Curse TF for making this so awkward.
+  batch_size = tf.shape(params)[0]
+  num_indices = tf.shape(indices)[1]
+  batch_indices = tf.tile(tf.expand_dims(tf.range(batch_size), 1),
+                          [1, num_indices])
+  # batch_indices is [[0,0,0,0,...],[1,1,1,1,...],...]
+  gather_nd_indices = tf.stack([batch_indices, indices], axis=2)
+  return tf.gather_nd(params, gather_nd_indices)
 
 
 class _BaseTensor2TensorPredictor(Predictor):
     """Base class for tensor2tensor based predictors."""
 
-    def __init__(self, t2t_usr_dir, checkpoint_dir, t2t_unk_id, single_cpu_thread):
+    def __init__(self,
+                 t2t_usr_dir,
+                 checkpoint_dir,
+                 src_vocab_size,
+                 trg_vocab_size,
+                 t2t_unk_id,
+                 single_cpu_thread,
+                 max_terminal_id=-1,
+                 pop_id=-1):
         """Common initialization for tensor2tensor predictors.
 
         Args:
@@ -99,16 +157,78 @@ class _BaseTensor2TensorPredictor(Predictor):
                                      directory. The predictor will load
                                      the top most checkpoint in the 
                                      `checkpoints` file.
+            src_vocab_size (int): Source vocabulary size.
+            trg_vocab_size (int): Target vocabulary size.
             t2t_unk_id (int): If set, use this ID to get UNK scores. If
                               None, UNK is always scored with -inf.
             single_cpu_thread (bool): If true, prevent tensorflow from
                                       doing multithreading.
+            max_terminal_id (int): If positive, maximum terminal ID. Needs to
+                be set for syntax-based T2T models.
+            pop_id (int): If positive, ID of the POP or closing bracket symbol.
+                Needs to be set for syntax-based T2T models.
         """
         super(_BaseTensor2TensorPredictor, self).__init__()
         self._single_cpu_thread = single_cpu_thread
         self._t2t_unk_id = utils.UNK_ID if t2t_unk_id < 0 else t2t_unk_id
         self._checkpoint_dir = checkpoint_dir
+        try:
+            self.pop_id = int(pop_id) 
+        except ValueError:
+            logging.warn("t2t predictor only supports single POP IDs. "
+                         "Reset to -1")
+            self.pop_id = -1
+        self.max_terminal_id = max_terminal_id 
+        self.src_vocab_size = src_vocab_size
+        self.trg_vocab_size = trg_vocab_size
         _initialize_t2t(t2t_usr_dir)
+
+    def _add_problem_hparams(self, hparams, problem_name):
+        """Add problem hparams for the problems. 
+
+        This method corresponds to create_hparams() in tensor2tensor's
+        trainer_lib module, but replaces the feature encoders with
+        DummyFeatureEncoder's.
+
+        Args:
+            hparams (Hparams): Model hyper parameters.
+            problem_name (string): T2T problem name.
+        
+        Returns:
+            hparams object.
+
+        Raises:
+            LookupError if the problem name is not in the registry or
+            uses the old style problem_hparams.
+        """
+        if self.pop_id >= 0:
+            try:
+                hparams.add_hparam("pop_id", self.pop_id)
+            except:
+                if hparams.pop_id != self.pop_id:
+                    logging.warn("T2T pop_id does not match (%d!=%d)"
+                                 % (hparams.pop_id, self.pop_id))
+        try:
+            hparams.add_hparam("max_terminal_id", self.max_terminal_id)
+        except:
+            if hparams.max_terminal_id != self.max_terminal_id:
+                logging.warn("T2T max_terminal_id does not match (%d!=%d)"
+                             % (hparams.max_terminal_id, self.max_terminal_id))
+        try:
+            hparams.add_hparam("closing_bracket_id", self.pop_id)
+        except:
+            if hparams.closing_bracket_id != self.pop_id:
+                logging.warn("T2T closing_bracket_id does not match (%d!=%d)"
+                             % (hparams.closing_bracket_id, self.pop_id))
+        problem = registry.problem(problem_name)
+        problem._encoders = {
+            "inputs": DummyTextEncoder(vocab_size=self.src_vocab_size),
+            "targets": DummyTextEncoder(vocab_size=self.trg_vocab_size)
+        }
+        p_hparams = problem.get_hparams(hparams)
+        hparams.problem = problem
+        hparams.problem_hparams = p_hparams
+        return hparams
 
     def _session_config(self):
         """Creates the session config with t2t default parameters."""
@@ -155,22 +275,6 @@ class _BaseTensor2TensorPredictor(Predictor):
     def get_unk_probability(self, posterior):
         """Fetch posterior[t2t_unk_id]"""
         return utils.common_get(posterior, self._t2t_unk_id, utils.NEG_INF)
-
-
-def expand_input_dims_for_t2t(t):
-    """Expands a plain input tensor for using it in a T2T graph.
-
-    Args:
-        t: Tensor
-
-    Returns:
-      Tensor `t` expanded by 1 dimension on the left and two dimensions
-      on the right.
-    """
-    t = tf.expand_dims(t, 0) # Because of batch_size
-    t = tf.expand_dims(t, -1) # Because of modality
-    t = tf.expand_dims(t, -1) # Because of random reason X
-    return t
 
 
 class T2TPredictor(_BaseTensor2TensorPredictor):
@@ -224,35 +328,22 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
         """
         super(T2TPredictor, self).__init__(t2t_usr_dir, 
                                            checkpoint_dir, 
+                                           src_vocab_size,
+                                           trg_vocab_size,
                                            t2t_unk_id, 
-                                           single_cpu_thread)
+                                           single_cpu_thread,
+                                           max_terminal_id,
+                                           pop_id)
         if not model_name or not problem_name or not hparams_set_name:
             logging.fatal(
                 "Please specify t2t_model, t2t_problem, and t2t_hparams_set!")
             raise AttributeError
         self.consumed = []
         self.src_sentence = []
-        try:
-            self.pop_id = int(pop_id) 
-        except ValueError:
-            logging.warn("t2t predictor only supports single POP IDs. "
-                         "Reset to -1")
-            self.pop_id = -1
-        self.max_terminal_id = max_terminal_id 
-        self.src_vocab_size = src_vocab_size
-        self.trg_vocab_size = trg_vocab_size
         predictor_graph = tf.Graph()
         with predictor_graph.as_default() as g:
             hparams = trainer_lib.create_hparams(hparams_set_name)
-            if self.pop_id >= 0:
-              try:
-                hparams.add_hparam("pop_id", self.pop_id)
-              except:
-                if hparams.pop_id != self.pop_id:
-                  logging.warn("T2T pop_id does not match (%d!=%d)"
-                    % (hparams.pop_id, self.pop_id))
-            self._add_problem_hparams(
-                hparams, src_vocab_size, trg_vocab_size, problem_name)
+            self._add_problem_hparams(hparams, problem_name)
             translate_model = registry.model(model_name)(
                 hparams, tf.estimator.ModeKeys.PREDICT)
             self._inputs_var = tf.placeholder(dtype=tf.int32, shape=[None],
@@ -268,48 +359,6 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
             self._log_probs = log_prob_from_logits(logits)
             self.mon_sess = self.create_session()
 
-    def _add_problem_hparams(
-            self, hparams, src_vocab_size, trg_vocab_size, problem_name):
-        """Add problem hparams for the problems. 
-
-        This method corresponds to create_hparams() in tensor2tensor's
-        trainer_lib module, but replaces the feature encoders with
-        DummyFeatureEncoder's.
-
-        Args:
-            hparams (Hparams): Model hyper parameters.
-            src_vocab_size (int): Source vocabulary size.
-            trg_vocab_size (int): Target vocabulary size.
-            problem_name (string): T2T problem name.
-        
-        Returns:
-            hparams object.
-
-        Raises:
-            LookupError if the problem name is not in the registry or
-            uses the old style problem_hparams.
-        """
-        try:
-            hparams.add_hparam("max_terminal_id", self.max_terminal_id)
-        except:
-            if hparams.max_terminal_id != self.max_terminal_id:
-                logging.warn("T2T max_terminal_id does not match (%d!=%d)"
-                             % (hparams.max_terminal_id, self.max_terminal_id))
-        try:
-            hparams.add_hparam("closing_bracket_id", self.pop_id)
-        except:
-            if hparams.closing_bracket_id != self.pop_id:
-                logging.warn("T2T closing_bracket_id does not match (%d!=%d)"
-                             % (hparams.closing_bracket_id, self.pop_id))
-        problem = registry.problem(problem_name)
-        problem._encoders = {
-            "inputs": DummyTextEncoder(vocab_size=src_vocab_size),
-            "targets": DummyTextEncoder(vocab_size=trg_vocab_size)
-        }
-        p_hparams = problem.get_hparams(hparams)
-        hparams.problem = problem
-        hparams.problem_hparams = p_hparams
-        return hparams
                 
     def predict_next(self):
         """Call the T2T model in self.mon_sess."""
@@ -344,6 +393,289 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
     def is_equal(self, state1, state2):
         """Returns true if the history is the same """
         return state1 == state2
+
+
+class EditT2TPredictor(_BaseTensor2TensorPredictor):
+    """This predictor can be used for T2T models conditioning on the
+    full target sentence. The predictor state is a full target sentence.
+    The state can be changed by insertions, substitutions, and deletions
+    of single tokens, whereas each operation is encoded as SGNMT token
+    in the following way:
+
+      1xxxyyyyy: Insert the token yyyyy at position xxx.
+      2xxxyyyyy: Replace the xxx-th word with the token yyyyy.
+      3xxx00000: Delete the xxx-th token.
+    """
+
+    INS_OFFSET = 100000000
+    SUB_OFFSET = 200000000
+    DEL_OFFSET = 300000000
+
+    POS_FACTOR = 100000
+    MAX_SEQ_LEN = 999
+
+    def __init__(self,
+                 src_vocab_size,
+                 trg_vocab_size,
+                 model_name,
+                 problem_name,
+                 hparams_set_name,
+                 trg_test_file,
+                 beam_size,
+                 t2t_usr_dir,
+                 checkpoint_dir,
+                 t2t_unk_id=None,
+                 single_cpu_thread=False,
+                 max_terminal_id=-1,
+                 pop_id=-1):
+        """Creates a new edit T2T predictor. This constructor is
+        similar to the constructor of T2TPredictor but creates a
+        different computation graph which retrieves scores at each
+        target position, not only the last one.
+        
+        Args:
+            src_vocab_size (int): Source vocabulary size.
+            trg_vocab_size (int): Target vocabulary size.
+            model_name (string): T2T model name.
+            problem_name (string): T2T problem name.
+            hparams_set_name (string): T2T hparams set name.
+            trg_test_file (string): Path to a plain text file with
+                initial target sentences. Can be empty.
+            beam_size (int): Determines how many substitutions and
+                insertions are considered at each position.
+            t2t_usr_dir (string): See --t2t_usr_dir in tensor2tensor.
+            checkpoint_dir (string): Path to the T2T checkpoint 
+                                     directory. The predictor will load
+                                     the top most checkpoint in the 
+                                     `checkpoints` file.
+            t2t_unk_id (int): If set, use this ID to get UNK scores. If
+                              None, UNK is always scored with -inf.
+            single_cpu_thread (bool): If true, prevent tensorflow from
+                                      doing multithreading.
+            max_terminal_id (int): If positive, maximum terminal ID. Needs to
+                be set for syntax-based T2T models.
+            pop_id (int): If positive, ID of the POP or closing bracket symbol.
+                Needs to be set for syntax-based T2T models.
+        """
+        super(EditT2TPredictor, self).__init__(t2t_usr_dir, 
+                                               checkpoint_dir, 
+                                               src_vocab_size,
+                                               trg_vocab_size,
+                                               t2t_unk_id, 
+                                               single_cpu_thread,
+                                               max_terminal_id,
+                                               pop_id)
+        if not model_name or not problem_name or not hparams_set_name:
+            logging.fatal(
+                "Please specify t2t_model, t2t_problem, and t2t_hparams_set!")
+            raise AttributeError
+        if trg_vocab_size >= EditT2TPredictor.POS_FACTOR:
+            logging.fatal("Target vocabulary size (%d) must be less than %d!"
+                          % (trg_vocab_size, EditT2TPredictor.POS_FACTOR))
+            raise AttributeError
+        self.beam_size = max(1, beam_size // 10) + 1
+        self.batch_size = 2048 # TODO(fstahlberg): Move to config
+        self.initial_trg_sentences = None
+        if trg_test_file: 
+            self.initial_trg_sentences = []
+            with open(trg_test_file) as f:
+                for line in f:
+                    self.initial_trg_sentences.append(utils.oov_to_unk(
+                       [int(w) for w in line.strip().split()] + [utils.EOS_ID],
+                       self.trg_vocab_size, self._t2t_unk_id))
+        predictor_graph = tf.Graph()
+        with predictor_graph.as_default() as g:
+            hparams = trainer_lib.create_hparams(hparams_set_name)
+            self._add_problem_hparams(hparams, problem_name)
+            translate_model = registry.model(model_name)(
+                hparams, tf.estimator.ModeKeys.EVAL)
+            self._inputs_var = tf.placeholder(dtype=tf.int32, shape=[None],
+                                              name="sgnmt_inputs")
+            self._targets_var = tf.placeholder(dtype=tf.int32, shape=[None, None], 
+                                               name="sgnmt_targets")
+            shp = tf.shape(self._targets_var)
+            bsz = shp[0]
+            inputs = tf.tile(tf.expand_dims(self._inputs_var, 0), [bsz, 1])
+            features = {"inputs": expand_input_dims_for_t2t(inputs,
+                                                            batched=True), 
+                        "targets": expand_input_dims_for_t2t(self._targets_var,
+                                                             batched=True)}
+            translate_model.prepare_features_for_infer(features)
+            translate_model._fill_problem_hparams_features(features)
+            logits, _ = translate_model(features)
+            logits = tf.squeeze(logits, [2, 3])
+            self._log_probs = log_prob_from_logits(logits)
+            diag_logits = gather_2d(logits, tf.expand_dims(tf.range(bsz), 1))
+            self._diag_log_probs = log_prob_from_logits(diag_logits)
+            no_pad = tf.cast(tf.not_equal(
+                self._targets_var, text_encoder.PAD_ID), tf.float32)
+            flat_bsz = shp[0] * shp[1]
+            word_scores = gather_2d(
+                tf.reshape(self._log_probs, [flat_bsz, -1]),
+                tf.reshape(self._targets_var, [flat_bsz, 1]))
+            word_scores = tf.reshape(word_scores, (shp[0], shp[1])) * no_pad
+            self._sentence_scores = tf.reduce_sum(word_scores, -1)
+            self.mon_sess = self.create_session()
+
+    def _ins_op(self, pos, token):
+        """Returns a copy of trg sentence after an insertion."""
+        return self.trg_sentence[:pos] + [token] + self.trg_sentence[pos:]
+
+    def _sub_op(self, pos, token):
+        """Returns a copy of trg sentence after a substitution."""
+        ret = list(self.trg_sentence)
+        ret[pos] = token
+        return ret
+
+    def _del_op(self, pos):
+        """Returns a copy of trg sentence after a deletion."""
+        return self.trg_sentence[:pos] + self.trg_sentence[pos+1:]
+
+    def _top_n(self, scores, sort=False):
+        """Sorted indices of beam_size best entries along axis 1"""
+        costs = -scores
+        costs[:, utils.EOS_ID] = utils.INF
+        top_n_indices = np.argpartition(
+            costs,
+            self.beam_size, 
+            axis=1)[:, :self.beam_size]
+        if not sort:
+            return top_n_indices
+        b_indices = np.expand_dims(np.arange(top_n_indices.shape[0]), axis=1)
+        sorted_indices = np.argsort(costs[b_indices, top_n_indices], axis=1)
+        return top_n_indices[b_indices, sorted_indices]
+
+    def predict_next(self):
+        """Call the T2T model in self.mon_sess."""
+        next_sentences = {}
+        logging.debug("EditT2T: Exploring score=%f sentence=%s" 
+                      % (self.cur_score, " ".join(map(str, self.trg_sentence))))
+        n_trg_words = len(self.trg_sentence)
+        if n_trg_words > EditT2TPredictor.MAX_SEQ_LEN:
+            logging.warn("EditT2T: Target sentence exceeds maximum length (%d)"
+                         % EDITT2TPredictor.MAX_SEQ_LEN)
+            return {utils.EOS_ID: 0.0}
+        # Substitutions
+        log_probs = self.mon_sess.run(self._log_probs,
+            {self._inputs_var: self.src_sentence,
+             self._targets_var: [self.trg_sentence]})
+        top_n = self._top_n(np.squeeze(log_probs, axis=0))
+        for pos, cur_token in enumerate(self.trg_sentence[:-1]):
+            offset = EditT2TPredictor.SUB_OFFSET 
+            offset += EditT2TPredictor.POS_FACTOR * pos
+            for token in top_n[pos]:
+                if token != cur_token:
+                    next_sentences[offset + token] = self._sub_op(pos, token)
+
+        # Insertions
+        if n_trg_words < EditT2TPredictor.MAX_SEQ_LEN - 1:
+            ins_trg_sentences = np.full((n_trg_words, n_trg_words+1), 999)
+            for pos in xrange(n_trg_words):
+                ins_trg_sentences[pos, :pos] = self.trg_sentence[:pos]
+                ins_trg_sentences[pos, pos+1:] = self.trg_sentence[pos:]
+            diag_log_probs = self.mon_sess.run(self._diag_log_probs,
+                {self._inputs_var: self.src_sentence,
+                 self._targets_var: ins_trg_sentences})
+            top_n = self._top_n(np.squeeze(diag_log_probs, axis=1))
+            for pos in xrange(n_trg_words):
+                offset = EditT2TPredictor.INS_OFFSET 
+                offset += EditT2TPredictor.POS_FACTOR * pos
+                for token in top_n[pos]:
+                    next_sentences[offset + token] = self._ins_op(pos, token)
+        # Deletions
+        idx = EditT2TPredictor.DEL_OFFSET
+        for pos in xrange(n_trg_words - 1): # -1: Do not delete EOS
+            next_sentences[idx] = self._del_op(pos)
+            idx += EditT2TPredictor.POS_FACTOR
+        abs_scores = self._score(next_sentences, n_trg_words + 1)
+        rel_scores = {i: s - self.cur_score 
+                      for i, s in abs_scores.iteritems()}
+        rel_scores[utils.EOS_ID] = 0.0
+        return rel_scores
+
+    def _score(self, sentences, n_trg_words=1):
+        max_n_sens = max(1, self.batch_size // n_trg_words)
+        scores = {}
+        batch_ids = []
+        batch_sens = []
+        for idx, trg_sentence in sentences.iteritems():
+            score = self.cache.get(trg_sentence)
+            if score is None:
+                batch_ids.append(idx)
+                np_sen = np.zeros(n_trg_words, dtype=np.int)
+                np_sen[:len(trg_sentence)] = trg_sentence
+                batch_sens.append(np_sen)
+                if len(batch_ids) >= max_n_sens:
+                    self._score_single_batch(scores, batch_ids, batch_sens)
+                    batch_ids = []
+                    batch_sens = []
+            else:
+                scores[idx] = score
+        self._score_single_batch(scores, batch_ids, batch_sens)
+        return scores 
+
+    def _score_single_batch(self, scores, ids, trg_sentences):
+        "Score sentences and add them to scores and the cache."""
+        if not ids:
+            return
+        batch_scores = self.mon_sess.run(self._sentence_scores,
+            {self._inputs_var: self.src_sentence,
+             self._targets_var: np.stack(trg_sentences)})
+        for idx, sen, score in zip(ids, trg_sentences, batch_scores):
+            self.cache.add(sen, score)
+            scores[idx] = score
+
+    def _update_cur_score(self):
+        self.cur_score = self.cache.get(self.trg_sentence)
+        if self.cur_score is None:
+            scores = self._score({1: self.trg_sentence}, len(self.trg_sentence))
+            self.cur_score = scores[1]
+            self.cache.add(self.trg_sentence, self.cur_score)
+    
+    def initialize(self, src_sentence):
+        """Set src_sentence, reset consumed."""
+        if self.initial_trg_sentences is None:
+            self.trg_sentence = [text_encoder.EOS_ID]
+        else:
+            self.trg_sentence = self.initial_trg_sentences[self.current_sen_id]
+        self.src_sentence = utils.oov_to_unk(
+            src_sentence + [text_encoder.EOS_ID], 
+            self.src_vocab_size, self._t2t_unk_id)
+        self.cache = SimpleTrie()
+        self._update_cur_score()
+        logging.debug("Initial score: %f" % self.cur_score)
+   
+    def consume(self, word):
+        """Append ``word`` to the current history."""
+        if word == utils.EOS_ID:
+            return
+        pos = (word // EditT2TPredictor.POS_FACTOR) \
+              % (EditT2TPredictor.MAX_SEQ_LEN + 1)
+        token = word % EditT2TPredictor.POS_FACTOR
+        # TODO(fstahlberg): Do not hard code the following section
+        op = word // 100000000  
+        if op == 1:  # Insertion
+            self.trg_sentence = self._ins_op(pos, token)
+        elif op == 2:  # Substitution
+            self.trg_sentence = self._sub_op(pos, token)
+        elif op == 3:  # Deletion
+            self.trg_sentence = self._del_op(pos)
+        else:
+            logging.warn("Invalid edit descriptor %d. Ignoring..." % word)
+        self._update_cur_score()
+        self.cache.add(self.trg_sentence, utils.NEG_INF)
+    
+    def get_state(self):
+        """The predictor state is the complete target sentence."""
+        return self.trg_sentence, self.cur_score
+    
+    def set_state(self, state):
+        """The predictor state is the complete target sentence."""
+        self.trg_sentence, self.cur_score = state
+
+    def is_equal(self, state1, state2):
+        """Returns true if the target sentence is the same """
+        return state1[0] == state2[0]
 
 
 class FertilityT2TPredictor(T2TPredictor):

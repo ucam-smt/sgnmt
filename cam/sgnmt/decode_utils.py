@@ -72,7 +72,9 @@ from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
                                             UnkvocabPredictor, \
                                             SkipvocabPredictor
 from cam.sgnmt.predictors.ngram import SRILMPredictor, KenLMPredictor
-from cam.sgnmt.predictors.tf_t2t import T2TPredictor, FertilityT2TPredictor
+from cam.sgnmt.predictors.tf_t2t import T2TPredictor, \
+                                        EditT2TPredictor, \
+                                        FertilityT2TPredictor
 from cam.sgnmt.predictors.tf_nizza import NizzaPredictor, LexNizzaPredictor
 from cam.sgnmt.predictors.tokenization import Word2charPredictor, FSTTokPredictor
 from cam.sgnmt.tf.interface import tf_get_nmt_predictor, tf_get_nmt_vanilla_decoder, \
@@ -269,6 +271,20 @@ def add_predictors(decoder):
                                  single_cpu_thread=args.single_cpu_thread,
                                  max_terminal_id=args.syntax_max_terminal_id,
                                  pop_id=args.syntax_pop_id)
+            elif pred == "editt2t":
+                p = EditT2TPredictor(_get_override_args("pred_src_vocab_size"),
+                                     _get_override_args("pred_trg_vocab_size"),
+                                     _get_override_args("t2t_model"),
+                                     _get_override_args("t2t_problem"),
+                                     _get_override_args("t2t_hparams_set"),
+                                     args.trg_test,
+                                     args.beam,
+                                     args.t2t_usr_dir,
+                                     _get_override_args("t2t_checkpoint_dir"),
+                                     t2t_unk_id=_get_override_args("t2t_unk_id"),
+                                     single_cpu_thread=args.single_cpu_thread,
+                                     max_terminal_id=args.syntax_max_terminal_id,
+                                     pop_id=args.syntax_pop_id)
             elif pred == "fertt2t":
                 p = FertilityT2TPredictor(
                                  _get_override_args("pred_src_vocab_size"),
