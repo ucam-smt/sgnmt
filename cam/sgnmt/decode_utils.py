@@ -65,7 +65,10 @@ from cam.sgnmt.predictors.length import WordCountPredictor, NBLengthPredictor, \
     NgramizePredictor, WeightNonTerminalPredictor
 from cam.sgnmt.predictors.structure import BracketPredictor, OSMPredictor, \
                                            ForcedOSMPredictor
-from cam.sgnmt.predictors.misc import UnboundedAltsrcPredictor, AltsrcPredictor
+from cam.sgnmt.predictors.misc import UnboundedAltsrcPredictor, \
+                                      AltsrcPredictor, \
+                                      UnboundedRankPredictor, \
+                                      RankPredictor
 from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
                                             UnboundedIdxmapPredictor, \
                                             MaskvocabPredictor, \
@@ -474,6 +477,11 @@ def add_predictors(decoder):
                         p = UnboundedAltsrcPredictor(src_test, p)
                     else: # altsrc predictor for bounded predictors
                         p = AltsrcPredictor(src_test, p)
+                elif wrapper == "rank":
+                    if isinstance(p, UnboundedVocabularyPredictor): 
+                        p = UnboundedRankPredictor(p)
+                    else: # rank predictor for bounded predictors
+                        p = RankPredictor(p)
                 elif wrapper == "word2char":
                     map_path = _get_override_args("word2char_map")
                     # word2char always wraps unbounded predictors
