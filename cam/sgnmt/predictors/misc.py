@@ -102,7 +102,6 @@ class UnboundedAltsrcPredictor(AltsrcPredictor, UnboundedVocabularyPredictor):
         return self.slave_predictor.predict_next(trgt_words)
 
 
-
 class RankPredictor(Predictor):
     """This wrapper converts predictor scores to (negative) ranks, i.e.
     the best word gets a score of -1, the second best of -2 and so on.
@@ -187,3 +186,112 @@ class UnboundedRankPredictor(RankPredictor, UnboundedVocabularyPredictor):
         return self.score2rank(self.slave_predictor.predict_next(trgt_words))
 
 
+class GluePredictor(Predictor):
+    """This wrapper masks sentence-level predictors when SGNMT runs on
+    the document level. The SGNMT hypotheses consist of multiple
+    sentences, glued together with <s>, but the wrapped predictor is
+    trained on the sentence level. This predictor splits input
+    sequences at <s> and feed them to the predictor one by one. The
+    wrapped predictor is initialized with a new source sentence when
+    the sentence boundary symbol <s> is emitted. Note that using the
+    predictor heuristic of the wrapped predictor estimates the future
+    cost for the current sentence, not for the entire document.
+    """
+    
+    def __init__(self, slave_predictor):
+        """Creates a new glue wrapper predictor.
+        
+        Args:
+            slave_predictor (Predictor): Instance of the sentence-level
+                                         predictor.
+        """
+        super(GluePredictor, self).__init__()
+        self.slave_predictor = slave_predictor
+    
+    def initialize(self, src_sentence):
+        """Splits ``src_sentence`` at ``utils.GO_ID``, stores all
+        segments for later use, and calls ``initialize()`` of the
+        slave predictor with the first segment.
+        """
+        self._src_sentences = []
+        last_pos = 0
+        for pos, word in enumerate(src_sentence):
+            if word == utils.GO_ID:
+                self._src_sentences.append(src_sentence[last_pos:pos])
+                last_pos = pos + 1
+        self._src_sentences.append(src_sentence[last_pos:])
+        self._next_src_sentence_idx = 1
+        self.slave_predictor.initialize(self._src_sentences[0])
+
+    def is_last_sentence(self):
+        """Returns True if the current sentence is the last sentence
+        in this document - i.e. we have already consumed n-1 <s>
+        symbols since the last call of ``initialize()``.
+        """
+        return self._next_src_sentence_idx >= len(self._src_sentences)
+    
+    def predict_next(self):
+        """Calls predict_next() of the wrapped predictor. Replaces BOS
+        scores with EOS score if we still have source sentences left.
+        """
+        slave_scores = self.slave_predictor.predict_next()
+        if not self.is_last_sentence():
+            slave_scores[utils.GO_ID] = slave_scores[utils.EOS_ID]
+            slave_scores[utils.EOS_ID] = utils.NEG_INF
+        else:
+            slave_scores[utils.GO_ID] = utils.NEG_INF
+        return slave_scores
+        
+    def consume(self, word):
+        """If ``word`` is <s>, initialize the slave predictor with the
+        next source sentence. Otherwise, pass through ``word`` to the
+        ``consume()`` method of the slave.
+        """
+        if word == utils.GO_ID:
+            self.slave_predictor.initialize(
+                self._src_sentences[self._next_src_sentence_idx])
+            self._next_src_sentence_idx += 1
+        else:
+            self.slave_predictor.consume(word)
+    
+    def get_state(self):
+        """State is the slave state plus the source sentence index."""
+        return self._next_src_sentence_idx, self.slave_predictor.get_state()
+    
+    def set_state(self, state):
+        """State is the slave state plus the source sentence index."""
+        self._next_src_sentence_idx, slave_state = state
+        self.slave_predictor.set_state(slave_state)
+
+    def initialize_heuristic(self, src_sentence):
+        """Pass through to slave predictor."""
+        self.slave_predictor.initialize_heuristic(self._get_current_sentence())
+
+    def get_unk_probability(self, posterior):
+        """Pass through to slave predictor """
+        return self.slave_predictor.get_unk_probability(posterior)
+
+    def estimate_future_cost(self, hypo):
+        """Pass through to slave predictor """
+        return self.slave_predictor.estimate_future_cost(hypo)
+
+    def set_current_sen_id(self, cur_sen_id):
+        """We need to override this method to propagate current\_
+        sentence_id to the slave predictor
+        """
+        super(GluePredictor, self).set_current_sen_id(cur_sen_id)
+        self.slave_predictor.set_current_sen_id(cur_sen_id)
+    
+    def is_equal(self, state1, state2):
+        """Pass through to slave predictor """
+        return self.slave_predictor.is_equal(state1, state2)
+        
+
+class UnboundedGluePredictor(GluePredictor, UnboundedVocabularyPredictor):
+    """This class is a version of ``GluePredictor`` for unbounded 
+    vocabulary predictors.
+    """
+
+    def predict_next(self, trgt_words):
+        """Pass through to slave predictor """
+        return self.slave_predictor.predict_next(trgt_words)

@@ -68,7 +68,9 @@ from cam.sgnmt.predictors.structure import BracketPredictor, OSMPredictor, \
 from cam.sgnmt.predictors.misc import UnboundedAltsrcPredictor, \
                                       AltsrcPredictor, \
                                       UnboundedRankPredictor, \
-                                      RankPredictor
+                                      RankPredictor, \
+                                      UnboundedGluePredictor, \
+                                      GluePredictor
 from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
                                             UnboundedIdxmapPredictor, \
                                             MaskvocabPredictor, \
@@ -482,6 +484,11 @@ def add_predictors(decoder):
                         p = UnboundedRankPredictor(p)
                     else: # rank predictor for bounded predictors
                         p = RankPredictor(p)
+                elif wrapper == "glue":
+                    if isinstance(p, UnboundedVocabularyPredictor): 
+                        p = UnboundedGluePredictor(p)
+                    else: # glue predictor for bounded predictors
+                        p = GluePredictor(p)
                 elif wrapper == "word2char":
                     map_path = _get_override_args("word2char_map")
                     # word2char always wraps unbounded predictors
