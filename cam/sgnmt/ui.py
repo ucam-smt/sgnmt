@@ -656,8 +656,10 @@ def get_parser():
                         help="This parameter specifies how the predictor "
                         "weights are used.\n"
                         "'fixed': Predictor weights do not change.\n"
-                        "'entropy': Set predictor weight according the (cross-"
-                        ") entropy of its posterior to all other predictors.\n"
+                        "'crossentropy': Set predictor weight according the cro"
+                        "ssentropy of its posterior to all other predictors.\n"
+                        "'entropy': Predictors with low entropy distributions "
+                        "get large weights.\n"
                         "'moe': Use a Mixture of Experts gating network "
                         "to decide predictor weights at each time step. See "
                         "the sgnmt_moe project on how to train it.\n"
@@ -673,6 +675,9 @@ def get_parser():
                         help="Used when --interpolation_strategy contains |. "
                         "Specifies the way interpolation weights are combined."
                         "'arith'metirc, 'geo'metric, 'prob'abilistic.")
+    group.add_argument("--interpolation_smoothing", default=0.0, type=float,
+                       help="When using interpolation strategies, smooth "
+                       "them with weights*(1-alpha)+alpha*uniformweights.")
     group.add_argument("--moe_config", default="",
                         help="Only for MoE interpolation strategy: Semicolon-"
                         "separated key=value pairs specifying the MoE network")

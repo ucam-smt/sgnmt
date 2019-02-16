@@ -144,8 +144,17 @@ class EntropyInterpolationStrategy(InterpolationStrategy):
     We assume that predictor weights are log probabilities.
     """
 
-    def __init__(self, vocab_size):
+    def __init__(self, vocab_size, cross_entropy):
+        """Constructor.
+
+        Args:
+            vocab_size (int): Vocabulary size
+            cross_entropy (bool): If true, use cross entropy to other
+                                  predictors. Otherwise, just use
+                                  predictor distribution entropy.
+        """
         self.vocab_size = vocab_size
+        self.cross_entropy = cross_entropy
 
     def _create_score_matrix(self, posteriors, unk_probs):
         scores = np.transpose(np.tile(np.array(unk_probs),
@@ -164,11 +173,14 @@ class EntropyInterpolationStrategy(InterpolationStrategy):
         probs = np.exp(logprobs)
         n_preds = len(pred_weights)
         ents = np.zeros((n_preds, n_preds))
-        for p_idx in xrange(n_preds):
-            for q_idx in xrange(n_preds):
-                ents[p_idx,q_idx] = -np.sum(probs[p_idx] * logprobs[q_idx])
-                ents[p_idx,q_idx] *= pred_weights[p_idx]
+        if self.cross_entropy:
+            for p_idx in xrange(n_preds):
+                for q_idx in xrange(n_preds):
+                    ents[p_idx, q_idx] = -np.sum(probs[p_idx] * logprobs[q_idx])
+        else:
+            for p_idx in xrange(n_preds):
+                ents[p_idx, p_idx] = -np.sum(probs[p_idx] * logprobs[p_idx])
         ent_weights = -np.sum(ents, axis=0)
         ent_weights -= np.min(ent_weights)
         ent_weights /= np.sum(ent_weights)
-        return ent_weights
+        return np.clip(np.nan_to_num(ent_weights), 0.0, 1.0)

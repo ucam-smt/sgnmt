@@ -272,11 +272,13 @@ class GluePredictor(Predictor):
     
     def get_state(self):
         """State is the slave state plus the source sentence index."""
-        return self._next_src_sentence_idx, self.slave_predictor.get_state()
+        return (self._next_src_sentence_idx,
+                self._sen_budget,
+                self.slave_predictor.get_state())
     
     def set_state(self, state):
         """State is the slave state plus the source sentence index."""
-        self._next_src_sentence_idx, slave_state = state
+        self._next_src_sentence_idx, self._sen_budget, slave_state = state
         self.slave_predictor.set_state(slave_state)
 
     def initialize_heuristic(self, src_sentence):

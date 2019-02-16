@@ -288,22 +288,6 @@ class Decoder(Observable):
     def __init__(self, decoder_args):
         """Initializes the decoder instance with no predictors or 
         heuristics.
-        
-        Args:
-            closed_vocabulary_normalization (string): Defines the 
-                                    normalization behavior for closed 
-                                    vocabulary predictor scores. See 
-                                    the documentation to the 
-                                    ``CLOSED_VOCAB_SCORE_NORM_*``
-                                    variables for more information
-            max_len_factor (int): Hypotheses are not longer than
-                                  source sentence length times this.
-                                  Needs to be supported by the search
-                                  strategy implementation
-            lower_bounds_file (string): Path to a file with lower 
-                                        bounds on hypothesis scores.
-                                        If empty, all lower bounds are
-                                        set to ``NEG_INF``.
         """
         super(Decoder, self).__init__()
         self.max_len_factor = decoder_args.max_len_factor
@@ -338,6 +322,7 @@ class Decoder(Observable):
                 for line in f:
                     self.lower_bounds.append(float(line.strip()))
         self.interpolation_strategies = []
+        self.interpolation_smoothing = decoder_args.interpolation_smoothing
         if decoder_args.interpolation_strategy:
             self.interpolation_mean = decoder_args.interpolation_weights_mean
             pred_strat_names = decoder_args.interpolation_strategy.split(',')
@@ -351,7 +336,12 @@ class Decoder(Observable):
                     strat = FixedInterpolationStrategy()
                 elif name == 'entropy':
                     strat = EntropyInterpolationStrategy(
-                             decoder_args.pred_trg_vocab_size)
+                             decoder_args.pred_trg_vocab_size,
+                             cross_entropy=False)
+                elif name == 'crossentropy':
+                    strat = EntropyInterpolationStrategy(
+                             decoder_args.pred_trg_vocab_size,
+                             cross_entropy=True)
                 elif name == 'moe':
                     strat = MoEInterpolationStrategy(len(pred_indices), 
                                                      decoder_args)
@@ -516,7 +506,7 @@ class Decoder(Observable):
         weights for this apply_predictors() call.
     
         Args:
-            pred_weights (list): a prior predictor weights
+            pred_weights (list): a priori predictor weights
             non_zero_words (set): All words with positive probability
             posteriors: Predictor posterior distributions calculated
                         with ``predict_next()``
@@ -548,6 +538,11 @@ class Decoder(Observable):
                 partition = sum(pred_weights)
                 for idx in xrange(len(pred_weights)):
                     pred_weights[idx] /= partition
+            if self.interpolation_smoothing != 0.0:
+                uni = 1.0 / len(pred_weights)
+                s = self.interpolation_smoothing
+                for idx in xrange(len(pred_weights)):
+                    pred_weights[idx] = (1.0 - s) * pred_weights[idx] + s * uni
         return pred_weights
     
     def apply_predictors(self, top_n=0):
@@ -933,18 +928,6 @@ class Decoder(Observable):
         """Calls ``get_state()`` on all predictors. """
         return [p.get_state() for (p, _) in self.predictors]
     
-    def set_predictor_combi_method(self, method):
-        """Defines how to accumulate scores over the sequence. Should
-        be one of the ``combi_`` methods defined below
-        
-        Args:
-            method (function):  A function which accepts a list of
-                                tuples [(out1, weight1), ...] and
-                                calculates a combined score, e.g.
-                                one of the ``combi_*`` methods
-        """
-        self.predictor_combi_method = method
-    
     @staticmethod
     def combi_arithmetic_unnormalized(x):
         """Calculates the weighted sum (or geometric mean of log 
@@ -962,23 +945,6 @@ class Decoder(Observable):
                            (0.0, 1.0))
         return fAcc
     
-    @staticmethod
-    def combi_geometric_unnormalized(x):
-        """Calculates the weighted geometric mean. Do not use empty 
-        lists.
-        
-        Args:
-            x (list): List of tuples [(out1, weight1), ...]
-        
-        Returns:
-            float. Weighted geo. mean: out1^weight1*out2^weight2...
-        """
-        (fAcc, _) = reduce(lambda (f1, w1), (f2, w2): (pow(f1,w1) * pow(f2*w2),
-                                                       1.0),
-                           x,
-                           (1.0, 1.0))
-        return fAcc
-
     @abstractmethod
     def decode(self, src_sentence):
         """Decodes a single source sentence. This method has to be 
