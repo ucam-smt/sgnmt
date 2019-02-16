@@ -5,6 +5,7 @@ wrapper which loads source sentences from a different file.
 
 import operator
 import numpy as np
+import logging
 
 from cam.sgnmt.predictors.core import Predictor, UnboundedVocabularyPredictor
 from cam.sgnmt import utils
@@ -198,15 +199,18 @@ class GluePredictor(Predictor):
     cost for the current sentence, not for the entire document.
     """
     
-    def __init__(self, slave_predictor):
+    def __init__(self, max_len_factor, slave_predictor):
         """Creates a new glue wrapper predictor.
         
         Args:
+            max_len_factor (int): Target sentences cannot be longer
+                                  than this times source sentence length
             slave_predictor (Predictor): Instance of the sentence-level
                                          predictor.
         """
         super(GluePredictor, self).__init__()
         self.slave_predictor = slave_predictor
+        self.max_len_factor = max_len_factor
     
     def initialize(self, src_sentence):
         """Splits ``src_sentence`` at ``utils.GO_ID``, stores all
@@ -220,8 +224,17 @@ class GluePredictor(Predictor):
                 self._src_sentences.append(src_sentence[last_pos:pos])
                 last_pos = pos + 1
         self._src_sentences.append(src_sentence[last_pos:])
-        self._next_src_sentence_idx = 1
-        self.slave_predictor.initialize(self._src_sentences[0])
+        self._next_src_sentence_idx = 0
+        self._next_src_sentence()
+
+    def _next_src_sentence(self):
+        src = self._src_sentences[self._next_src_sentence_idx]
+        self.slave_predictor.initialize(src)
+        self._sen_budget = self.max_len_factor * len(src)
+        self._next_src_sentence_idx += 1
+
+    def _sen_len_exceeded(self):
+        return self._sen_budget < 0
 
     def is_last_sentence(self):
         """Returns True if the current sentence is the last sentence
@@ -234,6 +247,10 @@ class GluePredictor(Predictor):
         """Calls predict_next() of the wrapped predictor. Replaces BOS
         scores with EOS score if we still have source sentences left.
         """
+        if self._sen_len_exceeded():
+            end_token = utils.EOS_ID if self.is_last_sentence() else utils.GO_ID
+            logging.info("Sentence length exceeded!")
+            return {end_token: 0.0}
         slave_scores = self.slave_predictor.predict_next()
         if not self.is_last_sentence():
             slave_scores[utils.GO_ID] = slave_scores[utils.EOS_ID]
@@ -248,11 +265,10 @@ class GluePredictor(Predictor):
         ``consume()`` method of the slave.
         """
         if word == utils.GO_ID:
-            self.slave_predictor.initialize(
-                self._src_sentences[self._next_src_sentence_idx])
-            self._next_src_sentence_idx += 1
+            self._next_src_sentence()
         else:
             self.slave_predictor.consume(word)
+            self._sen_budget -= 1
     
     def get_state(self):
         """State is the slave state plus the source sentence index."""
@@ -269,6 +285,8 @@ class GluePredictor(Predictor):
 
     def get_unk_probability(self, posterior):
         """Pass through to slave predictor """
+        if self._sen_len_exceeded():
+            return utils.NEG_INF
         return self.slave_predictor.get_unk_probability(posterior)
 
     def estimate_future_cost(self, hypo):

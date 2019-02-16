@@ -15,7 +15,7 @@ sequence models.
 import logging
 import os
 
-from cam.sgnmt import utils
+from cam.sgnmt import utils, tf_utils
 from cam.sgnmt.predictors.core import Predictor
 from cam.sgnmt.misc.trie import SimpleTrie
 
@@ -34,8 +34,6 @@ try:
     from tensor2tensor.data_generators import problem  # pylint: disable=unused-import
     from tensor2tensor.data_generators import text_encoder
     import tensorflow as tf
-    from tensorflow.python.training import saver
-    from tensorflow.python.training import training
     import numpy as np
 
     class DummyTextEncoder(TextEncoder):
@@ -146,7 +144,7 @@ class _BaseTensor2TensorPredictor(Predictor):
                  src_vocab_size,
                  trg_vocab_size,
                  t2t_unk_id,
-                 single_cpu_thread,
+                 n_cpu_threads,
                  max_terminal_id=-1,
                  pop_id=-1):
         """Common initialization for tensor2tensor predictors.
@@ -161,15 +159,14 @@ class _BaseTensor2TensorPredictor(Predictor):
             trg_vocab_size (int): Target vocabulary size.
             t2t_unk_id (int): If set, use this ID to get UNK scores. If
                               None, UNK is always scored with -inf.
-            single_cpu_thread (bool): If true, prevent tensorflow from
-                                      doing multithreading.
+            n_cpu_threads (int): Number of TensorFlow CPU threads.
             max_terminal_id (int): If positive, maximum terminal ID. Needs to
                 be set for syntax-based T2T models.
             pop_id (int): If positive, ID of the POP or closing bracket symbol.
                 Needs to be set for syntax-based T2T models.
         """
         super(_BaseTensor2TensorPredictor, self).__init__()
-        self._single_cpu_thread = single_cpu_thread
+        self._n_cpu_threads = n_cpu_threads
         self._t2t_unk_id = utils.UNK_ID if t2t_unk_id < 0 else t2t_unk_id
         self._checkpoint_dir = checkpoint_dir
         try:
@@ -230,47 +227,9 @@ class _BaseTensor2TensorPredictor(Predictor):
         hparams.problem_hparams = p_hparams
         return hparams
 
-    def _session_config(self):
-        """Creates the session config with t2t default parameters."""
-        graph_options = tf.GraphOptions(optimizer_options=tf.OptimizerOptions(
-            opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
-        if self._single_cpu_thread:
-            config = tf.ConfigProto(
-                intra_op_parallelism_threads=1,
-                inter_op_parallelism_threads=1,
-                allow_soft_placement=True,
-                graph_options=graph_options,
-                log_device_placement=False)
-        else:
-            gpu_options = tf.GPUOptions(
-                per_process_gpu_memory_fraction=0.95)
-            config = tf.ConfigProto(
-                allow_soft_placement=True,
-                graph_options=graph_options,
-                gpu_options=gpu_options,
-                log_device_placement=False)
-        return config
-
     def create_session(self):
-        """Creates a MonitoredSession for this predictor."""
-        try:
-            if os.path.isdir(self._checkpoint_dir):
-                checkpoint_path = saver.latest_checkpoint(self._checkpoint_dir)
-            else:
-                checkpoint_path = self._checkpoint_dir
-                logging.info("%s is not a directory. Interpreting as direct "
-                             "path to checkpoint..." % checkpoint_path)
-            return training.MonitoredSession(
-                session_creator=training.ChiefSessionCreator(
-                    checkpoint_filename_with_path=checkpoint_path,
-                    config=self._session_config()))
-        except tf.errors.NotFoundError as e:
-            logging.fatal("Could not find all variables of the computation "
-                "graph in the T2T checkpoint file. This means that the "
-                "checkpoint does not correspond to the model specified in "
-                "SGNMT. Please double-check pred_src_vocab_size, "
-                "pred_trg_vocab_size, and all the t2t_* parameters.")
-            raise AttributeError("Could not initialize TF session.")
+        return tf_utils.create_session(self._checkpoint_dir,
+                                       self._n_cpu_threads)
 
     def get_unk_probability(self, posterior):
         """Fetch posterior[t2t_unk_id]"""
@@ -294,7 +253,7 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
                  t2t_usr_dir,
                  checkpoint_dir,
                  t2t_unk_id=None,
-                 single_cpu_thread=False,
+                 n_cpu_threads=-1,
                  max_terminal_id=-1,
                  pop_id=-1):
         """Creates a new T2T predictor. The constructor prepares the
@@ -319,8 +278,7 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
                                      `checkpoints` file.
             t2t_unk_id (int): If set, use this ID to get UNK scores. If
                               None, UNK is always scored with -inf.
-            single_cpu_thread (bool): If true, prevent tensorflow from
-                                      doing multithreading.
+            n_cpu_threads (int): Number of TensorFlow CPU threads.
             max_terminal_id (int): If positive, maximum terminal ID. Needs to
                 be set for syntax-based T2T models.
             pop_id (int): If positive, ID of the POP or closing bracket symbol.
@@ -331,7 +289,7 @@ class T2TPredictor(_BaseTensor2TensorPredictor):
                                            src_vocab_size,
                                            trg_vocab_size,
                                            t2t_unk_id, 
-                                           single_cpu_thread,
+                                           n_cpu_threads,
                                            max_terminal_id,
                                            pop_id)
         if not model_name or not problem_name or not hparams_set_name:
@@ -425,7 +383,7 @@ class EditT2TPredictor(_BaseTensor2TensorPredictor):
                  t2t_usr_dir,
                  checkpoint_dir,
                  t2t_unk_id=None,
-                 single_cpu_thread=False,
+                 n_cpu_threads=-1,
                  max_terminal_id=-1,
                  pop_id=-1):
         """Creates a new edit T2T predictor. This constructor is
@@ -450,8 +408,7 @@ class EditT2TPredictor(_BaseTensor2TensorPredictor):
                                      `checkpoints` file.
             t2t_unk_id (int): If set, use this ID to get UNK scores. If
                               None, UNK is always scored with -inf.
-            single_cpu_thread (bool): If true, prevent tensorflow from
-                                      doing multithreading.
+            n_cpu_threads (int): Number of TensorFlow CPU threads.
             max_terminal_id (int): If positive, maximum terminal ID. Needs to
                 be set for syntax-based T2T models.
             pop_id (int): If positive, ID of the POP or closing bracket symbol.
@@ -462,7 +419,7 @@ class EditT2TPredictor(_BaseTensor2TensorPredictor):
                                                src_vocab_size,
                                                trg_vocab_size,
                                                t2t_unk_id, 
-                                               single_cpu_thread,
+                                               n_cpu_threads,
                                                max_terminal_id,
                                                pop_id)
         if not model_name or not problem_name or not hparams_set_name:
@@ -755,3 +712,38 @@ class FertilityT2TPredictor(T2TPredictor):
     def get_unk_probability(self, posterior):
         """Returns self.other_scores[n_aligned_words]."""
         return utils.common_get(self.other_scores, self.n_aligned_words, 0.0)
+
+
+class BosLimitT2TPredictor(T2TPredictor):
+    """This predictor prunes history when it exceeds a maximum number
+    of <s> symbols. This can be used to reduce complexity for document-
+    level models on very long documents. When the maximum number is
+    reached, we start removing sentences from ``self.consumed``,
+    starting with the sentences in the middle which are furthest away
+    from both the document start and the current sentence.
+    """
+
+    def initialize(self, src_sentence):
+        super(BosLimitT2TPredictor, self).initialize(src_sentence)
+        self.history_sentences = [[]]
+        self.max_sentences = 10
+        self.begin_margin = 4
+        self.end_margin = 1
+        self.max_sentences = self.begin_margin + self.end_margin
+   
+    def consume(self, word):
+        super(BosLimitT2TPredictor, self).consume(word)
+        self.history_sentences[-1].append(word)
+        if word == utils.GO_ID:
+            if len(self.history_sentences) > self.max_sentences:
+                logging.debug("Pruning document level history...")
+                pruned = self.history_sentences[:self.begin_margin] + self.history_sentences[-self.end_margin:]
+                self.consumed = [w for s in pruned for w in s] 
+            self.history_sentences.append([])
+    
+    def get_state(self):
+        return self.consumed, self.history_sentences
+    
+    def set_state(self, state):
+        self.consumed, self.history_sentences = state
+

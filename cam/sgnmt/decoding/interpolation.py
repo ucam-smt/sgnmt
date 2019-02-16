@@ -2,7 +2,7 @@
 specified via the --interpolation_strategy parameter.
 """
 
-from cam.sgnmt import utils
+from cam.sgnmt import utils, tf_utils
 import numpy as np
 import logging
 from abc import abstractmethod
@@ -27,7 +27,7 @@ class InterpolationStrategy(object):
         """Find interpolation weights for the current prediction.
 
         Args:
-            pred_weights (list): A prior predictor weights
+            pred_weights (list): A priori predictor weights
             non_zero_words (set): All words with positive probability
             posteriors: Predictor posterior distributions calculated
                         with ``predict_next()``
@@ -68,6 +68,7 @@ class MoEInterpolationStrategy(InterpolationStrategy):
               vocab_size, embed_size, activation, hidden_layer_size,
               preprocessing.
             moe_checkpoint_dir (string): Checkpoint directory
+            n_cpu_threads (int): Number of CPU threads for TensorFlow
 
         Args:
             num_experts (int): Number of predictors under the MoE model
@@ -75,15 +76,14 @@ class MoEInterpolationStrategy(InterpolationStrategy):
         """
         super(MoEInterpolationStrategy, self).__init__()
         config = dict(el.split("=", 1) for el in args.moe_config.split(";"))
-        self._single_cpu_thread = args.single_cpu_thread
-        self._checkpoint_dir = args.moe_checkpoint_dir
         self._create_hparams(num_experts, config)
         self.model = MOEModel(self.params)
         logging.info("MoE HParams: %s" % self.params)
         moe_graph = tf.Graph()
         with moe_graph.as_default() as g:
           self.model.initialize()
-          self.sess = self._create_session()
+          self.sess = tf_utils.create_session(args.moe_checkpoint_dir,
+                                              args.n_cpu_threads)
 
     def _create_hparams(self, num_experts, config):
         """Creates self.params."""
@@ -99,41 +99,6 @@ class MoEInterpolationStrategy(InterpolationStrategy):
           hidden_layer_size=int(config.get("hidden_layer_size", "64")),
           preprocessing=config.get("preprocessing", "")
         )
-
-    def _session_config(self):
-        """Creates the session config with t2t default parameters."""
-        graph_options = tf.GraphOptions(optimizer_options=tf.OptimizerOptions(
-            opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
-        if self._single_cpu_thread:
-            config = tf.ConfigProto(
-                intra_op_parallelism_threads=1,
-                inter_op_parallelism_threads=1,
-                allow_soft_placement=True,
-                graph_options=graph_options,
-                log_device_placement=False)
-        else:
-            gpu_options = tf.GPUOptions(
-                per_process_gpu_memory_fraction=0.95)
-            config = tf.ConfigProto(
-                allow_soft_placement=True,
-                graph_options=graph_options,
-                gpu_options=gpu_options,
-                log_device_placement=False)
-        return config
-
-    def _create_session(self):
-        """Creates a MonitoredSession for this predictor."""
-        try:
-            checkpoint_path = saver.latest_checkpoint(self._checkpoint_dir)
-            return training.MonitoredSession(
-                session_creator=training.ChiefSessionCreator(
-                    checkpoint_filename_with_path=checkpoint_path,
-                    config=self._session_config()))
-        except tf.errors.NotFoundError as e:
-            logging.fatal("Could not find all variables of the computation "
-                "graph in the MoE checkpoint file. This means that the "
-                "checkpoint does not correspond to the model specification.")
-            raise AttributeError("Could not initialize TF session for MoE.")
 
     def _create_score_matrix(self, posteriors, unk_probs):
         scores = np.transpose(np.tile(np.array(unk_probs, dtype=np.float32),

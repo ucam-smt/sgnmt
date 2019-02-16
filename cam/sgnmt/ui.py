@@ -144,10 +144,12 @@ def get_parser():
                         "log values l1,l2.\n\n"
                         "* 'tropical': approximate with max(l1,l2)\n"
                         "* 'log': Use logsumexp in scipy")
-    group.add_argument("--single_cpu_thread", default=False, type='bool',
-                        help="If true, try to prevent libraries like Theano "
-                        "or TensorFlow from doing internal multithreading. "
+    group.add_argument("--n_cpu_threads", default=-1, type=int,
+                        help="Set the number of CPU threads for libraries like"
+                        " Theano or TensorFlow for internal multithreading. "
                         "Also, see the OMP_NUM_THREADS environment variable.")
+    group.add_argument("--single_cpu_thread", default=False, type='bool',
+                        help="Synonym for --n_cpu_threads=1")
     
     ## Decoding options
     group = parser.add_argument_group('Decoding options')
@@ -1247,6 +1249,8 @@ def get_args():
         args.combination_scheme = "length_norm"
     if args.output_fst_unk_id:
         args.fst_unk_id = args.output_fst_unk_id 
+    if args.single_cpu_thread:
+        args.n_cpu_threads = 1
     return args
 
 

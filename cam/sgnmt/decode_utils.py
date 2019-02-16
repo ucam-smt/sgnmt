@@ -80,6 +80,7 @@ from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
 from cam.sgnmt.predictors.ngram import SRILMPredictor, KenLMPredictor
 from cam.sgnmt.predictors.tf_t2t import T2TPredictor, \
                                         EditT2TPredictor, \
+                                        BosLimitT2TPredictor, \
                                         FertilityT2TPredictor
 from cam.sgnmt.predictors.tf_nizza import NizzaPredictor, LexNizzaPredictor
 from cam.sgnmt.predictors.tokenization import Word2charPredictor, FSTTokPredictor
@@ -244,14 +245,14 @@ def add_predictors(decoder):
                                    _get_override_args("nizza_model"),
                                    _get_override_args("nizza_hparams_set"),
                                    _get_override_args("nizza_checkpoint_dir"),
-                                   single_cpu_thread=args.single_cpu_thread)
+                                   n_cpu_threads=args.n_cpu_threads)
             elif pred == "lexnizza":
                 p = LexNizzaPredictor(_get_override_args("pred_src_vocab_size"),
                                       _get_override_args("pred_trg_vocab_size"),
                                       _get_override_args("nizza_model"),
                                       _get_override_args("nizza_hparams_set"),
                                       _get_override_args("nizza_checkpoint_dir"),
-                                      single_cpu_thread=args.single_cpu_thread,
+                                      n_cpu_threads=args.n_cpu_threads,
                                       alpha=args.lexnizza_alpha,
                                       beta=args.lexnizza_beta,
                                       trg2src_model_name=
@@ -274,7 +275,19 @@ def add_predictors(decoder):
                                  args.t2t_usr_dir,
                                  _get_override_args("t2t_checkpoint_dir"),
                                  t2t_unk_id=_get_override_args("t2t_unk_id"),
-                                 single_cpu_thread=args.single_cpu_thread,
+                                 n_cpu_threads=args.n_cpu_threads,
+                                 max_terminal_id=args.syntax_max_terminal_id,
+                                 pop_id=args.syntax_pop_id)
+            elif pred == "boslimitt2t":
+                p = BosLimitT2TPredictor(_get_override_args("pred_src_vocab_size"),
+                                 _get_override_args("pred_trg_vocab_size"),
+                                 _get_override_args("t2t_model"),
+                                 _get_override_args("t2t_problem"),
+                                 _get_override_args("t2t_hparams_set"),
+                                 args.t2t_usr_dir,
+                                 _get_override_args("t2t_checkpoint_dir"),
+                                 t2t_unk_id=_get_override_args("t2t_unk_id"),
+                                 n_cpu_threads=args.n_cpu_threads,
                                  max_terminal_id=args.syntax_max_terminal_id,
                                  pop_id=args.syntax_pop_id)
             elif pred == "editt2t":
@@ -288,7 +301,7 @@ def add_predictors(decoder):
                                      args.t2t_usr_dir,
                                      _get_override_args("t2t_checkpoint_dir"),
                                      t2t_unk_id=_get_override_args("t2t_unk_id"),
-                                     single_cpu_thread=args.single_cpu_thread,
+                                     n_cpu_threads=args.n_cpu_threads,
                                      max_terminal_id=args.syntax_max_terminal_id,
                                      pop_id=args.syntax_pop_id)
             elif pred == "fertt2t":
@@ -300,7 +313,7 @@ def add_predictors(decoder):
                                  _get_override_args("t2t_hparams_set"),
                                  args.t2t_usr_dir,
                                  _get_override_args("t2t_checkpoint_dir"),
-                                 single_cpu_thread=args.single_cpu_thread,
+                                 n_cpu_threasd=args.n_cpu_threads,
                                  max_terminal_id=args.syntax_max_terminal_id,
                                  pop_id=args.syntax_pop_id)
             elif pred == "bracket":
@@ -486,9 +499,9 @@ def add_predictors(decoder):
                         p = RankPredictor(p)
                 elif wrapper == "glue":
                     if isinstance(p, UnboundedVocabularyPredictor): 
-                        p = UnboundedGluePredictor(p)
+                        p = UnboundedGluePredictor(args.max_len_factor, p)
                     else: # glue predictor for bounded predictors
-                        p = GluePredictor(p)
+                        p = GluePredictor(args.max_len_factor, p)
                 elif wrapper == "word2char":
                     map_path = _get_override_args("word2char_map")
                     # word2char always wraps unbounded predictors
