@@ -395,6 +395,7 @@ def add_predictors(decoder):
                                        args.syntax_nonterminal_ids,
                                        args.syntax_min_terminal_id,
                                        args.syntax_max_terminal_id,
+                                       args.negative_wc,
                                        _get_override_args("pred_trg_vocab_size"))
             elif pred == "ngramc":
                 p = NgramCountPredictor(_get_override_args("ngramc_path"),

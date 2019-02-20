@@ -582,7 +582,7 @@ def get_parser():
                         "             Options: rules_path, "
                         "grammar_feature_weights, use_grammar_weights\n"
                         "* 'wc': Number of words feature.\n"
-                        "        Options: wc_word.\n"
+                        "        Options: wc_word, negative_wc.\n"
                         "* 'unkc': Poisson model for number of UNKs.\n"
                         "          Options: unk_count_lambdas, "
                         "pred_src_vocab_size.\n"
@@ -941,6 +941,11 @@ def get_parser():
     group.add_argument("--wc_word", default=-1, type=int,
                        help="If negative, the wc predictor counts all "
                        "words. Otherwise, count only the specific word")
+    group.add_argument("--negative_wc", default=True, type='bool',
+                       help="If true, wc is the negative word count and thus "
+                       "makes translations shorter. Otherwise, it makes "
+                       "translations longer. Set early_stopping to False if "
+                       "negative_wc=False and wc has a positive weight")
     group.add_argument("--wc_nonterminal_penalty", default=False, 
                        action='store_true', help="if true, "
                        "use syntax_[max|min]_terminal_id to apply penalty to "

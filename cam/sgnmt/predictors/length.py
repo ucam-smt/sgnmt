@@ -245,6 +245,7 @@ class WordCountPredictor(Predictor):
                  nonterminal_ids=None,
                  min_terminal_id=0,
                  max_terminal_id=30003,
+                 negative_wc=True,
                  vocab_size=30003):
         """Creates a new word count predictor instance.
         
@@ -252,17 +253,23 @@ class WordCountPredictor(Predictor):
             word (int): If this is non-negative we count only the
                         number of the specified word. If its
                         negative, count all words
-            nonterminal_penalty (bool): If true, apply penalty only to tokens in a range 
-                                        (the range *outside* min/max terminal id)
+            nonterminal_penalty (bool): If true, apply penalty only to 
+                        tokens in a range  (the range *outside* 
+                        min/max terminal id)
             nonterminal_ids: file containing ids of nonterminal tokens
             min_terminal_id: lower bound of tokens *not* to penalize,
                               if nonterminal_penalty selected
             max_terminal_id: upper bound of tokens *not* to penalize,
                              if nonterminal_penalty selected
+            negative_wc: If true, the score of this predictor is the 
+                         negative word count.
             vocab_size: upper bound of tokens, used to find nonterminal range
 
         """
         super(WordCountPredictor, self).__init__()
+        val = 1.0
+        if negative_wc:
+          val = -1.0
         if nonterminal_penalty:
             if nonterminal_ids:
                 nts = load_external_ids(nonterminal_ids)
@@ -270,33 +277,29 @@ class WordCountPredictor(Predictor):
                 min_nt_range = range(0, min_terminal_id)
                 max_nt_range = range(max_terminal_id + 1, vocab_size)
                 nts = min_nt_range + max_nt_range
-            self.posterior = {nt: -1.0 for nt in nts}
+            self.posterior = {nt: val for nt in nts}
             self.posterior[utils.EOS_ID] = 0.0
             self.posterior[utils.UNK_ID] = 0.0
             self.unk_prob = 0.0
         elif word < 0:
             self.posterior = {utils.EOS_ID : 0.0}
-            #self.unk_prob = -1.0
-            self.unk_prob = 1.0
+            self.unk_prob = val
         else:
-            self.posterior = {word : -1.0}
+            self.posterior = {word : val}
             self.unk_prob = 0.0 
         
     def get_unk_probability(self, posterior):
         return self.unk_prob
     
     def predict_next(self):
-        """Set score for EOS to the number of consumed words """
         return self.posterior
     
     def initialize(self, src_sentence):
-        """Empty
-        """
+        """Empty"""
         pass
     
     def consume(self, word):
-        """Empty
-        """
+        """Empty"""
         pass
     
     def get_state(self):
@@ -304,7 +307,7 @@ class WordCountPredictor(Predictor):
         return True
     
     def set_state(self, state):
-        """Empty """
+        """Empty"""
         pass
 
     def is_equal(self, state1, state2):
