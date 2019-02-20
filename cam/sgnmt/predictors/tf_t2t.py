@@ -714,36 +714,162 @@ class FertilityT2TPredictor(T2TPredictor):
         return utils.common_get(self.other_scores, self.n_aligned_words, 0.0)
 
 
-class BosLimitT2TPredictor(T2TPredictor):
-    """This predictor prunes history when it exceeds a maximum number
-    of <s> symbols. This can be used to reduce complexity for document-
-    level models on very long documents. When the maximum number is
-    reached, we start removing sentences from ``self.consumed``,
-    starting with the sentences in the middle which are furthest away
-    from both the document start and the current sentence.
+class SegT2TPredictor(_BaseTensor2TensorPredictor):
+    """This predictor is designed for document-level T2T models. It 
+    differs from the normal t2t predictor in the following ways:
+
+    - In addition to `input` and `targets`, it generates the features
+      `inputs_seg`. `targets_seg`, `inputs_pos`, `targets_pos` which
+      are used in glue models and the contextual Transformer.
+    - The history is pruned when it exceeds a maximum number of <s> 
+      symbols. This can be used to reduce complexity for document-level
+      models on very long documents. When the maximum number is reached,
+      we start removing sentences from ``self.consumed``, starting with
+      the sentence which is `begin_margin` away from the document start
+      and `end_margin` sentences away from the current sentence.
     """
 
-    def initialize(self, src_sentence):
-        super(BosLimitT2TPredictor, self).initialize(src_sentence)
-        self.history_sentences = [[]]
-        self.max_sentences = 10
+    def __init__(self,
+                 src_vocab_size,
+                 trg_vocab_size,
+                 model_name,
+                 problem_name,
+                 hparams_set_name,
+                 t2t_usr_dir,
+                 checkpoint_dir,
+                 t2t_unk_id=None,
+                 n_cpu_threads=-1,
+                 max_terminal_id=-1,
+                 pop_id=-1):
+        """Creates a new document-level T2T predictor. See
+        T2TPredictor.__init__().
+        
+        Args:
+            src_vocab_size (int): Source vocabulary size.
+            trg_vocab_size (int): Target vocabulary size.
+            model_name (string): T2T model name.
+            problem_name (string): T2T problem name.
+            hparams_set_name (string): T2T hparams set name.
+            t2t_usr_dir (string): See --t2t_usr_dir in tensor2tensor.
+            checkpoint_dir (string): Path to the T2T checkpoint 
+                                     directory. The predictor will load
+                                     the top most checkpoint in the 
+                                     `checkpoints` file.
+            t2t_unk_id (int): If set, use this ID to get UNK scores. If
+                              None, UNK is always scored with -inf.
+            n_cpu_threads (int): Number of TensorFlow CPU threads.
+            max_terminal_id (int): If positive, maximum terminal ID. Needs to
+                be set for syntax-based T2T models.
+            pop_id (int): If positive, ID of the POP or closing bracket symbol.
+                Needs to be set for syntax-based T2T models.
+        """
+        super(SegT2TPredictor, self).__init__(t2t_usr_dir, 
+                                             checkpoint_dir, 
+                                             src_vocab_size,
+                                             trg_vocab_size,
+                                             t2t_unk_id, 
+                                             n_cpu_threads,
+                                             max_terminal_id,
+                                             pop_id)
+        if not model_name or not problem_name or not hparams_set_name:
+            logging.fatal(
+                "Please specify t2t_model, t2t_problem, and t2t_hparams_set!")
+            raise AttributeError
         self.begin_margin = 4
         self.end_margin = 1
         self.max_sentences = self.begin_margin + self.end_margin
+        self.max_sentences = 10000
+        predictor_graph = tf.Graph()
+        with predictor_graph.as_default() as g:
+            hparams = trainer_lib.create_hparams(hparams_set_name)
+            self._add_problem_hparams(hparams, problem_name)
+            translate_model = registry.model(model_name)(
+                hparams, tf.estimator.ModeKeys.PREDICT)
+            self._inputs_var = tf.placeholder(dtype=tf.int32, shape=[None],
+                                              name="sgnmt_inputs")
+            self._targets_var = tf.placeholder(dtype=tf.int32, shape=[None], 
+                                               name="sgnmt_targets")
+            self._inputs_seg_var = tf.placeholder(dtype=tf.int32, shape=[None],
+                                                  name="sgnmt_inputs_seg")
+            self._targets_seg_var = tf.placeholder(dtype=tf.int32, shape=[None], 
+                                                   name="sgnmt_targets_seg")
+            self._inputs_pos_var = tf.placeholder(dtype=tf.int32, shape=[None],
+                                                  name="sgnmt_inputs_pos")
+            self._targets_pos_var = tf.placeholder(dtype=tf.int32, shape=[None],
+                                                   name="sgnmt_targets_pos")
+            features = {
+                "inputs": expand_input_dims_for_t2t(self._inputs_var), 
+                "targets": expand_input_dims_for_t2t(self._targets_var),
+                "inputs_seg": tf.expand_dims(self._inputs_seg_var, 0),
+                "targets_seg": tf.expand_dims(self._targets_seg_var, 0),
+                "inputs_pos": tf.expand_dims(self._inputs_pos_var, 0), 
+                "targets_pos": tf.expand_dims(self._targets_pos_var, 0)
+            }
+            translate_model.prepare_features_for_infer(features)
+            translate_model._fill_problem_hparams_features(features)
+            logits, _ = translate_model(features)
+            logits = tf.squeeze(logits, [0, 1, 2, 3])
+            self._log_probs = log_prob_from_logits(logits)
+            self.mon_sess = self.create_session()
+
+    def initialize(self, src_sentence):
+        self.consumed = []
+        self.src_sentence = utils.oov_to_unk(
+            src_sentence + [text_encoder.EOS_ID], 
+            self.src_vocab_size, self._t2t_unk_id)
+        self.src_seg, self.src_pos = self._gen_seg_and_pos(self.src_sentence)
+        self.history_sentences = [[]]
+
+    def _gen_seg_and_pos(self, glued, trg=False):
+        seg = []
+        pos = []
+        cur_seg = 1
+        cur_pos = 0
+        for w in glued:
+            seg.append(cur_seg)
+            pos.append(cur_pos)
+            if w == utils.GO_ID:
+                cur_seg += 1
+                cur_pos = 0
+            else:
+                cur_pos += 1
+        if trg:
+            seg.append(cur_seg)
+            pos.append(cur_pos)
+        return seg, pos
    
     def consume(self, word):
-        super(BosLimitT2TPredictor, self).consume(word)
-        self.history_sentences[-1].append(word)
+        self.history_sentences[-1].append(
+            word if word < self.trg_vocab_size else self._t2t_unk_id)
         if word == utils.GO_ID:
             if len(self.history_sentences) > self.max_sentences:
                 logging.debug("Pruning document level history...")
-                pruned = self.history_sentences[:self.begin_margin] + self.history_sentences[-self.end_margin:]
-                self.consumed = [w for s in pruned for w in s] 
+                self.history_sentences = (
+                    self.history_sentences[:self.begin_margin] 
+                    + self.history_sentences[-self.end_margin:])
             self.history_sentences.append([])
     
     def get_state(self):
-        return self.consumed, self.history_sentences
+        return self.history_sentences
     
     def set_state(self, state):
-        self.consumed, self.history_sentences = state
+        self.history_sentences = state
+
+    def predict_next(self):
+        """Call the T2T model in self.mon_sess."""
+        consumed = [w for s in self.history_sentences for w in s]
+        trg_seg, trg_pos = self._gen_seg_and_pos(consumed, trg=True)
+        log_probs = self.mon_sess.run(self._log_probs,
+            {self._inputs_var: self.src_sentence,
+             self._inputs_seg_var: self.src_seg,
+             self._inputs_pos_var: self.src_pos,
+             self._targets_var: consumed + [text_encoder.PAD_ID],
+             self._targets_seg_var: trg_seg,
+             self._targets_pos_var: trg_pos})
+        log_probs[text_encoder.PAD_ID] = utils.NEG_INF
+        return log_probs
+    
+    def is_equal(self, state1, state2):
+        """Returns true if the (pruned) history is the same """
+        return state1 == state2
 

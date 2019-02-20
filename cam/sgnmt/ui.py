@@ -92,7 +92,7 @@ def get_parser():
     group.add_argument("--verbosity", default="info",
                         choices=['debug', 'info', 'warn', 'error'],
                         help="Log level: debug,info,warn,error")
-    group.add_argument("--min_score", default=-1000000.0, type=float,
+    group.add_argument("--min_score", default=float("-inf"), type=float,
                         help="Delete all complete hypotheses with total scores"
                         " smaller than this value")
     group.add_argument("--range", default="",
@@ -512,6 +512,10 @@ def get_parser():
                         "         Options: t2t_usr_dir, t2t_model, "
                         "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
                         "pred_src_vocab_size, pred_trg_vocab_size\n"
+                        "* 'segt2t': Segmentation-based T2T predictor.\n"
+                        "         Options: t2t_usr_dir, t2t_model, "
+                        "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
+                        "pred_src_vocab_size, pred_trg_vocab_size\n"
                         "* 'fertt2t': T2T predictor for fertility models.\n"
                         "       Options: syntax_pop_id, t2t_usr_dir, t2t_model,"
                         " t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
@@ -599,6 +603,10 @@ def get_parser():
                         "* 'maskvocab': Hides certain words in the SGNMT vocab"
                         "ulary from the masked predictor.\n"
                         "            Options: maskvocab_words\n"
+                        "* 'rank': Uses the rank of a word in the score list "
+                        "of the wrapped predictor, not the score itself.\n"
+                        "* 'glue': Masks a sentence-level predictor when SGNMT"
+                        "is running on the document-level.\n"
                         "* 'altsrc': This wrapper loads source sentences from "
                         "an alternative source.\n"
                         "            Options: altsrc_test\n"

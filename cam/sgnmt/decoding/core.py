@@ -518,7 +518,10 @@ class Decoder(Observable):
         """
         if self.interpolation_strategies:
             predictions = [[] for _ in pred_weights]
+            not_fixed_indices = set()
             for strat, pred_indices in self.interpolation_strategies:
+                if not strat.is_fixed():
+                  not_fixed_indices |= set(pred_indices)
                 new_pred_weights = strat.find_weights(
                         [pred_weights[idx] for idx in pred_indices],
                         non_zero_words,
@@ -535,13 +538,13 @@ class Decoder(Observable):
                     if self.interpolation_mean == 'geo':
                         pred_weights[idx] = pred_weights[idx]**(1.0/len(preds))
             if self.interpolation_mean == 'prob':
-                partition = sum(pred_weights)
-                for idx in xrange(len(pred_weights)):
+                partition = sum(pred_weights[idx] for idx in not_fixed_indices)
+                for idx in not_fixed_indices:
                     pred_weights[idx] /= partition
             if self.interpolation_smoothing != 0.0:
-                uni = 1.0 / len(pred_weights)
+                uni = 1.0 / len(not_fixed_indices)
                 s = self.interpolation_smoothing
-                for idx in xrange(len(pred_weights)):
+                for idx in not_fixed_indices:
                     pred_weights[idx] = (1.0 - s) * pred_weights[idx] + s * uni
         return pred_weights
     

@@ -80,7 +80,7 @@ from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
 from cam.sgnmt.predictors.ngram import SRILMPredictor, KenLMPredictor
 from cam.sgnmt.predictors.tf_t2t import T2TPredictor, \
                                         EditT2TPredictor, \
-                                        BosLimitT2TPredictor, \
+                                        SegT2TPredictor, \
                                         FertilityT2TPredictor
 from cam.sgnmt.predictors.tf_nizza import NizzaPredictor, LexNizzaPredictor
 from cam.sgnmt.predictors.tokenization import Word2charPredictor, FSTTokPredictor
@@ -226,6 +226,7 @@ def add_predictors(decoder):
 
             # Create predictor instances for the string argument ``pred``
             if pred == "nmt":
+                # TODO: Clean this up and make a blocks and tfnmt predictor
                 nmt_engine = _get_override_args("nmt_engine")
                 if nmt_engine == 'blocks':
                     nmt_config = _parse_config_param(
@@ -278,18 +279,18 @@ def add_predictors(decoder):
                                  n_cpu_threads=args.n_cpu_threads,
                                  max_terminal_id=args.syntax_max_terminal_id,
                                  pop_id=args.syntax_pop_id)
-            elif pred == "boslimitt2t":
-                p = BosLimitT2TPredictor(_get_override_args("pred_src_vocab_size"),
-                                 _get_override_args("pred_trg_vocab_size"),
-                                 _get_override_args("t2t_model"),
-                                 _get_override_args("t2t_problem"),
-                                 _get_override_args("t2t_hparams_set"),
-                                 args.t2t_usr_dir,
-                                 _get_override_args("t2t_checkpoint_dir"),
-                                 t2t_unk_id=_get_override_args("t2t_unk_id"),
-                                 n_cpu_threads=args.n_cpu_threads,
-                                 max_terminal_id=args.syntax_max_terminal_id,
-                                 pop_id=args.syntax_pop_id)
+            elif pred == "segt2t":
+                p = SegT2TPredictor(_get_override_args("pred_src_vocab_size"),
+                                    _get_override_args("pred_trg_vocab_size"),
+                                    _get_override_args("t2t_model"),
+                                    _get_override_args("t2t_problem"),
+                                    _get_override_args("t2t_hparams_set"),
+                                    args.t2t_usr_dir,
+                                    _get_override_args("t2t_checkpoint_dir"),
+                                    t2t_unk_id=_get_override_args("t2t_unk_id"),
+                                    n_cpu_threads=args.n_cpu_threads,
+                                    max_terminal_id=args.syntax_max_terminal_id,
+                                    pop_id=args.syntax_pop_id)
             elif pred == "editt2t":
                 p = EditT2TPredictor(_get_override_args("pred_src_vocab_size"),
                                      _get_override_args("pred_trg_vocab_size"),

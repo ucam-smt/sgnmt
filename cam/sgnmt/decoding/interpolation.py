@@ -42,6 +42,9 @@ class InterpolationStrategy(object):
         """
         raise NotImplementedError
 
+    def is_fixed(self):
+        return False
+
 
 class FixedInterpolationStrategy(InterpolationStrategy):
     """Null-object (GoF design pattern) implementation."""
@@ -49,6 +52,9 @@ class FixedInterpolationStrategy(InterpolationStrategy):
     def find_weights(self, pred_weights, non_zero_words, posteriors, unk_probs):
         """Returns ``pred_weights``."""
         return pred_weights
+
+    def is_fixed(self):
+        return True
 
 
 class MoEInterpolationStrategy(InterpolationStrategy):
