@@ -31,7 +31,7 @@ from cam.sgnmt.decoding.bow import BOWDecoder
 from cam.sgnmt.decoding.bucket import BucketDecoder
 from cam.sgnmt.decoding.core import UnboundedVocabularyPredictor
 from cam.sgnmt.decoding.core import Hypothesis
-from cam.sgnmt.decoding.dfs import DFSDecoder
+from cam.sgnmt.decoding.dfs import DFSDecoder, SimpleDFSDecoder
 from cam.sgnmt.decoding.flip import FlipDecoder
 from cam.sgnmt.decoding.greedy import GreedyDecoder
 from cam.sgnmt.decoding.heuristics import GreedyHeuristic, \
@@ -45,6 +45,8 @@ from cam.sgnmt.decoding.sepbeam import SepBeamDecoder
 from cam.sgnmt.decoding.syntaxbeam import SyntaxBeamDecoder
 from cam.sgnmt.decoding.mbrbeam import MBRBeamDecoder
 from cam.sgnmt.decoding.syncbeam import SyncBeamDecoder
+from cam.sgnmt.decoding.fstbeam import FSTBeamDecoder
+from cam.sgnmt.decoding.predlimitbeam import PredLimitBeamDecoder
 from cam.sgnmt.decoding.combibeam import CombiBeamDecoder
 from cam.sgnmt.output import TextOutputHandler, \
                              NBestOutputHandler, \
@@ -592,6 +594,10 @@ def create_decoder():
                                           args.max_word_len)
         elif args.decoder == "syncbeam":
             decoder = SyncBeamDecoder(args)
+        elif args.decoder == "fstbeam":
+            decoder = FSTBeamDecoder(args)
+        elif args.decoder == "predlimitbeam":
+            decoder = PredLimitBeamDecoder(args)
         elif args.decoder == "mbrbeam":
             decoder = MBRBeamDecoder(args)
         elif args.decoder == "sepbeam":
@@ -602,6 +608,8 @@ def create_decoder():
             decoder = CombiBeamDecoder(args)
         elif args.decoder == "dfs":
             decoder = DFSDecoder(args)
+        elif args.decoder == "simpledfs":
+            decoder = SimpleDFSDecoder(args)
         elif args.decoder == "restarting":
             decoder = RestartingDecoder(args,
                                         args.hypo_recombination,

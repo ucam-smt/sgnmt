@@ -768,7 +768,8 @@ class Decoder(Observable):
           if isinstance(posterior, dict):
               arr = np.full(non_zero_word_count, unk_prob)
               for word, score in posterior.iteritems():
-                  arr[word] = score
+                  if word < non_zero_word_count:
+                      arr[word] = score
               scaled_posteriors.append(arr * weight)
           else:
               n_unks = non_zero_word_count - len(posterior)

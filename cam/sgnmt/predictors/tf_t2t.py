@@ -775,10 +775,12 @@ class SegT2TPredictor(_BaseTensor2TensorPredictor):
             logging.fatal(
                 "Please specify t2t_model, t2t_problem, and t2t_hparams_set!")
             raise AttributeError
-        self.begin_margin = 4
-        self.end_margin = 1
+        self.begin_margin = 3
+        self.end_margin = 3
         self.max_sentences = self.begin_margin + self.end_margin
-        self.max_sentences = 10000
+        self.max_sentences = 10000  # TODO: Make configurable. Default disabled
+        #self.max_sentences = 20
+        #self.max_sentences = 25
         predictor_graph = tf.Graph()
         with predictor_graph.as_default() as g:
             hparams = trainer_lib.create_hparams(hparams_set_name)
@@ -842,7 +844,7 @@ class SegT2TPredictor(_BaseTensor2TensorPredictor):
         self.history_sentences[-1].append(
             word if word < self.trg_vocab_size else self._t2t_unk_id)
         if word == utils.GO_ID:
-            if len(self.history_sentences) > self.max_sentences:
+            if False and len(self.history_sentences) > self.max_sentences:
                 logging.debug("Pruning document level history...")
                 self.history_sentences = (
                     self.history_sentences[:self.begin_margin] 
@@ -857,6 +859,8 @@ class SegT2TPredictor(_BaseTensor2TensorPredictor):
 
     def predict_next(self):
         """Call the T2T model in self.mon_sess."""
+        if len(self.history_sentences) > self.max_sentences:
+            return {}
         consumed = [w for s in self.history_sentences for w in s]
         trg_seg, trg_pos = self._gen_seg_and_pos(consumed, trg=True)
         log_probs = self.mon_sess.run(self._log_probs,
@@ -873,3 +877,8 @@ class SegT2TPredictor(_BaseTensor2TensorPredictor):
         """Returns true if the (pruned) history is the same """
         return state1 == state2
 
+    def get_unk_probability(self, posterior):
+        """Fetch posterior[t2t_unk_id]"""
+        if len(self.history_sentences) > self.max_sentences:
+            return 0.0
+        return utils.common_get(posterior, self._t2t_unk_id, utils.NEG_INF)

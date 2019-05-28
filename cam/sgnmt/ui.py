@@ -158,11 +158,14 @@ def get_parser():
                                  'beam',
                                  'multisegbeam',
                                  'syncbeam',
+                                 'fstbeam',
+                                 'predlimitbeam',
                                  'sepbeam',
                                  'mbrbeam',
                                  'syntaxbeam',
                                  'combibeam',
                                  'dfs',
+                                 'simpledfs',
                                  'restarting',
                                  'bow',
                                  'flip',
@@ -181,6 +184,10 @@ def get_parser():
                         "it performs exhaustive search. If you have not only "
                         "negative predictor scores, set --early_stopping to "
                         "false.\n"
+                        "* 'simpledfs': Depth-first search which works with "
+                        "only one predictor. Good for exhaustive search in "
+                        "combination with --score_lower_bounds_file from a "
+                        "previous (beam) run.\n"
                         "* 'restarting': Like DFS but with better admissible "
                         "pruning behavior.\n"
                         "* 'multisegbeam': Beam search for predictors with "
@@ -197,6 +204,8 @@ def get_parser():
                         "of all for hypo expansion.\n"
                         "* 'combibeam': Applies combination_scheme at each "
                         "time step.\n"
+                        "* 'fstbeam': Beam search optimized for FST "
+                        "constrained search problems.\n"
                         "* 'bow': Restarting decoder optimized for bag-of-words "
                         "problems.\n"
                         "* 'flip': This decoder works only for bag problems. "
@@ -434,6 +443,11 @@ def get_parser():
                         "'maxent': Maximum entropy criterion on n-gram probs.\n"
                         "'renorm': Only use renormalized scores of the hypos "
                         "which are currently in the beam.")
+    group.add_argument("--pred_limits", default="",
+                        help="If predlimitbeam decoder is used, comma-separated"
+                        " list of maximum accumulated values for each predictor"
+                        " at each node expansion. Use '-inf' or 'neg_inf' to "
+                        "not restrict a specific predictor.")
 
     ## Output options
     group = parser.add_argument_group('Output options')

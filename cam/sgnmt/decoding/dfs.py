@@ -3,6 +3,7 @@
 import copy
 import logging
 import operator
+import math
 
 from cam.sgnmt import utils
 from cam.sgnmt.decoding.core import Decoder, PartialHypothesis
@@ -110,6 +111,102 @@ class DFSDecoder(Decoder):
         self.initialize_predictors(src_sentence)
         self.max_expansions = self.get_max_expansions(self.max_expansions_param,
                                                       src_sentence) 
+        self.best_score = self.get_lower_score_bound()
+        self._dfs(PartialHypothesis())
+        return self.get_full_hypos_sorted()
+
+
+class SimpleDFSDecoder(Decoder):
+    """This is a stripped down version of the DFS decoder which is
+    designed to explore the entire search space. SimpleDFS is
+    intended to be used with a `score_lower_bounds_file` from a
+    previous beam search run which already contains good lower
+    bounds. SimpleDFS verifies whether the lower bound is actually
+    the global best score.
+
+    SimpleDFS can only be used with a single predictor.
+
+    SimpleDFS does not support max_expansions or max_len_factor.
+    early_stopping cannot be disabled.
+    """
+    
+    def __init__(self, decoder_args):
+        """Creates new SimpleDFS decoder instance. 
+
+        Args:
+            decoder_args (object): Decoder configuration passed through
+                                   from the configuration API.
+        """
+        super(SimpleDFSDecoder, self).__init__(decoder_args)
+        #self._min_length_ratio = 0.25  # TODO: Make configurable
+        self._min_length_ratio = -0.1
+        self._min_length = -100
+    
+    def _dfs(self, partial_hypo):
+        """Recursive function for doing dfs. Note that we do not keep
+        track of the predictor states inside ``partial_hypo``, because 
+        at each call of ``_dfs`` the current predictor states are equal
+        to the hypo predictor states.
+        ATTENTION: Early stopping plus DFS produces wrong results if 
+        you have positive scores!
+        
+        Args:
+            partial_hypo (PartialHypothesis): Partial hypothesis 
+                                              generated so far. 
+        """
+        if partial_hypo.get_last_word() == utils.EOS_ID:
+            if len(partial_hypo.trgt_sentence) >= self._min_length:
+                self.add_full_hypo(partial_hypo.generate_full_hypothesis())
+                if partial_hypo.score > self.best_score:
+                    self.best_score = partial_hypo.score
+                    logging.info("New best: score: %f exp: %d sentence: %s" %
+                          (self.best_score,
+                           self.apply_predictors_count,
+                           partial_hypo.trgt_sentence))
+            return
+
+        self.apply_predictors_count += 1
+        posterior = self.dfs_predictor.predict_next()
+        logging.debug("Expand: best_score: %f exp: %d partial_score: "
+                      "%f sentence: %s" %
+                      (self.best_score,
+                       self.apply_predictors_count,
+                       partial_hypo.score,
+                       partial_hypo.trgt_sentence))
+        first_expansion = True
+        for trgt_word, score in utils.common_iterable(posterior):
+            if partial_hypo.score + score > self.best_score:
+                if first_expansion:
+                    pred_states = copy.deepcopy(self.get_predictor_states())
+                    first_expansion = False
+                else:
+                    self.set_predictor_states(copy.deepcopy(pred_states))
+                self.consume(trgt_word)
+                self._dfs(partial_hypo.expand(trgt_word,
+                                              None, # Do not store states
+                                              score,
+                                              [(score, 1.0)]))
+    
+    def decode(self, src_sentence):
+        """Decodes a single source sentence exhaustively using depth 
+        first search.
+        
+        Args:
+            src_sentence (list): List of source word ids without <S> or
+                                 </S> which make up the source sentence
+        
+        Returns:
+            list. A list of ``Hypothesis`` instances ordered by their
+            score. If ``max_expansions`` equals 0, the first element
+            holds the global best scoring hypothesis
+        """
+        if len(self.predictors) != 1:
+            logging.fatal("SimpleDFS only works with a single predictor!")
+        self.dfs_predictor = self.predictors[0][0]
+        if self._min_length_ratio > 0.0:
+            self._min_length = int(math.ceil(
+              self._min_length_ratio * len(src_sentence))) + 1
+        self.initialize_predictors(src_sentence)
         self.best_score = self.get_lower_score_bound()
         self._dfs(PartialHypothesis())
         return self.get_full_hypos_sorted()
