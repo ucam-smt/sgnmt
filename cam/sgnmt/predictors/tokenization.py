@@ -270,7 +270,7 @@ class FSTTokPredictor(Predictor):
             n = state.fst_node
             uniq_states[n] = self._choose_better(uniq_states.get(n, None),
                                                  state)
-        self.states = list(uniq_states.itervalues())
+        self.states = list(uniq_states.values())
     
     def get_state(self):
         return self.states, self.last_prediction

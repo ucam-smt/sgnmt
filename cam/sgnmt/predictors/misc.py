@@ -8,6 +8,7 @@ import numpy as np
 import logging
 
 from cam.sgnmt.predictors.core import Predictor, UnboundedVocabularyPredictor
+from cam.sgnmt import io
 from cam.sgnmt import utils
 
 
@@ -33,8 +34,7 @@ class AltsrcPredictor(Predictor):
         self.slave_predictor = slave_predictor
         self.altsens = []
         with open(src_test) as f:
-            for line in f:
-                self.altsens.append([int(x) for x in line.strip().split()])
+            self.altsens = [io.encode(line.strip()) for line in f]
     
     def _get_current_sentence(self):
         return self.altsens[self.current_sen_id]

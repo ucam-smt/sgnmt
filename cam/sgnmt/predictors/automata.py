@@ -24,7 +24,14 @@ import sys
 from cam.sgnmt import utils
 from cam.sgnmt.predictors.core import Predictor
 from cam.sgnmt.utils import w2f, load_fst
-import pywrapfst as fst
+
+try:
+    import pywrapfst as fst
+except ImportError:
+    try:
+        import openfst_python as fst
+    except ImportError:
+        pass # Deal with it in decode.py
 
 
 EPS_ID = 0
@@ -290,11 +297,11 @@ class NondeterministicFstPredictor(Predictor):
                     if d_unconsumed.get(next_node, utils.NEG_INF) < next_score:
                         d_unconsumed[next_node] = next_score
         # Subtract the word score from the last predict_next 
-        consumed_score = self.score_max_func(d_unconsumed.itervalues()) \
+        consumed_score = self.score_max_func(d_unconsumed.values()) \
              if (word != utils.GO_ID or self.skip_bos_weight) else 0.0
         # Add epsilon reachable states
         self.cur_nodes = self._follow_eps({node: score - consumed_score
-                    for node,score in d_unconsumed.iteritems()})
+                    for node,score in d_unconsumed.items()})
     
     def _follow_eps(self, roots):
         """BFS to find nodes reachable from root through eps arcs. This
@@ -310,7 +317,7 @@ class NondeterministicFstPredictor(Predictor):
         visited = dict(roots)
         while open_nodes:
             next_open = {}
-            for node,score in open_nodes.iteritems():
+            for node,score in open_nodes.items():
                 has_noneps = False
                 for arc in self.cur_fst.arcs(node):
                     if arc.olabel == EPS_ID:
@@ -324,7 +331,7 @@ class NondeterministicFstPredictor(Predictor):
                 if has_noneps:
                     d[node] = score
             open_nodes = next_open
-        return [(weight, node) for node, weight in d.iteritems()]
+        return [(weight, node) for node, weight in d.items()]
         
     def get_state(self):
         """Returns the set of current nodes """
@@ -487,7 +494,7 @@ class RtnPredictor(Predictor):
                 replaced_fst = fst.replace(
                         [(len(label_fst_map) + 2000000000, self.cur_fst)] 
                         + [(nt_label, f) 
-                            for (nt_label, f) in label_fst_map.iteritems()],
+                            for (nt_label, f) in label_fst_map.items()],
                         epsilon_on_replace=True)
                 self.cur_fst = replaced_fst
                 updated = True

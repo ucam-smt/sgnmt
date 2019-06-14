@@ -26,10 +26,10 @@ def sparse_euclidean2(v1, v2):
         float. Squared distance between ``v1`` and ``v2``.
     """
     d = 0.0
-    for i,v in v1.iteritems():
+    for i,v in v1.items():
         v = v - v2.get(i, 0.0)
         d = d + v*v
-    d = d + sum([v*v for i,v in v2.iteritems() if not i in v1])
+    d = d + sum([v*v for i,v in v2.items() if not i in v1])
     return d
 
 

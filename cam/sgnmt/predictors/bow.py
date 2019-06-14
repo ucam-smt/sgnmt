@@ -118,7 +118,7 @@ class BagOfWordsPredictor(Predictor):
         """
         if not self.bag: # Empty bag
             return {utils.EOS_ID : 0.0}
-        ret = {w : 0.0 for w in self.bag.iterkeys()}
+        ret = {w : 0.0 for w in self.bag}
         if self.accept_subsets:
             ret[utils.EOS_ID] = 0.0
         return ret
@@ -186,7 +186,7 @@ class BagOfWordsPredictor(Predictor):
         ``self.explored_bags``
         """
         sen = hypo.trgt_sentence
-        for l in xrange(len(sen)):
+        for l in range(len(sen)):
             key = sen[:l]
             key.sort()
             cnt = self.explored_bags.get(key)
@@ -206,7 +206,7 @@ class BagOfWordsPredictor(Predictor):
             for w in hypo.trgt_sentence:
                 remaining[w] -= 1
             acc -= sum([cnt*self.estimates.estimate(w) 
-                            for w,cnt in remaining.iteritems()])
+                            for w,cnt in remaining.items()])
         if self.diverse_heuristic:
             key = list(hypo.trgt_sentence)
             key.sort()
@@ -222,7 +222,7 @@ class BagOfWordsPredictor(Predictor):
         if self.equivalence_vocab <= 0:
             return org_bag
         unk_bag = {}
-        for word,cnt in org_bag.iteritems():
+        for word,cnt in org_bag.items():
             idx = word if word < self.equivalence_vocab else utils.UNK_ID
             unk_bag[idx] = unk_bag.get(idx, 0) + cnt
         return unk_bag
@@ -317,7 +317,7 @@ class BagOfWordsSearchPredictor(BagOfWordsPredictor):
             return super(BagOfWordsSearchPredictor, self).predict_next()
         if not self.bag: # Empty bag
             return {utils.EOS_ID : 0.0}
-        ret = {w : 0.0 for w in self.missing.iterkeys()}
+        ret = {w : 0.0 for w in self.missing}
         if self.accept_subsets:
             ret[utils.EOS_ID] = 0.0
         if self.skeleton_pos < len(self.skeleton):
@@ -373,7 +373,7 @@ class BagOfWordsSearchPredictor(BagOfWordsPredictor):
                 missing[word] -= 1
                 skeleton_no_duplicates.append(word)
         self.skeleton = skeleton_no_duplicates
-        self.missing = {w: cnt for w, cnt in missing.iteritems() if cnt > 0}
+        self.missing = {w: cnt for w, cnt in missing.items() if cnt > 0}
         
     def consume(self, word):
         """Calls super class ``consume``. If not in ``pre_mode``,

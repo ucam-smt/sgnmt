@@ -34,9 +34,6 @@ class PredLimitBeamDecoder(BeamDecoder):
         all_hypos = super(PredLimitBeamDecoder, self)._expand_hypo(hypo)
         next_hypos = []
         all_accs = [0.0] * n_preds
-        #for past_breakdown in hypo.score_breakdown:
-        #    for i in xrange(n_preds):
-        #        all_accs[i] += past_breakdown[i][0]
         for hypo in sorted(all_hypos, key=lambda h: -h.score):
             valid = True
             for limit, acc, breakdown in zip(self.pred_limits,
@@ -46,7 +43,7 @@ class PredLimitBeamDecoder(BeamDecoder):
                     valid = False
                     break
             if valid:
-                for i in xrange(n_preds):
+                for i in range(n_preds):
                     all_accs[i] += hypo.score_breakdown[-1][i][0]
                 next_hypos.append(hypo)
         return next_hypos

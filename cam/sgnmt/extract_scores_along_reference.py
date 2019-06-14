@@ -13,7 +13,6 @@ The script supports most of the command-line arguments of
 - src_test2 (usr altest predictor wrapper for multiple input
   streams)
 - outputs (only posteriors,json is produced)
-- trg/src_cmap/wmap: Use indexed data only
 """
 
 import logging
@@ -94,7 +93,7 @@ def load_sentences(path, name="source"):
     else:
         try:
             with open(path) as f:
-                return [map(int, line.strip().split()) for line in f]
+                return [list(map(int, line.strip().split())) for line in f]
         except ValueError:
             logging.fatal("Non-numeric characters in %s sentence file %s"
                           % (name, path))
@@ -117,7 +116,7 @@ def to_json(o, level=0):
         if level < 2:
             ret += "{" + NEWLINE
             comma = ""
-            for k,v in sorted(o.iteritems()):
+            for k,v in sorted(o.items()):
                 ret += comma
                 comma = ",\n"
                 ret += SPACE * INDENT * (level+1)
@@ -126,7 +125,7 @@ def to_json(o, level=0):
             ret += NEWLINE + SPACE * INDENT * level + "}"
         else:
             ret += "{" + ", ".join(['"%s": %s' % (str(k), to_json(v, level+1)) 
-                   for k,v in sorted(o.iteritems())
+                   for k,v in sorted(o.items())
                ]) + "}"
     elif isinstance(o, basestring):
         ret += '"' + o + '"'

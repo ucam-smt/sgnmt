@@ -16,7 +16,7 @@ def is_sublist(needle, haystack):
     """
     ln = len(needle)
     lh = len(haystack)
-    for pos in xrange(lh - ln + 1):
+    for pos in range(lh - ln + 1):
         if needle == haystack[pos:pos+ln]:
             return True
     return False
@@ -121,7 +121,7 @@ class MBRBeamDecoder(BeamDecoder):
                 continue
             # TODO: Could be more efficient by checking is_sublist for
             # all orders in one pass
-            for order in xrange(min(len(s), self.max_order), 
+            for order in range(min(len(s), self.max_order), 
                                 self.min_order-1,
                                 -1):
                 ngram = s[-order:]
@@ -141,8 +141,8 @@ class MBRBeamDecoder(BeamDecoder):
             s = hypo.trgt_sentence
             l = len(s)
             cnt = 0.0
-            for order in xrange(self.min_order, self.max_order+1):
-                for start in xrange(l-order+1):
+            for order in range(self.min_order, self.max_order+1):
+                for start in range(l-order+1):
                     logprob = self.maxent_ngram_mass.get(s[start:start+order])
                     # MaxEnt means that we estimate the probability of the 
                     # ngram as p + (1-p) * 0.5 ie.
@@ -178,10 +178,10 @@ class MBRBeamDecoder(BeamDecoder):
         ngrams = []
         for hypo in hypos:
             ngram_list = []
-            for order in xrange(self.min_order, self.max_order+1):
+            for order in range(self.min_order, self.max_order+1):
                 ngram_list.append(set([
                     " ".join(map(str, hypo.trgt_sentence[start:start+order]))
-                    for start in xrange(len(hypo.trgt_sentence))]))
+                    for start in range(len(hypo.trgt_sentence))]))
             ngrams.append(ngram_list)
         exp_bleus = []
         for hyp_ngrams, hyp_length in zip(ngrams, lengths):
@@ -191,7 +191,7 @@ class MBRBeamDecoder(BeamDecoder):
             exp_bleus.append(precisions * probs)
         next_hypos = []
         if self.selection_strategy == 'oracle_bleu': 
-            for _ in xrange(min(self.beam_size, len(hypos))):
+            for _ in range(min(self.beam_size, len(hypos))):
                 idx = np.argmax(np.sum(exp_bleus, axis=1))
                 bleu = np.sum(exp_bleus[idx])
                 logging.debug("Selected (score=%f expected_bleu=%f): %s"
@@ -199,7 +199,7 @@ class MBRBeamDecoder(BeamDecoder):
                 hypos[idx].bleu = -bleu
                 next_hypos.append(hypos[idx])
                 gained_bleus = exp_bleus[idx]
-                for update_idx in xrange(len(exp_bleus)):
+                for update_idx in range(len(exp_bleus)):
                     exp_bleus[update_idx] = np.maximum(exp_bleus[update_idx], 
                                                        gained_bleus)
         else: # selection strategy 'bleu'

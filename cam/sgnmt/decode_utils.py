@@ -17,17 +17,14 @@ import os
 import uuid
 
 from cam.sgnmt import ui
+from cam.sgnmt import io
 from cam.sgnmt import utils
-from cam.sgnmt.blocks.nmt import blocks_get_nmt_predictor, \
-                                 blocks_get_nmt_vanilla_decoder, \
-                                 blocks_get_default_nmt_config
 from cam.sgnmt.predictors.parse import ParsePredictor, TokParsePredictor, \
                                        BpeParsePredictor
 from cam.sgnmt.decoding import combination
 from cam.sgnmt.decoding.astar import AstarDecoder
 from cam.sgnmt.decoding.beam import BeamDecoder
 from cam.sgnmt.decoding.bigramgreedy import BigramGreedyDecoder
-from cam.sgnmt.decoding.bow import BOWDecoder
 from cam.sgnmt.decoding.bucket import BucketDecoder
 from cam.sgnmt.decoding.core import UnboundedVocabularyPredictor
 from cam.sgnmt.decoding.core import Hypothesis
@@ -79,15 +76,13 @@ from cam.sgnmt.predictors.vocabulary import IdxmapPredictor, \
                                             UnboundedMaskvocabPredictor, \
                                             UnkvocabPredictor, \
                                             SkipvocabPredictor
-from cam.sgnmt.predictors.ngram import SRILMPredictor, KenLMPredictor
+from cam.sgnmt.predictors.ngram import KenLMPredictor
 from cam.sgnmt.predictors.tf_t2t import T2TPredictor, \
                                         EditT2TPredictor, \
                                         SegT2TPredictor, \
                                         FertilityT2TPredictor
 from cam.sgnmt.predictors.tf_nizza import NizzaPredictor, LexNizzaPredictor
 from cam.sgnmt.predictors.tokenization import Word2charPredictor, FSTTokPredictor
-from cam.sgnmt.tf.interface import tf_get_nmt_predictor, tf_get_nmt_vanilla_decoder, \
-    tf_get_rnnlm_predictor, tf_get_default_nmt_config, tf_get_rnnlm_prefix
 
 
 args = None
@@ -112,9 +107,8 @@ def base_init(new_args):
         sys.stderr = codecs.getwriter('UTF-8')(sys.stderr)
         sys.stdout = codecs.getwriter('UTF-8')(sys.stdout)
         sys.stdin = codecs.getreader('UTF-8')(sys.stdin)
-    else:
-        logging.warn("SGNMT is tested with Python 2.7, but you are using "
-                     "Python 3. Expect the unexpected or switch to 2.7.")
+        logging.warn("SGNMT is tested with Python 3, but you are using "
+                     "Python 2. Expect the unexpected or switch to 3.7.")
     # Set up logger
     logger = logging.getLogger(__name__)
     logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s')
@@ -138,6 +132,9 @@ def base_init(new_args):
     if args.log_sum == 'tropical':
         utils.log_sum = utils.log_sum_tropical_semiring
     ui.validate_args(args)
+    if args.run_diagnostics:
+        ui.run_diagnostics()
+        sys.exit()
 
 
 _override_args_cnts = {}
@@ -172,7 +169,7 @@ def _parse_config_param(field, default):
     direct settings such as 'param1=x,param2=y'
     """
     add_config = ui.parse_param_string(_get_override_args(field))
-    for (k,v) in default.iteritems():
+    for (k,v) in default.items():
         if k in add_config:
             if type(v) is type(None):
                 default[k] = add_config[k]
@@ -227,22 +224,7 @@ def add_predictors(decoder):
                 pred_weight = float(weights[idx])
 
             # Create predictor instances for the string argument ``pred``
-            if pred == "nmt":
-                # TODO: Clean this up and make a blocks and tfnmt predictor
-                nmt_engine = _get_override_args("nmt_engine")
-                if nmt_engine == 'blocks':
-                    nmt_config = _parse_config_param(
-                        "nmt_config", blocks_get_default_nmt_config())
-                    p = blocks_get_nmt_predictor(
-                        args, _get_override_args("nmt_path"), nmt_config)
-                elif nmt_engine == 'tensorflow':
-                    nmt_config = _parse_config_param(
-                        "nmt_config", tf_get_default_nmt_config())
-                    p = tf_get_nmt_predictor(
-                        args, _get_override_args("nmt_path"), nmt_config)
-                elif nmt_engine != 'none':
-                    logging.fatal("NMT engine %s is not supported (yet)!" % nmt_engine)
-            elif pred == "nizza":
+            if pred == "nizza":
                 p = NizzaPredictor(_get_override_args("pred_src_vocab_size"),
                                    _get_override_args("pred_trg_vocab_size"),
                                    _get_override_args("nizza_model"),
@@ -379,18 +361,8 @@ def add_predictors(decoder):
                                  to_log=args.fst_to_log,
                                  minimize_rtns=args.minimize_rtns,
                                  rmeps=args.remove_epsilon_in_rtns)
-            elif pred == "srilm":
-                p = SRILMPredictor(args.lm_path, 
-                                   _get_override_args("ngramc_order"),
-                                   args.srilm_convert_to_ln)
             elif pred == "kenlm":
                 p = KenLMPredictor(args.lm_path)
-            elif pred == "nplm":
-                p = NPLMPredictor(args.nplm_path, args.normalize_nplm_probs)
-            elif pred == "rnnlm":
-                p = tf_get_rnnlm_predictor(_get_override_args("rnnlm_path"),
-                                           _get_override_args("rnnlm_config"),
-                                           tf_get_rnnlm_prefix())
             elif pred == "wc":
                 p = WordCountPredictor(args.wc_word,
                                        args.wc_nonterminal_penalty,
@@ -423,8 +395,6 @@ def add_predictors(decoder):
                 p = RuleXtractPredictor(args.rules_path,
                                         args.use_grammar_weights,
                                         fw)
-            elif pred == "vanilla":
-                continue
             else:
                 logging.fatal("Predictor '%s' not available. Please check "
                               "--predictors for spelling errors." % pred)
@@ -618,8 +588,6 @@ def create_decoder():
                                         args.restarting_node_score,
                                         args.stochastic_decoder,
                                         args.decode_always_single_step)
-        elif args.decoder == "bow":
-            decoder = BOWDecoder(args)
         elif args.decoder == "flip":
             decoder = FlipDecoder(args)
         elif args.decoder == "bigramgreedy":
@@ -639,9 +607,6 @@ def create_decoder():
                                     args.collect_statistics)
         elif args.decoder == "astar":
             decoder = AstarDecoder(args)
-        elif args.decoder == "vanilla":
-            decoder = construct_nmt_vanilla_decoder()
-            args.predictors = "vanilla"
         else:
             logging.fatal("Decoder %s not available. Please double-check the "
                           "--decoder parameter." % args.decoder)
@@ -657,34 +622,6 @@ def create_decoder():
     if args.heuristics:
         add_heuristics(decoder)
     return decoder
-
-
-def construct_nmt_vanilla_decoder():
-    """Creates the vanilla NMT decoder which bypasses the predictor 
-    framework. It uses the template methods ``get_nmt_vanilla_decoder``
-    for uniform access to the blocks or tensorflow frameworks.
-    
-    Returns:
-        NMT vanilla decoder using all specified NMT models, or None if
-        an error occurred.
-    """
-    is_nmt = ["nmt" == p for p in args.predictors.split(",")]
-    n = len(is_nmt)
-    if not all(is_nmt):
-        logging.fatal("Vanilla decoder can only be used with nmt predictors")
-        return None
-    nmt_specs = []
-    if args.nmt_engine == 'blocks':
-        get_default_nmt_config = blocks_get_default_nmt_config
-        get_nmt_vanilla_decoder = blocks_get_nmt_vanilla_decoder
-    elif args.nmt_engine == 'tensorflow':
-        get_default_nmt_config = tf_get_default_nmt_config
-        get_nmt_vanilla_decoder = tf_get_nmt_vanilla_decoder
-    for _ in xrange(n): 
-        nmt_specs.append((_get_override_args("nmt_path"),
-                          _parse_config_param("nmt_config",
-                                              get_default_nmt_config())))
-    return get_nmt_vanilla_decoder(args, nmt_specs)
 
 
 def add_heuristics(decoder):
@@ -734,7 +671,6 @@ def create_output_handlers():
     """
     if not args.outputs:
         return []
-    trg_map = {} if utils.trg_cmap else utils.trg_wmap
     outputs = []
     for name in utils.split_comma(args.outputs):
         if '%s' in args.output_path:
@@ -742,11 +678,10 @@ def create_output_handlers():
         else:
             path = args.output_path
         if name == "text":
-            outputs.append(TextOutputHandler(path, trg_map))
+            outputs.append(TextOutputHandler(path))
         elif name == "nbest":
             outputs.append(NBestOutputHandler(path, 
-                                              utils.split_comma(args.predictors),
-                                              trg_map))
+                                              utils.split_comma(args.predictors)))
         elif name == "ngram":
             outputs.append(NgramOutputHandler(path,
                                               args.min_ngram_order,
@@ -784,7 +719,7 @@ def get_sentence_indices(range_param, src_sentences):
             else:
                 from_idx = int(args.range)
                 to_idx = from_idx
-            ids = xrange(int(from_idx)-1, int(to_idx))
+            ids = range(int(from_idx)-1, int(to_idx))
         except Exception as e:
             logging.info("The --range does not seem to specify a numerical "
                          "range (%s). Interpreting as file name.." % e)
@@ -817,7 +752,7 @@ def get_sentence_indices(range_param, src_sentences):
         if src_sentences is False:
            logging.fatal("Input method dummy requires --range")
         else:
-            ids = xrange(len(src_sentences))
+            ids = range(len(src_sentences))
     for i in ids:
         yield i
 
@@ -877,6 +812,24 @@ def _generate_dummy_hypo(predictors):
     return Hypothesis([utils.UNK_ID], 0.0, [[(0.0, w) for _, w in predictors]]) 
 
 
+def _apply_per_sentence_predictor_weights(src, decoder):
+    """Apply per sentence weights if specified."""
+    if len(src) > 0 and args.per_sentence_predictor_weights:
+        # change predictor weights per-sentence
+        src = src.split()
+        weights = src[-1].split(',')
+        if len(weights) > 1:
+            weights = [float(x) for x in weights]
+            src = " ".join(src[:-1])
+            logging.info('Changing predictor weights to {}'.format(
+                weights))
+            decoder.change_predictor_weights(weights)
+        else:
+            logging.info(
+                'No weights read in {} - leaving unchanged'.format(src))
+    return src
+
+
 def do_decode(decoder, 
               output_handlers, 
               src_sentences):
@@ -906,30 +859,13 @@ def do_decode(decoder,
     for sen_idx in get_sentence_indices(args.range, src_sentences):
         decoder.set_current_sen_id(sen_idx)
         try:
-            if src_sentences is False:
-                src = "0"
-                logging.info("Next sentence (ID: %d)" % (sen_idx + 1))
-            else:
-                src = src_sentences[sen_idx]
-            if len(src) > 0 and args.per_sentence_predictor_weights:
-                # change predictor weights per-sentence
-                weights = src[-1].split(',')
-                if len(weights) > 1:
-                    weights = [float(x) for x in weights]
-                    src = src[:-1]
-                    logging.info('Changing predictor weights to {}'.format(
-                        weights))
-                    decoder.change_predictor_weights(weights)
-                else:
-                    logging.info(
-                        'No weights read in {} - leaving unchanged'.format(
-                            src))
-            logging.info("Next sentence (ID: %d): %s" % (sen_idx + 1, ' '.join(src)))
-            src = [int(x) for x in src]
+            src = "0" if src_sentences is False else src_sentences[sen_idx]
+            logging.info("Next sentence (ID: %d): %s" % (sen_idx + 1, src))
+            src = _apply_per_sentence_predictor_weights(src, decoder)
+            src = io.encode(src)
             start_hypo_time = time.time()
             decoder.apply_predictors_count = 0
-            hypos = [hypo 
-                     for hypo in decoder.decode(utils.apply_src_wmap(src))
+            hypos = [hypo for hypo in decoder.decode(src)
                         if hypo.total_score > args.min_score]
             if not hypos:
                 logging.error("No translation found for ID %d!" % (sen_idx+1))
@@ -940,12 +876,9 @@ def do_decode(decoder,
                                         time.time() - start_hypo_time))
                 hypos = [_generate_dummy_hypo(decoder.predictors)]
             hypos = _postprocess_complete_hypos(hypos)
-            if utils.trg_cmap:
-                hypos = [h.convert_to_char_level(utils.trg_cmap) for h in hypos]
             logging.info("Decoded (ID: %d): %s" % (
                     sen_idx+1,
-                    utils.apply_trg_wmap(hypos[0].trgt_sentence, 
-                                         {} if utils.trg_cmap else utils.trg_wmap)))
+                    io.decode(hypos[0].trgt_sentence)))
             logging.info("Stats (ID: %d): score=%f "
                          "num_expansions=%d "
                          "time=%.2f" % (sen_idx+1,

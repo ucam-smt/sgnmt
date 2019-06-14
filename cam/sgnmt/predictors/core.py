@@ -166,8 +166,8 @@ class Predictor(Observer):
         if not use_weights:
             scores = dict.fromkeys(scores, 0.0)
         if normalize_scores:
-            log_sum = utils.log_sum(scores.itervalues())
-            ret = {k: v - log_sum for k, v in scores.iteritems()}
+            log_sum = utils.log_sum(scores.values())
+            ret = {k: v - log_sum for k, v in scores.items()}
             return ret
         return scores
     

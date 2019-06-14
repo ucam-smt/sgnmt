@@ -163,13 +163,13 @@ class BucketDecoder(Decoder):
             self.guaranteed_optimality = False
             return -1
         last_length = self.last_bucket
-        for length in xrange(last_length+1, self.max_len):
+        for length in range(last_length+1, self.max_len):
             if self.buckets[length]:
                 self.last_bucket = length
                 return length
         # Restart with first bucket
         self.cur_iter += 1
-        for length in xrange(last_length+1):
+        for length in range(last_length+1):
             if self.buckets[length]:
                 self.last_bucket = length
                 return length
@@ -186,13 +186,13 @@ class BucketDecoder(Decoder):
     def _get_bucket_maxscore_helper(self, max_score):
         """Helper method for maxscore """
         last_length = self.last_bucket
-        for length in xrange(last_length+1, self.max_len):
+        for length in range(last_length+1, self.max_len):
             if self.buckets[length]:
                 score = self.get_bucketscore(length)
                 if score < max_score:
                     self.last_bucket = length
                     return length
-        for length in xrange(last_length+1):
+        for length in range(last_length+1):
             if self.buckets[length]:
                 score = self.get_bucketscore(length)
                 if score < max_score:
@@ -204,7 +204,7 @@ class BucketDecoder(Decoder):
         """Implements the bucket selector 'score' """
         best_score = INF
         best_length = -1
-        for length in xrange(self.max_len):
+        for length in range(self.max_len):
             if self.buckets[length]:
                 score = self.get_bucketscore(length)
                 if score <= best_score:
@@ -215,14 +215,14 @@ class BucketDecoder(Decoder):
     def _get_bucket_score_end(self):
         """Implements the bucket selector 'score-end' """
         last_length = self.last_bucket
-        for length in xrange(last_length+1, self.max_len):
+        for length in range(last_length+1, self.max_len):
             if self.buckets[length]:
                 self.last_bucket = length
                 return length
         # Restart with best bucket
         best_score = INF
         best_length = -1
-        for length in xrange(self.max_len):
+        for length in range(self.max_len):
             if self.buckets[length]:
                 score = self.get_bucketscore(length)
                 if score <= best_score:
@@ -233,14 +233,14 @@ class BucketDecoder(Decoder):
 
     def _get_bucket_random(self):
         """Implements random bucket selection """
-        lengths = [l for l in xrange(self.max_len) if self.buckets[l]]
+        lengths = [l for l in range(self.max_len) if self.buckets[l]]
         return np.random.choice(lengths)
         
     def _get_bucket_stochastic(self):
         """Implements the stochastic bucket selector 'difference' """
         lengths = []
         scores = []
-        for length in xrange(self.max_len):
+        for length in range(self.max_len):
             if self.buckets[length]:
                 score = self.get_bucketscore(length)
                 if score == NEG_INF:
@@ -264,8 +264,8 @@ class BucketDecoder(Decoder):
         init_hypo.predictor_states = self.get_predictor_states()
         init_hypo.scores = []
         init_hypo.parent_hypo_array_idx = 0 # point to guardian
-        self.buckets = [[] for _ in xrange(self.max_len+1)]
-        self.expanded_hypos = [[] for _ in xrange(self.max_len+1)]
+        self.buckets = [[] for _ in range(self.max_len+1)]
+        self.expanded_hypos = [[] for _ in range(self.max_len+1)]
         self.buckets[0].append((0.0, init_hypo))
         self.expand_counts = [0.0] # with guardian
         self.expand_backpointers = [0] # with guardian
@@ -350,7 +350,7 @@ class BucketDecoder(Decoder):
         """Called when ``best_word_scores`` has changed and heap scores
         need to be updated
         """
-        for length in xrange(len(self.buckets)):
+        for length in range(len(self.buckets)):
             self._update_heap_score(length)
     
     def _update_heap_score(self, length):
@@ -510,7 +510,7 @@ class BucketDecoder(Decoder):
                 break
             min_next_bucket_score = self._get_min_bucket_score(length+1)
             hypos_to_add = []
-            for _ in xrange(self.beam): # Expand beam_size hypos in this bucket
+            for _ in range(self.beam): # Expand beam_size hypos in this bucket
                 hypo = self._get_hypo(length)
                 if hypo is None:
                     break
@@ -518,7 +518,7 @@ class BucketDecoder(Decoder):
                 hypo.predictor_states = self.get_predictor_states()
                 if self.diverse_decoding:
                     hypo_array_idx = self._get_next_hypo_array_idx(hypo)
-                for w,score in posterior.iteritems():
+                for w,score in posterior.items():
                     exp_hypo = hypo.cheap_expand(w, score, score_breakdown[w])
                     exp_hypo.scores = hypo.scores + [hypo.score] 
                     if self.diverse_decoding:

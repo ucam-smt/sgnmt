@@ -209,10 +209,10 @@ class Trie:
             self._get_elements_recursive(node.terminal_edges[token_id],
                                          src_seq[1:],
                                          nt_span_lens)
-        for nt_id, child in node.nonterminal_edges.iteritems():
+        for nt_id, child in node.nonterminal_edges.items():
             (min_span_len, max_span_len) = self.span_len_range[nt_id]
             max_span_len = min(len(src_seq), max_span_len)
-            for span_len in xrange(min_span_len, max_span_len + 1):
+            for span_len in range(min_span_len, max_span_len + 1):
                 self._get_elements_recursive(child,
                                              src_seq[span_len:],
                                              nt_span_lens + [span_len])
@@ -363,7 +363,7 @@ class RuleSet:
         multipliers = [[]] # with dummy element at index 0
         ranges = [(1,1)] # Guardian for lexical counts
         empty_src_side = False
-        for nt_id in xrange(1, n_nt):
+        for nt_id in range(1, n_nt):
             # We'll use it as normal trie here without NT matching
             multis = Trie(self.span_len_range) 
             for rule in self.tries[nt_id].get_all_elements():
@@ -383,7 +383,7 @@ class RuleSet:
         changed = True
         while changed:
             changed = False
-            for nt_id in xrange(1, n_nt):
+            for nt_id in range(1, n_nt):
                 (old_min_len, old_max_len) = ranges[nt_id]
                 if old_min_len == old_max_len:
                     continue
@@ -400,7 +400,7 @@ class RuleSet:
                 if min_len != old_min_len or max_len != old_max_len:
                     ranges[nt_id] = (min_len, max_len)
                     changed = True
-        for nt_id in xrange(1, n_nt):
+        for nt_id in range(1, n_nt):
             logging.info("Range for non-terminal %d: %s" % (nt_id,
                                                             ranges[nt_id]))
             self.span_len_range[nt_id] = ranges[nt_id]
@@ -565,7 +565,7 @@ class RuleSet:
             ret = []
             min_len, max_len = minmax_span.borders[0], min(span_len_sum,
                                                            minmax_span.borders[1])
-            for span_len in xrange(min_len, max_len+1):
+            for span_len in range(min_len, max_len+1):
                 if self._is_compatible(p, src_seq[src_idx:src_idx+span_len]):
                     span = Span(p, (src_idx, src_idx+span_len))
                     if len(p) > 1:
@@ -642,7 +642,7 @@ class RuleSet:
                     break
             # len of p - no. of NT
             n_terminals = to_src_pos+1-from_src_pos-len(new_internal_trgt_src_map) 
-            for i in xrange(from_src_pos,to_src_pos+1):
+            for i in range(from_src_pos,to_src_pos+1):
                 p_covered[i] = len(spans)
             new_span = Span(span.p[from_src_pos:to_src_pos+1],
                             (span_min_len+n_terminals,
@@ -871,7 +871,7 @@ class RuleXtractPredictor(Predictor):
         ``self.finals[n_consumed]``
         """
         posterior = {}
-        for stack_idx in xrange(self.n_consumed+1, len(self.stacks)):
+        for stack_idx in range(self.n_consumed+1, len(self.stacks)):
             for hypo in self.stacks[stack_idx].hypos:
                 symb = hypo.trgt_prefix[self.n_consumed]
                 posterior[symb] = max(posterior.get(symb, 0), hypo.cost)
@@ -897,9 +897,9 @@ class RuleXtractPredictor(Predictor):
         """Remove all hypotheses with translation prefixes which do not
         match ``word``
         """
-        for stack_idx in xrange(self.n_consumed+1, len(self.stacks)):
+        for stack_idx in range(self.n_consumed+1, len(self.stacks)):
             self.stacks[stack_idx].filter(self.n_consumed, word)
-        for stack_idx in xrange(self.n_consumed+1, len(self.finals)):
+        for stack_idx in range(self.n_consumed+1, len(self.finals)):
             self.finals[stack_idx].filter(self.n_consumed, word)
         if self.n_consumed < len(self.finals):
             # Empty this entry, not needed anymore

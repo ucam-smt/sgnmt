@@ -180,7 +180,7 @@ class BigramGreedyDecoder(Decoder):
         """Constructs all full consistent sentences from a list of 
         bigrams. The search is implemented as BFS. """
         candidates = [([utils.GO_ID], bigrams)]
-        for _ in xrange(len(bigrams)):
+        for _ in range(len(bigrams)):
             next_candidates = []
             for candidate in candidates:
                 # Select the next consistent bigram
@@ -245,20 +245,20 @@ class BigramGreedyDecoder(Decoder):
         for w in self.lines[self.current_sen_id].strip().split(): 
             int_w = int(w)
             self.full_bag[int_w] = self.full_bag.get(int_w, 0) + 1
-        self.num_words = sum(self.full_bag.itervalues())
+        self.num_words = sum(self.full_bag.values())
         self.full_bag_with_eos = dict(self.full_bag)
         self.full_bag_with_eos[utils.EOS_ID] = 1
     
     def _register_bigram_scores(self, last_word, posterior):
-        for w,score in posterior.iteritems():
+        for w,score in utils.common_iterable(posterior):
             self.bigram_scores[last_word][w] = min(
                                     self.bigram_scores[last_word][w], score)
     
     def _sort_bigram_scores(self):
         self.sorted_bigrams = []
-        for w1,scores in self.bigram_scores.iteritems():
+        for w1,scores in self.bigram_scores.items():
             self.sorted_bigrams.extend([(w1, w2, score)
-                                        for w2,score in scores.iteritems()])
+                                        for w2,score in scores.items()])
         self.sorted_bigrams.sort(key=operator.itemgetter(2), reverse=True)
     
     def _initialize_bigram_scores(self):

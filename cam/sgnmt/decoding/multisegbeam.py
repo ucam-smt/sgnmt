@@ -6,9 +6,9 @@ import copy
 import heapq
 import logging
 import codecs
-import pywrapfst as fst
 
 from cam.sgnmt import utils
+from cam.sgnmt import io
 from cam.sgnmt.decoding.core import Decoder, PartialHypothesis
 from cam.sgnmt.predictors.automata import EPS_ID
 
@@ -32,7 +32,7 @@ class WordMapper(object):
     """This class is responsible for the mapping between keys and word
     IDs. The multiseg beam search can produce words which are not in 
     the original word map. This mapper adds these words to 
-   ``utils.trg_wmap``.
+   ``io.trg_wmap``.
 
     This class uses the GoF design pattern singleton.
     """
@@ -54,7 +54,7 @@ class WordMapper(object):
 
     def __init__(self):
         """Creates a new mapper instance and synchronizes it with
-        ``utils.trg_wmap``.
+        ``io.trg_wmap``.
         """
         self.max_word_id = 3
         self.wmap_len = 0
@@ -68,29 +68,29 @@ class WordMapper(object):
 
     def synchronize(self):
         """Synchronizes the internal state of this mapper with
-        ``utils.trg_wmap``. This includes updating the reverse lookup
+        ``io.trg_wmap``. This includes updating the reverse lookup
         table and finding the lowest free word ID which can be assigned
         to new words. 
         """
-        if self.wmap_len == len(utils.trg_wmap):
+        if self.wmap_len == len(io.trg_wmap):
             return
         self.key2id = {}
         self.max_word_id = 3
-        for word_id, key in utils.trg_wmap.iteritems():
+        for word_id, key in io.trg_wmap.items():
             self.max_word_id = max(self.max_word_id, word_id)
             self.key2id["%s " % key] = word_id
-        self.wmap_len = len(utils.trg_wmap)
+        self.wmap_len = len(io.trg_wmap)
 
     def get_word_id(self, key):
         """Finds a word ID for the given key. If no such key is in the
-        current word map, create a new entry in ``utils.trg_wmap``.
+        current word map, create a new entry in ``io.trg_wmap``.
 
         Args:
             key (string): key to look up
 
         Returns:
             int. Word ID corresponding to ``key``. Add new word ID if
-            the key cannot be found in ``utils.trg_wmap`` 
+            the key cannot be found in ``io.trg_wmap`` 
         """
         if not key:
             return utils.UNK_ID
@@ -100,7 +100,7 @@ class WordMapper(object):
         if key in self.key2id:
             return self.key2id[key]
         self.max_word_id += 1
-        utils.trg_wmap[self.max_word_id] = key[:-1]
+        io.trg_wmap[self.max_word_id] = key[:-1]
         self.key2id[key] = self.max_word_id
         self.wmap_len += 1
         return self.max_word_id
@@ -213,7 +213,7 @@ class EOWTokenizer(Tokenizer):
         if max_len <= 1:
             return None
         best_tokens = None
-        for l in xrange(len(key)-1, 0, -1):
+        for l in range(len(key)-1, 0, -1):
             if key[:l] in self.key2id:
                 rest = self._key2tokens_recursive(key[l:], max_len-1)
                 if not rest is None and len(rest) < max_len:
@@ -280,93 +280,13 @@ class MixedTokenizer(Tokenizer):
             maps = maps[:-2] + [self.e_key2id]
         maps[0] = self.b_key2id
         return [maps[idx].get(key[idx], utils.UNK_ID)
-                    for idx in xrange(len(maps))]
+                    for idx in range(len(maps))]
     
     def tokens2key(self, tokens):
         return ''.join([self.id2key.get(t, "") for t in tokens])
 
     def is_word_begin_token(self, token):
         return not self.mid_tokens.get(token, False)
-
-
-class FSTTokenizer(Tokenizer):
-    """This tokenizer reads in an FST which transduces a sequence
-    of subword units to a sequence of characters which constitute
-    the key. The characters must used the global target cmap.
-    """
-    
-    EPS_ID = 0
-    """OpenFST's reserved ID for epsilon arcs. """
-    
-    def __init__(self, path):
-        """Loads subword->char FST, determinizes and minimizes it.
-        
-        Args:
-            path (string): Path to an FST from subword unit to char
-                           sequence
-        """
-        self.token2char_fst = utils.load_fst(path)
-        self.token2char_fst.rmepsilon()
-        self.token2char_fst.determinize()
-        self.token2char_fst.minimize()
-        self.word_begin_tokens = {arc.ilabel: True 
-            for arc in self.token2char_fst.arcs(self.token2char_fst.start())}
-        self.char2token_fst = fst.Fst(self.token2char_fst)
-        self.char2token_fst.invert()
-        self.cmap = dict(utils.trg_cmap)
-        self.cmap[" "] = self.cmap["</w>"]
-        del self.cmap["</w>"]
-        self.inv_cmap = {(i,c) for c,i in self.cmap.iteritems()}
-    
-    def key2tokens(self, key):
-        idxs = [self.cmap.get(c, utils.UNK_ID) for c in key]
-        tokens = self._transduce(self.char2token_fst, idxs)
-        return tokens if tokens else [utils.UNK_ID]
-    
-    def tokens2key(self, tokens):
-        idxs = self._transduce(self.token2char_fst, tokens)
-        if not idxs:
-            return ""
-        return ''.join([self.inv_cmap.get(i, '') for i in idxs])
-    
-    def _transduce(self, trans_fst, seq):
-        """Returns the output sequence produced by ``trans_fst`` when
-        consuming ``seq``. We don't check if the last state is a final
-        state
-        """
-        return self._dfs(trans_fst, trans_fst.start(), seq, [])
-            
-    def _dfs(self, trans_fst, root, in_seq, out_seq_stub):
-        """Perform DFS as subroutine of ``_transduce`` """
-        if not in_seq:
-            return out_seq_stub
-        for arc in trans_fst.arcs(root):
-            out_seq = None
-            if arc.ilabel == EPS_ID:
-                out_seq = self._dfs(trans_fst,
-                                    arc.nextstate,
-                                    in_seq, 
-                                    out_seq_stub)
-            elif arc.ilabel == in_seq[0]:
-                out_seq = self._dfs(trans_fst, 
-                                    arc.nextstate, 
-                                    in_seq[1:], 
-                                    out_seq_stub + [arc.olabel])
-            if out_seq:
-                return out_seq
-        return None
-
-    def is_word_begin_token(self, token):
-        """Returns true if there is an arc labeled with ``token`` from
-        the start state in the token2char FST.
-        
-        Args:
-            token (int): token ID
-        
-        Returns:
-            bool. True if a word can start with ``token`` 
-        """
-        return token in self.word_begin_tokens
 
 
 class PredictorStub(object):
@@ -516,7 +436,7 @@ class MultisegBeamDecoder(Decoder):
     on finer-grained tokens are collapsed into a single score s.t. they
     can be combined with scores from other predictors. This decoder can 
     produce words without entry in the word map. In this case, words 
-    are added to ``utils.trg_wmap``. Consider using the ``output_chars``
+    are added to ``io.trg_wmap``. Consider using the ``output_chars``
     option to avoid dealing with the updated word map in the output.
     """
     
@@ -681,7 +601,7 @@ class MultisegBeamDecoder(Decoder):
         if min_score > 0.0:
             return
         
-        pred_weights = map(lambda el: el[1], self.predictors)
+        pred_weights = list(map(lambda el: el[1], self.predictors))
         # Get initial continuations by searching with predictors separately
         start_posteriors = self._get_word_initial_posteriors(hypo)
         pred_states = self.get_predictor_states()
@@ -705,8 +625,8 @@ class MultisegBeamDecoder(Decoder):
                         stubs[pidx] = stub
                         keys[key] = Continuation(hypo, stubs, key)
         # Fill in stubs which are set to None
-        for cont in keys.itervalues():
-            for pidx in xrange(len(self.predictors)):
+        for cont in keys.values():
+            for pidx in range(len(self.predictors)):
                 if cont.pred_stubs[pidx] is None:
                     stub = PredictorStub(self.toks[pidx].key2tokens(cont.key),
                                          pred_states[pidx])
@@ -715,7 +635,7 @@ class MultisegBeamDecoder(Decoder):
                                          stub.tokens[0],
                                          start_posteriors[pidx][utils.UNK_ID]))
                     cont.pred_stubs[pidx] = stub
-        conts = [(-c.calculate_score(pred_weights), c) for c in keys.itervalues()]
+        conts = [(-c.calculate_score(pred_weights), c) for c in keys.values()]
         heapq.heapify(conts)
         # Iterate through conts, expand if necessary, yield if complete
         while conts:

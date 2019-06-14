@@ -60,14 +60,14 @@ class IdxmapPredictor(Predictor):
             logging.info("%s-side identity mapping (no idxmap specified)" % name)
             return {}
         with open(path) as f:
-            d = dict(map(int, line.strip().split(None, 1)) for line in f)
+            d = dict(tuple(map(int, line.strip().split(None, 1))) for line in f)
             if (d[utils.UNK_ID] != utils.UNK_ID
                     or d[utils.EOS_ID] != utils.EOS_ID
                     or d[utils.GO_ID] != utils.GO_ID):
                 logging.fatal(
                    "idxmap %s contains non-identical maps for reserved indices"
                         % path)
-            logging.debug("Loaded wmap from %s" % path)
+            logging.debug("Loaded idxmap from %s" % path)
             return [d[idx] if idx in d else 0 for idx in range(max(d)+1)]
     
     def initialize(self, src_sentence):
@@ -285,7 +285,7 @@ class UnkvocabPredictor(Predictor):
         defined """
         posterior = self.slave_predictor.predict_next()
         if utils.UNK_ID in posterior:
-            for w in xrange(self.trg_vocab_size):
+            for w in range(self.trg_vocab_size):
                 if not w in posterior:
                     posterior[w] = utils.NEG_INF
         return posterior

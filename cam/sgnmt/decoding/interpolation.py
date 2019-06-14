@@ -112,7 +112,7 @@ class MoEInterpolationStrategy(InterpolationStrategy):
         # Scores has shape [n_predictors, vocab_size], fill it
         for row, posterior in enumerate(posteriors):
             if isinstance(posterior, dict):
-                for  w, s in posterior.iteritems():
+                for  w, s in posterior.items():
                     scores[row,int(w)] = s
             else:
                 scores[row,:len(posterior)] = np.maximum(-99, posterior)
@@ -168,7 +168,7 @@ class EntropyInterpolationStrategy(InterpolationStrategy):
         # Scores has shape [n_predictors, vocab_size], fill it
         for row, posterior in enumerate(posteriors):
             if isinstance(posterior, dict):
-                for  w, s in posterior.iteritems():
+                for  w, s in posterior.items():
                     scores[row,int(w)] = s
             else:
                 scores[row,:len(posterior)] = np.maximum(-99, posterior)
@@ -180,11 +180,11 @@ class EntropyInterpolationStrategy(InterpolationStrategy):
         n_preds = len(pred_weights)
         ents = np.zeros((n_preds, n_preds))
         if self.cross_entropy:
-            for p_idx in xrange(n_preds):
-                for q_idx in xrange(n_preds):
+            for p_idx in range(n_preds):
+                for q_idx in range(n_preds):
                     ents[p_idx, q_idx] = -np.sum(probs[p_idx] * logprobs[q_idx])
         else:
-            for p_idx in xrange(n_preds):
+            for p_idx in range(n_preds):
                 ents[p_idx, p_idx] = -np.sum(probs[p_idx] * logprobs[p_idx])
         ent_weights = -np.sum(ents, axis=0)
         ent_weights -= np.min(ent_weights)

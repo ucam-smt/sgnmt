@@ -13,11 +13,11 @@ http://ucam-smt.github.io/tutorial/sgnmt
 import logging
 import os
 import sys
-import codecs
+from builtins import input
 
-from cam.sgnmt import utils
+from cam.sgnmt import utils, io
 from cam.sgnmt import decode_utils
-from cam.sgnmt.ui import get_args, get_parser
+from cam.sgnmt.ui import get_args, get_parser, run_diagnostics
 
 # Load configuration from command line arguments or configuration file
 args = get_args()
@@ -35,21 +35,26 @@ def _print_shell_help():
     print("                             parameters use")
     print("                               !sgnmt config (without arguments)")
     print("!sgnmt decode <file_name>     Decode sentences in the given file")
+    print("!sgnmt diagnostics            Run diagnostics")
     print("!sgnmt quit                   Quit SGNMT")
     print("!sgnmt help                   Print this help")
 
 
-utils.load_src_wmap(args.src_wmap)
-utils.load_trg_wmap(args.trg_wmap)
-utils.load_trg_cmap(args.trg_cmap)
+io.load_src_wmap(args.src_wmap)
+io.load_trg_wmap(args.trg_wmap)
 decoder = decode_utils.create_decoder()
 outputs = decode_utils.create_output_handlers()
 
 if args.input_method == 'file':
-    with codecs.open(args.src_test, encoding='utf-8') as f:
-        decode_utils.do_decode(decoder,
-                               outputs,
-                               [line.strip().split() for line in f])
+    if os.access(args.src_test, os.R_OK):
+        with open(args.src_test) as f:
+            decode_utils.do_decode(decoder,
+                                   outputs,
+                                   [line.strip() for line in f])
+    else:
+        logging.fatal("Input file '%s' not readable. Please double-check the "
+                      "src_test option or choose an alternative input_method."
+                      % args.src_test)
 elif args.input_method == 'dummy':
     decode_utils.do_decode(decoder, outputs, False)
 else: # Interactive mode: shell or stdin
@@ -63,7 +68,7 @@ else: # Interactive mode: shell or stdin
     while not quit_sgnmt:
         # Read input from stdin or keyboard
         if args.input_method == 'shell':
-            input_ = raw_input("gnmt> ")
+            input_ = input("sgnmt> ")
         else: # stdin input method
             input_ = sys.stdin.readline()
             if not input_:
@@ -80,9 +85,11 @@ else: # Interactive mode: shell or stdin
                     with open(input_[2]) as f:
                         decode_utils.do_decode(
                             decoder, outputs,
-                            [line.strip().split() for line in f])
+                            [line.strip() for line in f])
                 elif cmd == "quit":
                     quit_sgnmt = True
+                elif cmd == "diagnostics":
+                    run_diagnostics()
                 elif cmd == "config":
                     if len(input_) == 2:
                         get_parser().print_help()
@@ -100,7 +107,8 @@ else: # Interactive mode: shell or stdin
             elif input_[0] == 'quit' or input_[0] == 'exit':
                 quit_sgnmt = True
             else: # Sentence to translate
-                decode_utils.do_decode(decoder, outputs, [input_])
+                decode_utils.do_decode(decoder, outputs, [" ".join(input_)])
         except:
             logging.error("Error in last statement: %s" % sys.exc_info()[0])
         sys.stdout.flush()
+

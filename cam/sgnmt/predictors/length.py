@@ -276,7 +276,7 @@ class WordCountPredictor(Predictor):
             else:
                 min_nt_range = range(0, min_terminal_id)
                 max_nt_range = range(max_terminal_id + 1, vocab_size)
-                nts = min_nt_range + max_nt_range
+                nts = list(min_nt_range) + list(max_nt_range)
             self.posterior = {nt: val for nt in nts}
             self.posterior[utils.EOS_ID] = 0.0
             self.posterior[utils.UNK_ID] = 0.0
@@ -343,7 +343,7 @@ class WeightNonTerminalPredictor(Predictor):
         else:
             min_nt_range = range(0, min_terminal_id)
             max_nt_range = range(max_terminal_id + 1, vocab_size)
-            nts = min_nt_range + max_nt_range
+            nts = list(min_nt_range) + list(max_nt_range)
         self.slave_predictor = slave_predictor
         self.mult = {tok: penalty_factor for tok in nts}
         self.mult[utils.EOS_ID] = 1.0
@@ -484,10 +484,10 @@ class NgramCountPredictor(Predictor):
                 if self.discount_factor >= 0.0:
                     factors = self.discounts.get(self.cur_history[i:])
                 if not factors:
-                    for w,score in scores.iteritems():
+                    for w,score in scores.items():
                         posterior[w] = posterior.get(w, 0.0) + score
                 else:
-                    for w,score in scores.iteritems():
+                    for w,score in scores.items():
                         posterior[w] = posterior.get(w, 0.0) +  \
                                        factors.get(w, 1.0) * score
         return posterior
@@ -569,13 +569,13 @@ class NgramCountPredictor(Predictor):
             hist_long = hist2
             hist_short = hist1
         min_len = len(hist_short)
-        for n in xrange(1, min_len+1): # Look up non matching in self.ngrams
+        for n in range(1, min_len+1): # Look up non matching in self.ngrams
             key1 = hist1[-n:]
             key2 = hist2[-n:]
             if key1 != key2:
                 if self.ngrams.get(key1) or self.ngrams.get(key2):
                     return False
-        for n in xrange(min_len+1, len(hist_long)+1):
+        for n in range(min_len+1, len(hist_long)+1):
             if self.ngrams.get(hist_long[-n:]):
                 return False
         return True
@@ -642,7 +642,7 @@ class UnkCountPredictor(Predictor):
 
     def _get_poisson_prob(self, n):
         """Get the log of the poisson probability for n events. """
-        return n * np.log(self.l) - self.l - sum([np.log(i+1) for i in xrange(n)])
+        return n * np.log(self.l) - self.l - sum([np.log(i+1) for i in range(n)])
     
     def consume(self, word):
         """Increases unk counter by one if ``word`` is unk.
@@ -745,9 +745,9 @@ class NgramizePredictor(Predictor):
     def predict_next(self):
         """Looks up ngram scores via self.scores. """
         cur_hist_length = len(self.history)
-        this_scores = [[] for _ in xrange(cur_hist_length+1)]
-        this_unk_scores = [[] for _ in xrange(cur_hist_length+1)]
-        for pos in xrange(len(self.scores)):
+        this_scores = [[] for _ in range(cur_hist_length+1)]
+        this_unk_scores = [[] for _ in range(cur_hist_length+1)]
+        for pos in range(len(self.scores)):
             this_scores[0].append(self.scores[pos])
             this_unk_scores[0].append(self.unk_scores[pos])
             acc = 0.0

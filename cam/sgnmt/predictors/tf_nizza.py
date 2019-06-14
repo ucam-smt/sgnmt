@@ -282,7 +282,7 @@ class LexNizzaPredictor(BaseNizzaPredictor):
         is_covered = []
         self.short_lists = []
         self.short_list_scores = []
-        for src_pos in xrange(src_len):
+        for src_pos in range(src_len):
             shortlist = self._create_short_list(scores[src_pos, :])
             if (self.max_shortlist_length > 0 
                       and len(shortlist) > self.max_shortlist_length):

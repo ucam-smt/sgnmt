@@ -183,11 +183,11 @@ class ForcedOSMPredictor(Predictor):
 
     def _generate_alignments(self, align_stub=[], compiled_start_pos=0, 
                              sentence_start_pos=0):
-        for pos in xrange(compiled_start_pos, len(self.compiled)):
+        for pos in range(compiled_start_pos, len(self.compiled)):
             if self.compiled[pos] != 'X':
                 word = int(self.compiled[pos])
-                for sen_pos in xrange(sentence_start_pos, 
-                                      len(self.cur_trg_sentence)):
+                for sen_pos in range(sentence_start_pos, 
+                                     len(self.cur_trg_sentence)):
                     if self.cur_trg_sentence[sen_pos] == word:
                         self._generate_alignments(
                             align_stub + [(pos, sen_pos)],
@@ -197,7 +197,7 @@ class ForcedOSMPredictor(Predictor):
         self.alignments.append(align_stub)
 
     def _align(self):
-        possible_words = [set() for _ in xrange(len(self.compiled))]
+        possible_words = [set() for _ in range(len(self.compiled))]
         self.alignments = []
         self._generate_alignments(align_stub=[])
         for alignment in self.alignments:
@@ -209,8 +209,8 @@ class ForcedOSMPredictor(Predictor):
                    self.cur_trg_sentence[prev_sentence_pos+1:sentence_pos])
                if section_words:
                    seen_gap = False
-                   for section_pos in xrange(prev_compiled_pos+1, 
-                                             compiled_pos):
+                   for section_pos in range(prev_compiled_pos+1, 
+                                            compiled_pos):
                        if self.compiled[section_pos] == "X":
                            if seen_gap:
                                possible_words[section_pos] |= section_words
@@ -229,7 +229,7 @@ class ForcedOSMPredictor(Predictor):
         """Aligns the compiled string to the reference and returns the
         possible words at each position."""
         possible_words = [set(self.cur_trg_sentence) 
-            for _ in xrange(len(self.compiled))] # Initially no constraints
+            for _ in range(len(self.compiled))] # Initially no constraints
         # Constrain words before first gap
         for pos, symbol in enumerate(self.compiled):
             possible_words[pos] = set([self.cur_trg_sentence[pos]])
@@ -248,21 +248,21 @@ class ForcedOSMPredictor(Predictor):
                     - set(self.cur_trg_sentence[first_idx+1:])
                 rm_before = set(self.cur_trg_sentence[last_idx:] + [isymb]) \
                     - set(self.cur_trg_sentence[:last_idx])
-                for before_pos in xrange(pos):
+                for before_pos in range(pos):
                     possible_words[before_pos] -= rm_before
-                for after_pos in xrange(pos+1, len(self.compiled)):
+                for after_pos in range(pos+1, len(self.compiled)):
                     possible_words[after_pos] -= rm_after
                 # Then, we refine constraints until the nearest gap
                 if first_idx == last_idx:
                     cur_idx = first_idx - 1
-                    for before_pos in xrange(pos-1, -1, -1):
+                    for before_pos in range(pos-1, -1, -1):
                         if self.compiled[before_pos] == "X":
                             break
                         possible_words[before_pos] &= set(
                                 [self.cur_trg_sentence[cur_idx]])
                         cur_idx -= 1
                     cur_idx = first_idx + 1
-                    for after_pos in xrange(pos+1, len(self.compiled)):
+                    for after_pos in range(pos+1, len(self.compiled)):
                         if cur_idx >= len(self.cur_trg_sentence):
                             constraint = set([])
                         else:
@@ -354,7 +354,7 @@ class BracketPredictor(UnboundedVocabularyPredictor):
         super(BracketPredictor, self).__init__()
         self.max_terminal_id = max_terminal_id
         try:
-            self.closing_bracket_ids = map(int, closing_bracket_id.split(","))
+            self.closing_bracket_ids = utils.split_comma(closing_bracket_id, int)
         except:
             self.closing_bracket_ids = [int(closing_bracket_id)]
         self.max_depth = max_depth if max_depth >= 0 else 1000000

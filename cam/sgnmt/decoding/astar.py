@@ -102,7 +102,7 @@ class AstarDecoder(Decoder):
             # Limit heap capacity
             if self.capacity > 0 and len(open_set) > self.capacity:
                 new_open_set = []
-                for _ in xrange(self.capacity):
+                for _ in range(self.capacity):
                     heappush(new_open_set, heappop(open_set))
                 open_set = new_open_set
         return self.get_full_hypos_sorted()

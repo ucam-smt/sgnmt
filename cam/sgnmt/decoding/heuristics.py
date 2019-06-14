@@ -144,7 +144,7 @@ class GreedyHeuristic(Heuristic):
             scores.append(posterior[trgt_word])
             words.append(trgt_word)
         # Update cache using scores and words
-        for i in xrange(1,len(scores)):
+        for i in range(1, len(scores)):
             self.cache.add(hypo.trgt_sentence + words[:i], -sum(scores[i:]))
         # Reset predictor states
         self.decoder.set_predictor_states(old_states)

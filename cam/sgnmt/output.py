@@ -11,14 +11,22 @@ http://www.openfst.org/twiki/bin/view/FST/PythonExtension
 """
 
 from abc import abstractmethod
-import pywrapfst as fst
 import os
 import errno
 import logging
 from cam.sgnmt import utils
+from cam.sgnmt import io
 import numpy as np
 import codecs
 from collections import defaultdict
+
+try:
+    import pywrapfst as fst
+except ImportError:
+    try:
+        import openfst_python as fst
+    except ImportError:
+        pass # Deal with it in decode.py
 
 
 def _mkdir(path, name):
@@ -58,25 +66,22 @@ class OutputHandler(object):
 class TextOutputHandler(OutputHandler):
     """Writes the first best hypotheses to a plain text file """
     
-    def __init__(self, path, trg_wmap):
+    def __init__(self, path):
         """Creates a plain text output handler to write to ``path`` """
         super(TextOutputHandler, self).__init__()
         self.path = path
-        self.trg_wmap = trg_wmap
         
     def write_hypos(self, all_hypos, sen_indices=None):
         """Writes the hypotheses in ``all_hypos`` to ``path`` """
         if self.f is not None:
             for hypos in all_hypos:
-                self.f.write(utils.apply_trg_wmap(hypos[0].trgt_sentence,
-                                                  self.trg_wmap))
+                self.f.write(io.decode(hypos[0].trgt_sentence))
                 self.f.write("\n")
                 self.f.flush()
         else:
             with codecs.open(self.path, "w", encoding='utf-8') as f:
                 for hypos in all_hypos:
-                    f.write(utils.apply_trg_wmap(hypos[0].trgt_sentence,
-                                                 self.trg_wmap))
+                    f.write(io.decode(hypos[0].trgt_sentence))
                     f.write("\n")
                     self.f.flush()
 
@@ -95,7 +100,7 @@ class NBestOutputHandler(OutputHandler):
     first sentence with 1 (e.g. in lattice directories or --range)
     """
     
-    def __init__(self, path, predictor_names, trg_wmap):
+    def __init__(self, path, predictor_names):
         """Creates a Moses n-best list output handler.
         
         Args:
@@ -103,11 +108,9 @@ class NBestOutputHandler(OutputHandler):
             predictor_names: Names of the predictors whose scores
                              should be included in the score breakdown
                              in the n-best list
-            trg_wmap (dict): (Inverse) word map for target language
         """
         super(NBestOutputHandler, self).__init__()
         self.path = path
-        self.trg_wmap = trg_wmap
         self.predictor_names = []
         name_count = {}
         for name in predictor_names:
@@ -127,12 +130,11 @@ class NBestOutputHandler(OutputHandler):
                 for hypo in hypos:
                     f.write("%d ||| %s ||| %s ||| %f" %
                             (idx,
-                             utils.apply_trg_wmap(hypo.trgt_sentence,
-                                                  self.trg_wmap),
+                             io.decode(hypo.trgt_sentence),
                              ' '.join("%s= %f" % (
                                   self.predictor_names[i],
                                   sum([s[i][0] for s in hypo.score_breakdown]))
-                                      for i in xrange(n_predictors)),
+                                      for i in range(n_predictors)),
                              hypo.total_score))
                     f.write("\n")
                 idx += 1
@@ -186,23 +188,23 @@ class TimeCSVOutputHandler(OutputHandler):
                 hypo_count = len(hypos)
                 # Headers
                 f.write("Time")
-                for i in xrange(hypo_count):
+                for i in range(hypo_count):
                     f.write("".join(["\t%s-%d" % (n, i+1) 
                                        for n in self.predictor_names]))
                     f.write("".join(["\t%s-%d_weight" % (n, i+1) 
                                        for n in self.predictor_names]))
                 f.write("\n")
                 max_len = max([len(hypo.trgt_sentence) for hypo in hypos])
-                for pos in xrange(max_len+1):
+                for pos in range(max_len+1):
                     f.write(str(pos))
                     for hypo in hypos:
                         if pos >= len(hypo.score_breakdown):
                             f.write(placeholder)
                         else:
-                            for pred_idx in xrange(n_predictors):
+                            for pred_idx in range(n_predictors):
                                 acc_pred_score = sum([s[pred_idx][0] for s in hypo.score_breakdown[:pos+1]])
                                 f.write("\t%f" % acc_pred_score)
-                            for pred_idx in xrange(n_predictors):
+                            for pred_idx in range(n_predictors):
                                 f.write("\t%f" % hypo.score_breakdown[pos][pred_idx][1])
                     f.write("\n")
 
@@ -249,16 +251,26 @@ class NgramOutputHandler(OutputHandler):
             # Collect ngrams
             for hypo_idx, hypo in enumerate(hypos):
                 sen_eos = [utils.GO_ID] + hypo.trgt_sentence + [utils.EOS_ID]
-                for pos in xrange(1, len(sen_eos) + 1):
+                for pos in range(1, len(sen_eos) + 1):
                     hist = sen_eos[:pos]
-                    for order in xrange(self.min_order, self.max_order + 1):
+                    for order in range(self.min_order, self.max_order + 1):
                         ngram = ' '.join(map(str, hist[-order:]))
                         ngrams[ngram][hypo_idx] = True
             with open(self.file_pattern % sen_idx, "w") as f:
-                for ngram, hypo_indices in ngrams.iteritems():
+                for ngram, hypo_indices in ngrams.items():
                     ngram_score = np.exp(utils.log_sum(
                        [normed_scores[hypo_idx] for hypo_idx in hypo_indices]))
                     f.write("%s : %f\n" % (ngram, min(1.0, ngram_score)))
+
+
+def write_fst(f, path):
+    """Writes FST f to the file system after epsilon removal, determinization,
+    and minimization.
+    """
+    f.rmepsilon()
+    f = fst.determinize(f)
+    f.minimize()
+    f.write(path)
 
 
 class FSTOutputHandler(OutputHandler):
@@ -324,7 +336,7 @@ class FSTOutputHandler(OutputHandler):
                                              utils.GO_ID,
                                              utils.GO_ID))
                 next_free_id += 1
-                for pos in xrange(len(hypo.score_breakdown)-1):
+                for pos in range(len(hypo.score_breakdown)-1):
                     c.write("%d\t%d\t%d\t%d\t%s\n" % (
                             next_free_id-1, # last state id
                             next_free_id, # next state id 
@@ -338,8 +350,7 @@ class FSTOutputHandler(OutputHandler):
                                 utils.EOS_ID,
                                 self.write_weight(hypo.score_breakdown[-1])))
             c.write("1\n") # Add final node
-            f = c.compile()
-            f.write(self.file_pattern % fst_idx)
+            write_fst(c.compile(), self.file_pattern % fst_idx)
 
 
 class StandardFSTOutputHandler(OutputHandler):
@@ -401,120 +412,5 @@ class StandardFSTOutputHandler(OutputHandler):
                                              utils.EOS_ID,
                                              utils.EOS_ID))
             c.write("1\n")
-            f = c.compile()
-            f.write(self.file_pattern % fst_idx)
+            write_fst(c.compile(), self.file_pattern % fst_idx)
 
-
-class AlignmentOutputHandler(object):
-    """Interface for output handlers for alignments. """
-    
-    def __init__(self):
-        """ Empty constructor """
-        pass
-    
-    @abstractmethod
-    def write_alignments(self, alignments):
-        """This method writes output files to the file system. The
-        configuration parameters such as output paths should already
-        have been provided via constructor arguments.
-        
-        Args:
-            alignments (list): list of alignment matrices
-        
-        Raises:
-            IOError. If something goes wrong while writing to the disk
-        """
-        raise NotImplementedError
-
-
-class CSVAlignmentOutputHandler(AlignmentOutputHandler):
-    """Creates a directory with CSV files which store the alignment
-    matrices.
-    """
-    
-    def __init__(self, path):
-        self.path = path
-        self.file_pattern = path + "/%d.csv"
-    
-    def write_alignments(self, alignments):
-        """Writes CSV files for each alignment. 
-        
-        Args:
-            alignments (list): list of alignments
-        
-        Raises:
-            OSError. If the directory could not be created
-            IOError. If something goes wrong while writing to the disk
-        """
-        try:
-            os.makedirs(self.path)
-        except OSError as exception:
-            if exception.errno != errno.EEXIST:
-                raise
-            else:
-                logging.warn(
-                        "Output CSV directory %s already exists." % self.path)
-        idx = 1
-        for alignment in alignments:
-            np.savetxt(self.file_pattern % idx, alignment)
-            idx += 1
-
-
-class NPYAlignmentOutputHandler(AlignmentOutputHandler):
-    """Creates a directory with alignment matrices in numpy format npy
-    """
-    
-    def __init__(self, path):
-        self.path = path
-        self.file_pattern = path + "/%d.npy"
-    
-    def write_alignments(self, alignments):
-        """Writes NPY files for each alignment. 
-        
-        Args:
-            alignments (list): list of alignments
-        
-        Raises:
-            OSError. If the directory could not be created
-            IOError. If something goes wrong while writing to the disk
-        """
-        try:
-            os.makedirs(self.path)
-        except OSError as exception:
-            if exception.errno != errno.EEXIST:
-                raise
-            else:
-                logging.warn(
-                        "Output NPY directory %s already exists." % self.path)
-        idx = 1
-        for alignment in alignments:
-            np.save(self.file_pattern % idx, alignment)
-            idx += 1
-
-
-class TextAlignmentOutputHandler(AlignmentOutputHandler):
-    """Creates a single text alignment file (Pharaoh format).
-    """
-    
-    def __init__(self, path):
-        self.path = path
-    
-    def write_alignments(self, alignments):
-        """Writes an alignment file in standard text format. 
-        
-        Args:
-            alignments (list): list of alignments
-        
-        Raises:
-            IOError. If something goes wrong while writing to the disk
-        """
-        with open(self.path, "w") as f:
-            for alignment in alignments:
-                src_len,trg_len = alignment.shape
-                entries = []
-                for spos in xrange(src_len):
-                    for tpos in xrange(trg_len):
-                        entries.append("%d-%d:%f" % (spos,
-                                                     tpos,
-                                                     alignment[spos,tpos]))
-                f.write("%s\n" % ' '.join(entries))

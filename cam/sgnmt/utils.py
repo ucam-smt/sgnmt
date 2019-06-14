@@ -8,13 +8,19 @@ from abc import abstractmethod
 import numpy
 import operator
 from scipy.misc import logsumexp
-import codecs
 from subprocess import call
 from shutil import copyfile
 import logging
 import os
-import pywrapfst as fst
 import sys
+
+try:
+    import pywrapfst as fst
+except ImportError:
+    try:
+        import openfst_python as fst
+    except ImportError:
+        pass # Deal with it in decode.py
 
 # Reserved IDs
 GO_ID = 1
@@ -104,7 +110,6 @@ def log_sum_log_semiring(vals):
     return logsumexp(numpy.asarray([val for val in vals]))
 
 
-#log_sum = log_sum_log_semiring
 log_sum = log_sum_log_semiring
 """Defines which log summation function to use. """
 
@@ -147,7 +152,7 @@ def argmax(arr):
         Index or key of the maximum entry in ``arr``
     """
     if isinstance(arr, dict):
-        return max(arr.iteritems(), key=operator.itemgetter(1))[0]
+        return max(arr.items(), key=operator.itemgetter(1))[0]
     else:
         return numpy.argmax(arr)
 
@@ -161,9 +166,9 @@ def common_viewkeys(obj):
     http://stackoverflow.com/questions/12325608/iterate-over-a-dict-or-list-in-python
     """
     if isinstance(obj, dict):
-        return obj.viewkeys()
+        return obj.keys()
     else:
-        return xrange(len(obj))
+        return range(len(obj))
 
 
 def common_iterable(obj):
@@ -172,7 +177,7 @@ def common_iterable(obj):
     http://stackoverflow.com/questions/12325608/iterate-over-a-dict-or-list-in-python
     """
     if isinstance(obj, dict):
-        for key, value in obj.iteritems():
+        for key, value in obj.items():
             yield key, value
     else:
         for index, value in enumerate(obj):
@@ -214,140 +219,11 @@ def common_contains(obj, key):
         return key < len(obj)
 
 
-# Word maps
-
-
-src_wmap = {}
-"""Source language word map (word -> id)"""
-
-
-trg_wmap = {}
-"""Target language word map (id -> word)"""
-
-
-trg_cmap = None
-"""Target language character map (char -> id)"""
-
-
-def load_src_wmap(path):
-    """Loads a source side word map from the file system.
-    
-    Args:
-        path (string): Path to the word map (Format: word id)
-    
-    Returns:
-        dict. Source word map (key: word, value: id)
-    """
-    global src_wmap
-    if not path:
-        src_wmap = {}
-        return src_wmap
-    with codecs.open(path, encoding='utf-8') as f:
-        src_wmap = dict(map(lambda e: (e[0], int(e[-1])),
-                        [line.strip().split() for line in f]))
-    return src_wmap
-
-
-def load_trg_wmap(path):
-    """Loads a target side word map from the file system.
-    
-    Args:
-        path (string): Path to the word map (Format: word id)
-    
-    Returns:
-        dict. Source word map (key: id, value: word)
-    """
-    global trg_wmap
-    if not path:
-        trg_wmap = {}
-        return trg_wmap
-    with codecs.open(path, encoding='utf-8') as f:
-        trg_wmap = dict(map(lambda e: (int(e[-1]), e[0]),
-                        [line.strip().split() for line in f]))
-    return trg_wmap
-
-
-def load_trg_cmap(path):
-    """Loads a character map from ``path``. Returns None if ``path`` is
-    empty or does not point to a file. In this case, output files are
-    generated on the word level.
-    
-    Args:
-        path (string): Path to the character map
- 
-    Returns:
-        dict. Map char -> id or None if character level output is not
-        activated.
-    """
-    global trg_cmap
-    if not path:
-        trg_cmap = None
-        return None
-    trg_cmap = {}
-    with codecs.open(path, encoding='utf-8') as f:
-        for line in f:
-            c,i = line.strip().split()
-            trg_cmap[c] = int(i)
-    if not "</w>" in trg_cmap:
-        logging.warn("Could not find </w> in char map.")
-    return trg_cmap
-
-
-def apply_src_wmap(seq, wmap = None):
-    """Converts a string to a sequence of integers by applying the
-    mapping ``wmap``. If ``wmap`` is empty, parse ``seq`` as string
-    of blank separated integers.
-    
-    Args:
-        seq (list): List of strings to convert
-        wmap (dict): word map to apply (key: word, value: ID). If empty
-                     use ``utils.src_wmap``
-    
-    Returns:
-        list. List of integers
-    """
-    if wmap is None:
-        wmap = src_wmap
-    if not wmap:
-        return [int(w) for w in seq]
-    return [wmap.get(w, UNK_ID) for w in seq]
-
-
-def apply_trg_wmap(seq, inv_wmap = None):
-    """Converts a sequence of integers to a string by applying the
-    mapping ``wmap``. If ``wmap`` is empty, output the integers
-    directly.
-    
-    Args:
-        seq (list): List of integers to convert
-        inv_wmap (dict): word map to apply (key: id, value: word). If 
-                         empty use ``utils.trg_wmap``
-    
-    Returns:
-        string. Mapped ``seq`` as single (blank separated) string
-    """
-    if inv_wmap is None:
-        inv_wmap = trg_wmap
-    if not inv_wmap:
-        return ' '.join([str(i) for i in seq])
-    return ' '.join([inv_wmap.get(i, 'UNK') for i in seq])
-
-
 # FST utilities
 
 
 TMP_FILENAME = '/tmp/sgnmt.%s.fst' % os.getpid()
 """Temporary file name to use if an FST file is zipped. """
-
-
-def split_comma(s, func=None):
-    """Splits a string at commas and removes blanks."""
-    if not s:
-        return []
-    parts = s.split(",")
-    if func is None:
-        return [el.strip() for el in parts]
-    return [func(el.strip()) for el in parts]
 
 
 def w2f(fstweight):
@@ -400,6 +276,16 @@ def get_path(tmpl, sub = 1):
     except TypeError:
         pass
     return tmpl
+
+
+def split_comma(s, func=None):
+    """Splits a string at commas and removes blanks."""
+    if not s:
+        return []
+    parts = s.split(",")
+    if func is None:
+        return [el.strip() for el in parts]
+    return [func(el.strip()) for el in parts]
 
 
 MESSAGE_TYPE_DEFAULT = 1

@@ -527,26 +527,26 @@ class EditT2TPredictor(_BaseTensor2TensorPredictor):
         # Insertions
         if n_trg_words < EditT2TPredictor.MAX_SEQ_LEN - 1:
             ins_trg_sentences = np.full((n_trg_words, n_trg_words+1), 999)
-            for pos in xrange(n_trg_words):
+            for pos in range(n_trg_words):
                 ins_trg_sentences[pos, :pos] = self.trg_sentence[:pos]
                 ins_trg_sentences[pos, pos+1:] = self.trg_sentence[pos:]
             diag_log_probs = self.mon_sess.run(self._diag_log_probs,
                 {self._inputs_var: self.src_sentence,
                  self._targets_var: ins_trg_sentences})
             top_n = self._top_n(np.squeeze(diag_log_probs, axis=1))
-            for pos in xrange(n_trg_words):
+            for pos in range(n_trg_words):
                 offset = EditT2TPredictor.INS_OFFSET 
                 offset += EditT2TPredictor.POS_FACTOR * pos
                 for token in top_n[pos]:
                     next_sentences[offset + token] = self._ins_op(pos, token)
         # Deletions
         idx = EditT2TPredictor.DEL_OFFSET
-        for pos in xrange(n_trg_words - 1): # -1: Do not delete EOS
+        for pos in range(n_trg_words - 1): # -1: Do not delete EOS
             next_sentences[idx] = self._del_op(pos)
             idx += EditT2TPredictor.POS_FACTOR
         abs_scores = self._score(next_sentences, n_trg_words + 1)
         rel_scores = {i: s - self.cur_score 
-                      for i, s in abs_scores.iteritems()}
+                      for i, s in abs_scores.items()}
         rel_scores[utils.EOS_ID] = 0.0
         return rel_scores
 
@@ -555,7 +555,7 @@ class EditT2TPredictor(_BaseTensor2TensorPredictor):
         scores = {}
         batch_ids = []
         batch_sens = []
-        for idx, trg_sentence in sentences.iteritems():
+        for idx, trg_sentence in sentences.items():
             score = self.cache.get(trg_sentence)
             if score is None:
                 batch_ids.append(idx)

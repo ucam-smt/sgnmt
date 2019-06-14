@@ -181,12 +181,12 @@ class SimpleTrie:
             self._dfs_for_nearest(root, dist)
             return
         if root.element:
-            add_dist = sum([seq[idx]**2 for idx in xrange(1, len(seq), 2)]) 
+            add_dist = sum([seq[idx]**2 for idx in range(1, len(seq), 2)]) 
             if dist + add_dist < self.best_dist:
                 self._register_best_element(dist + add_dist, root.element)
         dim = seq[0]
         # Explore close matches first
-        children = sorted(root.edges.iterkeys(), key=lambda el: (el-dim)**2)
+        children = sorted(root.edges, key=lambda el: (el-dim)**2)
         for child_dim in children:
             child_node = root.edges[child_dim]
             next_seq = seq[0:]
@@ -200,12 +200,12 @@ class SimpleTrie:
                     next_seq = next_seq[2:]
                 else:
                     c_discount = 0.0
-                for c,node in child_node.edges.iteritems():
+                for c,node in child_node.edges.items():
                     self._nearest_sparse_recursive(next_seq, 
                                                    node,
                                                    next_dist+(c-c_discount)**2)
             except IndexError:
-                for c,node in child_node.edges.iteritems():
+                for c,node in child_node.edges.items():
                     self._dfs_for_nearest(node, next_dist + c*c)
     
     def _dfs_for_nearest(self, root, dist):
@@ -218,7 +218,7 @@ class SimpleTrie:
             if root.element:
                 self._register_best_element(dist, root.element)
                 return
-            for child in root.edges.itervalues():
-                for c,next_child in child.edges.iteritems(): 
+            for child in root.edges.values():
+                for c,next_child in child.edges.items(): 
                     self._dfs_for_nearest(next_child, dist + c*c)
 

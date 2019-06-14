@@ -78,7 +78,7 @@ class AllStatsUnigramTable(UnigramTable):
         """ 
         if message_type == MESSAGE_TYPE_POSTERIOR:
             posterior,_ = message
-            for w, score in posterior.iteritems():
+            for w, score in posterior.items():
                 self.heuristic_scores[w] = max(
                                         self.heuristic_scores.get(w, NEG_INF),
                                         score)

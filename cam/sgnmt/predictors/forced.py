@@ -171,7 +171,7 @@ class ForcedLstPredictor(Predictor):
         if not feat_name:
             return float(parts[-1].strip()) if len(parts) > 2 else 0.0
         feat_parts = parts[-2].strip().split()
-        for idx in xrange(len(feat_parts)-1):
+        for idx in range(len(feat_parts)-1):
             if feat_parts[idx] == feat_str:
                 return float(feat_parts[idx+1])
         return 0.0
@@ -203,7 +203,7 @@ class ForcedLstPredictor(Predictor):
             if self.match_unk:
                 hist = [self.history[i] 
                       if trg_sentence[i] != utils.UNK_ID else utils.UNK_ID
-                      for i in xrange(hist_len)]
+                      for i in range(hist_len)]
             else:
                 hist = self.history 
             if trg_sentence[:hist_len] == hist:

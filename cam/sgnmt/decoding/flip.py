@@ -194,11 +194,11 @@ class FlipDecoder(Decoder):
     def _extract_candidates_move(self, candidate, max_pos, bigram_scores):
         """Implements the traversal strategy 'move' """
         full_hypo_len = len(candidate.trgt_sentence)
-        for from_pos in xrange(full_hypo_len-1):
+        for from_pos in range(full_hypo_len-1):
             from_word = candidate.trgt_sentence[from_pos]
             stub = candidate.trgt_sentence[0:from_pos] \
                         + candidate.trgt_sentence[from_pos+1:]
-            for to_pos in xrange(full_hypo_len-1):
+            for to_pos in range(full_hypo_len-1):
                 change_pos = min(from_pos, to_pos)
                 if change_pos >= max_pos:
                     continue
@@ -209,7 +209,7 @@ class FlipDecoder(Decoder):
                 scores = list(candidate.scores)
                 prev_word = trgt_sentence[change_pos-1] if change_pos > 0 \
                                                         else utils.GO_ID
-                for idx in xrange(change_pos, full_hypo_len):
+                for idx in range(change_pos, full_hypo_len):
                     word = trgt_sentence[idx]
                     scores[idx] = bigram_scores[prev_word][word]
                     prev_word = word
@@ -221,10 +221,10 @@ class FlipDecoder(Decoder):
     def _extract_candidates_flip(self, candidate, max_pos, bigram_scores):
         """Implements the traversal strategy 'flip' """
         full_hypo_len = len(candidate.trgt_sentence)
-        for from_pos in xrange(max_pos):
+        for from_pos in range(max_pos):
             max_score = sum(candidate.scores[0:from_pos])
             from_word = candidate.trgt_sentence[from_pos]
-            for to_pos in xrange(from_pos+1, full_hypo_len-1):
+            for to_pos in range(from_pos+1, full_hypo_len-1):
                 trgt_sentence = list(candidate.trgt_sentence)
                 trgt_sentence[from_pos] = trgt_sentence[to_pos]
                 trgt_sentence[to_pos] = from_word
@@ -233,7 +233,7 @@ class FlipDecoder(Decoder):
                 scores = list(candidate.scores)
                 prev_word = trgt_sentence[from_pos-1] if from_pos > 0 \
                                                       else utils.GO_ID
-                for idx in xrange(from_pos, full_hypo_len):
+                for idx in range(from_pos, full_hypo_len):
                     word = trgt_sentence[idx]
                     scores[idx] = bigram_scores[prev_word][word]
                     prev_word = word
@@ -262,7 +262,7 @@ class FlipDecoder(Decoder):
         hypos = []
         posteriors = []
         score_breakdowns = []
-        for pos in xrange(len(prefix), len(candidate.trgt_sentence)):
+        for pos in range(len(prefix), len(candidate.trgt_sentence)):
             if self.early_stopping and hypo.score <= self.best_score:
                 break # admissible pruning
             posterior,score_breakdown = self.apply_predictors()
@@ -278,7 +278,7 @@ class FlipDecoder(Decoder):
             if self.always_greedy: # change sentence st best word is at this pos
                 best_pos = pos
                 stub = candidate.trgt_sentence[0:pos]
-                for p in xrange(pos+1, len(candidate.trgt_sentence)-1):
+                for p in range(pos+1, len(candidate.trgt_sentence)-1):
                     if (posterior[candidate.trgt_sentence[p]] > score
                            and not self._is_explored(
                                         stub + [candidate.trgt_sentence[p]])):

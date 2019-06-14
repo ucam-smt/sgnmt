@@ -258,7 +258,7 @@ class RestartingDecoder(Decoder):
                 self.open_nodes = new_open
                 heapify(self.open_nodes) 
             elif self.low_memory_mode and len(self.open_nodes) > rest:
-                new_open = [heappop(self.open_nodes) for _ in xrange(rest+1)]
+                new_open = [heappop(self.open_nodes) for _ in range(rest+1)]
                 self.max_heap_node_cost = new_open[-1][0]
                 self.open_nodes = new_open
                 heapify(self.open_nodes)

@@ -6,6 +6,7 @@ files and command line arguments.
 import argparse
 import logging
 import os
+import sys
 
 YAML_AVAILABLE = True
 try:
@@ -16,6 +17,66 @@ except:
 def str2bool(v):
     """For making the ``ArgumentParser`` understand boolean values"""
     return v.lower() in ("yes", "true", "t", "1")
+
+
+def run_diagnostics():
+    """Check availability of external libraries."""
+    OKGREEN = '\033[92m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    if sys.version_info > (3, 0):
+        print("Checking Python3.... %sOK%s" % (OKGREEN, ENDC))
+    else:
+        print("Checking Python3.... %sNOT FOUND %s%s"
+              % (FAIL, sys.version_info, ENDC))
+        print("Please upgrade to Python 3!")
+    if YAML_AVAILABLE:
+        print("Checking PyYAML.... %sOK%s" % (OKGREEN, ENDC))
+    else:
+        print("Checking PyYAML.... %sNOT FOUND%s" % (FAIL, ENDC))
+        logging.info("NOTOK: PyYAML is not available. That means that "
+                     "--config_file cannot be used. Check the documentation "
+                     "for further instructions.")
+    try:
+        import tensorflow as tf
+        print("Checking TensorFlow.... %sOK (%s)%s"
+              % (OKGREEN, tf.__version__, ENDC))
+    except ImportError:
+        print("Checking TensorFlow.... %sNOT FOUND%s" % (FAIL, ENDC))
+        print("TensorFlow is not available. This affects the following "
+              "components: Predictors: *t2t, lexnizza, nizza; interpolation "
+              "schemes: MoE interpolation. Check the documentation for "
+              "further instructions.")
+    try:
+        import tensor2tensor
+        print("Checking Tensor2Tensor.... %sOK%s" % (OKGREEN, ENDC))
+    except ImportError:
+        print("Checking Tensor2Tensor.... %sNOT FOUND%s" % (FAIL, ENDC))
+        print("Tensor2Tensor is not available. This affects the following "
+              "components: Predictors: t2t, edit2t, fertt2t, segt2t. Check "
+              "the documentation for further instructions.")
+    try:
+        import openfst_python as fst
+        print("Checking OpenFST.... %sOK (openfst_python)%s" % (OKGREEN, ENDC))
+    except ImportError:
+        try:
+            import pywrapfst as fst
+            print("Checking OpenFST.... %sOK (pywrapfst)%s" % (OKGREEN, ENDC))
+        except ImportError:
+            print("Checking OpenFST.... %sNOT FOUND%s" % (FAIL, ENDC))
+            print("OpenFST is not available. This affects the following "
+                  "components: Predictors: nfst, fst, rtn; decoders: fstbeam; "
+                  "outputs: fst, sfst. Check the documentation for further "
+                  "instructions.")
+    try:
+        import kenlm
+        print("Checking KenLM.... %sOK%s" % (OKGREEN, ENDC))
+    except ImportError:
+        print("Checking KenLM.... %sNOT FOUND%s" % (FAIL, ENDC))
+        print("KenLM is not available. This affects the following components: "
+              "Predictors: kenlm. Check the documentation for further "
+              "instructions.")
+
 
 
 def parse_args(parser):
@@ -36,7 +97,7 @@ def parse_args(parser):
 
 def _load_config_file(arg_dict, path):
     with open(path.strip()) as f:
-        data = yaml.load(f)
+        data = yaml.load(f, Loader=yaml.FullLoader)
         for key, value in data.items():
             if key == "config_file":
                 for sub_path in value.split(","):
@@ -89,6 +150,9 @@ def get_parser():
     group.add_argument('--config_file', 
                         help="Configuration file in standard .ini format. NOTE:"
                         " Configuration file overrides command line arguments")
+    group.add_argument("--run_diagnostics", default=False, action="store_true",
+                       help="Run diagnostics and check availability of "
+                       "external libraries.")
     group.add_argument("--verbosity", default="info",
                         choices=['debug', 'info', 'warn', 'error'],
                         help="Log level: debug,info,warn,error")
@@ -167,12 +231,10 @@ def get_parser():
                                  'dfs',
                                  'simpledfs',
                                  'restarting',
-                                 'bow',
                                  'flip',
                                  'bucket',
                                  'bigramgreedy',
-                                 'astar',
-                                 'vanilla'],
+                                 'astar'],
                         help="Strategy for traversing the search space which "
                         "is spanned by the predictors.\n\n"
                         "* 'greedy': Greedy decoding (similar to beam=1)\n"
@@ -206,8 +268,6 @@ def get_parser():
                         "time step.\n"
                         "* 'fstbeam': Beam search optimized for FST "
                         "constrained search problems.\n"
-                        "* 'bow': Restarting decoder optimized for bag-of-words "
-                        "problems.\n"
                         "* 'flip': This decoder works only for bag problems. "
                         "It traverses the search space by switching two words "
                         "in the hypothesis. Do not use bow predictor.\n"
@@ -219,13 +279,7 @@ def get_parser():
                         "score by greedily selecting high scoring bigrams. "
                         "Do not use bow predictor with this search strategy.\n"
                         "* 'astar': A* search. The heuristic function is "
-                        "configured using the --heuristics options.\n"
-                        "* 'vanilla': Original Blocks beam decoder. This "
-                        "bypasses the predictor framework and directly "
-                        "performs pure NMT beam decoding on the GPU. Use this "
-                        "when you do pure NMT decoding as this is usually "
-                        "faster then using a single nmt predictor as the "
-                        "search can be parallelized on the GPU.")
+                        "configured using the --heuristics options.")
     group.add_argument("--beam", default=4, type=int,
                         help="Size of beam. Only used if --decoder is set to "
                         "'beam' or 'astar'. For 'astar' it limits the capacity"
@@ -456,8 +510,6 @@ def get_parser():
                         "files. Set to 0 to output all hypotheses found by "
                         "the decoder. If you use the beam or astar decoder, "
                         "this option is limited by the beam size.")
-    group.add_argument("--output_fst_unk_id", default=0, type=int,
-                        help="DEPRECATED: Old name for --fst_unk_id")
     group.add_argument("--fst_unk_id", default=999999998, type=int,
                         help="SGNMT uses the ID 0 for UNK. However, this "
                         "clashes with OpenFST when writing FSTs as OpenFST "
@@ -500,28 +552,18 @@ def get_parser():
                         " <id>). This is used to generate log output and the "
                         "output formats text and nbest. If empty, we directly "
                         "write word IDs.")
-    group.add_argument("--trg_cmap", default="",
-                        help="Path to the target side char map (Format: <char>"
-                        " <id>). If this is not empty, all output files are "
-                        "converted to character-level. The mapping from word "
-                        "to character sequence is read from --trg_wmap. The "
-                        "char map must contain an entry for </w> which points "
-                        "to the word boundary ID.")
     
     ## Predictor options
     
     # General
     group = parser.add_argument_group('General predictor options')
-    group.add_argument("--predictors", default="nmt",
+    group.add_argument("--predictors", default="",
                         help="Comma separated list of predictors. Predictors "
                         "are scoring modules which define a distribution over "
                         "target words given the history and some side "
                         "information like the source sentence. If vocabulary "
                         "sizes differ among predictors, we fill in gaps with "
                         "predictor UNK scores.:\n\n"
-                        "* 'nmt': neural machine translation predictor.\n"
-                        "         Options: nmt_config, nmt_path, gnmt_beta, "
-                        "nmt_model_selector, cache_nmt_posteriors.\n"
                         "* 't2t': Tensor2Tensor predictor.\n"
                         "         Options: t2t_usr_dir, t2t_model, "
                         "t2t_problem, t2t_hparams_set, t2t_checkpoint_dir, "
@@ -557,12 +599,6 @@ def get_parser():
                         "         Options: trg_test\n"
                         "* 'kenlm': n-gram language model (KenLM).\n"
                         "          Options: lm_pathr\n"
-                        "* 'srilm': n-gram language model (SRILM).\n"
-                        "          Options: lm_path, ngramc_order\n"
-                        "* 'nplm': neural n-gram language model (NPLM).\n"
-                        "          Options: nplm_path, normalize_nplm_probs\n"
-                        "* 'rnnlm': RNN language model based on TensorFlow.\n"
-                        "          Options: rnnlm_config, rnnlm_path\n"
                         "* 'forced': Forced decoding with one reference\n"
                         "            Options: trg_test\n"
                         "* 'forcedlst': Forced decoding with a Moses n-best "
@@ -762,53 +798,6 @@ def get_parser():
     
     # Neural predictors
     group = parser.add_argument_group('Neural predictor options')
-    group.add_argument("--length_normalization", default=False, type='bool',
-                        help="DEPRECATED. Synonym for --combination_scheme "
-                        "length_norm. Normalize n-best hypotheses by sentence "
-                        "length. Normally improves pure NMT decoding, but "
-                        "degrades performance when combined with predictors "
-                        "like fst or multiple NMT systems.")
-    group.add_argument("--nmt_config", default="",
-                        help="Defines the configuration of the NMT model. This "
-                        "can either point to a configuration file, or it can "
-                        "directly contain the parameters (e.g. 'src_vocab_size"
-                        "=1234,trg_vocab_size=2345'). Use 'config_file=' in "
-                        "the parameter string to use configuration files "
-                        "with the second method.")
-    group.add_argument("--nmt_path", default="",
-                        help="Defines the path to the NMT model. If empty, "
-                        "the model is loaded from the default location which "
-                        "depends on the NMT engine")
-    group.add_argument("--nmt_engine", default="blocks",
-                        choices=['none', 'blocks', 'tensorflow'],
-                        help="NMT implementation which should be used. "
-                        "Use 'none' to disable NMT support.")
-    group.add_argument("--nmt_model_selector", default="bleu",
-                        choices=['params', 'bleu', 'time'],
-                        help="NMT training normally creates several files in "
-                        "the ./train/ directory from which we can load the NMT"
-                        " model. Possible options:\n\n"
-                        "* 'params': Load parameters from params.npz. This is "
-                        "usually the most recent model.\n"
-                        "* 'bleu': Load from the best_bleu_params_* file with "
-                        "the best BLEU score.\n"
-                        "* 'time': Load from the most recent "
-                        "best_bleu_params_* file.")
-    group.add_argument("--cache_nmt_posteriors", default=False, type='bool',
-                        help="This enables the cache in the [F]NMT predictor. "
-                        "Normally, the search procedure is responsible to "
-                        "avoid applying predictors to the same history twice. "
-                        "However, due to the limited NMT vocabulary, two "
-                        "different histories might be the same from the NMT "
-                        "perspective, e.g. if they are the same up to words "
-                        "which are outside the NMT vocabulary. If this "
-                        "parameter is set to true, we cache posteriors with "
-                        "histories containing UNK and reload them when needed")
-    group.add_argument("--gnmt_beta", default=0.0, type=float,
-                       help="If this is greater than zero, add a coverage "
-                       "penalization term following Google's NMT (Wu et al., "
-                       "2016) to the NMT score. Only works for the Blocks "
-                       "NMT predictor.")
     group.add_argument("--gnmt_alpha", default=0.0, type=float,
                        help="If this is greater than zero and the combination "
                        "scheme is set to length_norm, use Google-style length "
@@ -869,10 +858,6 @@ def get_parser():
                        help="Available for the t2t predictor. Path to the "
                        "tensor2tensor checkpoint directory. Same as "
                        "--output_dir in t2t_trainer.")
-    group.add_argument("--t2t_src_vocab_size", default=0, type=int,
-                        help="DEPRECATED! Use --pred_src_vocab_size")
-    group.add_argument("--t2t_trg_vocab_size", default=0, type=int,
-                        help="DEPRECATED! Use --pred_trg_vocab_size")
     group.add_argument("--nizza_model", default="model1",
                        help="Available for the nizza predictor. Name of the "
                        "nizza model.")
@@ -1099,23 +1084,6 @@ def get_parser():
     group = parser.add_argument_group('(Neural) LM predictor options')
     group.add_argument("--lm_path", default="lm/ngram.lm.gz",
                         help="Path to the ngram LM file in ARPA format")
-    group.add_argument("--srilm_convert_to_ln", default=False,
-                        help="Whether to convert srilm scores from log to ln.")
-    group.add_argument("--nplm_path", default="nplm/nplm.gz",
-                        help="Path to the NPLM language model")
-    group.add_argument("--rnnlm_path", default="rnnlm/rnn.ckpt",
-                        help="Path to the RNNLM language model")
-    group.add_argument("--rnnlm_config", default="rnnlm.ini",
-                        help="Defines the configuration of the RNNLM model. This"
-                        " can either point to a configuration file, or it can "
-                        "directly contain the parameters (e.g. 'src_vocab_size"
-                        "=1234,trg_vocab_size=2345'). Use 'config_file=' in "
-                        "the parameter string to use configuration files "
-                        "with the second method. Use 'model_name=X' in the "
-                        "parameter string to use one of the predefined models.")
-    group.add_argument("--normalize_nplm_probs", default=False, type='bool',
-                        help="Whether to normalize nplm probabilities over "
-                        "the current unbounded predictor vocabulary.")
     
     # FSM predictors
     group = parser.add_argument_group('FST and RTN predictor options')
@@ -1197,16 +1165,6 @@ def get_parser():
     for n,w in [('2', 'second'), ('3', 'third'), ('4', '4-th'), ('5', '5-th'), 
                 ('6', '6-th'), ('7', '7-th'), ('8', '8-th'), ('9', '9-th'), 
                 ('10', '10-th'), ('11', '11-th'), ('12', '12-th')]:
-        group.add_argument("--nmt_config%s" % n,  default="",
-                        help="If the --predictors string contains more than "
-                        "one nmt predictor, you can specify the configuration "
-                        "for the %s one with this parameter. The %s nmt "
-                        "predictor inherits all previous settings except for "
-                        "the ones in this parameter." % (w, w))
-        group.add_argument("--nmt_path%s" % n, default="",
-                        help="Overrides --nmt_path for the %s nmt" % w)
-        group.add_argument("--nmt_engine%s" % n, default="",
-                        help="Overrides --nmt_engine for the %s nmt" % w)
         group.add_argument("--t2t_model%s" % n, default="",
                         help="Overrides --t2t_model for the %s t2t predictor"
                         % w)
@@ -1229,14 +1187,6 @@ def get_parser():
         group.add_argument("--pred_trg_vocab_size%s" % n, default=0, type=int,
                         help="Overrides --pred_trg_vocab_size for the %s t2t "
                         "predictor" % w)
-        group.add_argument("--rnnlm_config%s" % n,  default="",
-                        help="If the --predictors string contains more than "
-                        "one rnnlm predictor, you can specify the configuration "
-                        "for the %s one with this parameter. The %s rnnlm "
-                        "predictor inherits all previous settings except for "
-                        "the ones in this parameter." % (w, w))
-        group.add_argument("--rnnlm_path%s" % n, default="",
-                        help="Overrides --rnnlm_path for the %s nmt" % w)
         group.add_argument("--altsrc_test%s" % n, default="",
                         help="Overrides --altsrc_test for the %s altsrc" % w)
         group.add_argument("--word2char_map%s" % n, default="",
@@ -1273,14 +1223,6 @@ def get_args():
     args = parse_args(parser)
     
     # Legacy parameter names
-    if args.t2t_src_vocab_size > 0:
-        args.pred_src_vocab_size = args.t2t_src_vocab_size
-    if args.t2t_trg_vocab_size > 0:
-        args.pred_trg_vocab_size = args.t2t_trg_vocab_size
-    if args.length_normalization:
-        args.combination_scheme = "length_norm"
-    if args.output_fst_unk_id:
-        args.fst_unk_id = args.output_fst_unk_id 
     if args.single_cpu_thread:
         args.n_cpu_threads = 1
     return args
@@ -1294,15 +1236,9 @@ def validate_args(args):
     Args:
         args (object):  Configuration as returned by ``get_args``
     """
-    for depr in ['length_normalization', 
-                 't2t_src_vocab_size',
-                 't2t_trg_vocab_size']:
-        if getattr(args, depr):
-            logging.warn("Using deprecated argument %s. Please check the "
-                         "documentation for the replacement." % depr)
     # Validate --range
     if args.range and args.input_method == 'shell':
-        logging.warn("The --range parameter can lead to unintuitive "
+        logging.warn("The --range parameter can lead to unexpected "
                      "behavior in 'shell' mode.")
         
     # Some common pitfalls

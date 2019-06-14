@@ -18,6 +18,7 @@ from cam.sgnmt.utils import Observable, Observer, MESSAGE_TYPE_DEFAULT, \
 import numpy as np
 from operator import mul
 import logging
+from functools import reduce
 
 
 class Hypothesis:
@@ -45,47 +46,6 @@ class Hypothesis:
         """Returns a string representation of this hypothesis."""
         return "%s (%f)" % (' '.join(str(w) for w in self.trgt_sentence),
                             self.total_score)
-
-    def convert_to_char_level(self, cmap):
-        """Creates a new hypothesis on the character level from a 
-        hypothesis on the word level. Both objects will have the same 
-        total score, but the word tokens in trgt_sentence are replaced
-        by characters and score_breakdown adds word scores on the first
-        character of the word. The mapping from word ID to character ID
-        sequence is realized by using ``utils.trg_wmap`` and the char-
-        to-id map ``cmap``.
-
-        Args:
-            cmap (dict): Mapping from character to character ID
-
-        Returns:
-            Hypothesis. New hypo which corresponds to this hypo but is
-            tokenized on the character instead of the word level.
-        """
-        if not self.score_breakdown or not self.trgt_sentence:
-            return self
-        eow = cmap.get("</w>", utils.UNK_ID)
-        dummy_breakdown = [(0.0, 1.0)] * len(self.score_breakdown[0])
-        ctokens = []
-        cscore_breakdown = []
-        for idx,w in enumerate(self.trgt_sentence):
-            if w in [utils.GO_ID, utils.EOS_ID, utils.UNK_ID]:
-                chars = [w]
-            elif w in utils.trg_wmap:
-                chars = [cmap.get(c, utils.UNK_ID) for c in utils.trg_wmap[w]]
-            else:
-                chars = [utils.UNK_ID]
-            chars.append(eow)
-            ctokens.extend(chars)
-            cscore_breakdown.extend([self.score_breakdown[idx]] +
-                                    (len(chars)-1) * [dummy_breakdown])
-        # Remove last eow
-        ctokens = ctokens[:-1]
-        cscore_breakdown = cscore_breakdown[:-1]
-        if len(self.trgt_sentence) < len(self.score_breakdown):
-            cscore_breakdown.append(self.score_breakdown[-1])
-        chypo = Hypothesis(ctokens, self.total_score, cscore_breakdown)
-        return chypo
 
 
 class PartialHypothesis(object):
@@ -453,13 +413,13 @@ class Decoder(Observable):
             max_arr_length = 0
             for posterior in unrestricted:
                 if isinstance(posterior, dict):
-                    key_sets.append(posterior.viewkeys())
+                    key_sets.append(posterior.keys())
                 else:
                     max_arr_length = max(max_arr_length, len(posterior))
             if max_arr_length:
                 if all(all(el < max_arr_length for el in k) for k in key_sets):
-                    return xrange(max_arr_length)
-                key_sets.append(xrange(max_arr_length))
+                    return range(max_arr_length)
+                key_sets.append(range(max_arr_length))
             if len(key_sets) == 1:
                 return key_sets[0]
             return set().union(*key_sets)
@@ -468,7 +428,7 @@ class Decoder(Observable):
         dict_words = None
         for posterior in restricted:
             if isinstance(posterior, dict):
-                posterior_words = set(utils.common_viewkeys(posterior))
+                posterior_words = set(posterior.keys())
                 if not dict_words:
                     dict_words = posterior_words
                 else:
@@ -483,7 +443,7 @@ class Decoder(Observable):
             min_arr_length = min(arr_lengths)
             return [w for w in dict_words if w < min_arr_length]
         # Array restrictions
-        return xrange(min(arr_lengths))
+        return range(min(arr_lengths))
 
     def _split_restricted_posteriors(self, predictors, posteriors):
         """Helper method for _get_non_zero_words(). Splits the
@@ -621,7 +581,7 @@ class Decoder(Observable):
         Returns:
             combined,score_breakdown: like in ``apply_predictors()``
         """
-        if isinstance(non_zero_words, xrange) and top_n > 0:
+        if isinstance(non_zero_words, range) and top_n > 0:
             non_zero_words = Decoder._scale_combine_non_zero_scores(
                 len(non_zero_words),
                 posteriors,
@@ -673,7 +633,7 @@ class Decoder(Observable):
                           non_zero_words,
                           posteriors,
                           [unk_probs[idx] - np.log(max(1.0, unk_counts[idx]))
-                               for idx in xrange(n_predictors)],
+                               for idx in range(n_predictors)],
                           top_n)
     
     def _combine_posteriors_norm_exact(self,
@@ -712,7 +672,7 @@ class Decoder(Observable):
                     unk_counts[idx] += 1
             score_breakdown_raw[trgt_word] = preds
         renorm_factors = [0.0] * n_predictors
-        for idx in xrange(n_predictors):
+        for idx in range(n_predictors):
             if unk_counts[idx] > 1:
                 renorm_factors[idx] = np.log(
                             1.0 
@@ -751,9 +711,9 @@ class Decoder(Observable):
                                                 trgt_word, unk_probs[idx]), w)
                         for idx, w in enumerate(pred_weights)]
         sums = []
-        for idx in xrange(n_predictors):
+        for idx in range(n_predictors):
             sums.append(utils.log_sum([preds[idx][0] 
-                            for preds in score_breakdown_raw.itervalues()]))
+                            for preds in score_breakdown_raw.values()]))
         return self._combine_posteriors_with_renorm(score_breakdown_raw, sums)
     
     @staticmethod
@@ -767,7 +727,7 @@ class Decoder(Observable):
               posteriors, unk_probs, pred_weights):
           if isinstance(posterior, dict):
               arr = np.full(non_zero_word_count, unk_prob)
-              for word, score in posterior.iteritems():
+              for word, score in posterior.items():
                   if word < non_zero_word_count:
                       arr[word] = score
               scaled_posteriors.append(arr * weight)
@@ -806,7 +766,7 @@ class Decoder(Observable):
         Returns:
             combined,score_breakdown: like in ``apply_predictors()``
         """
-        if isinstance(non_zero_words, xrange) and top_n > 0:
+        if isinstance(non_zero_words, range) and top_n > 0:
           non_zero_words = Decoder._scale_combine_non_zero_scores(len(non_zero_words), 
                                                                   posteriors,
                                                                   unk_probs,
@@ -837,9 +797,9 @@ class Decoder(Observable):
         n_predictors = len(self.predictors)
         combined = {}
         score_breakdown = {}
-        for trgt_word,preds_raw in score_breakdown_raw.iteritems():
+        for trgt_word,preds_raw in score_breakdown_raw.items():
             preds = [(preds_raw[idx][0] - renorm_factors[idx],
-                      preds_raw[idx][1]) for idx in xrange(n_predictors)]
+                      preds_raw[idx][1]) for idx in range(n_predictors)]
             combined[trgt_word] = self.combi_predictor_method(preds) 
             score_breakdown[trgt_word] = preds
         return combined, score_breakdown
@@ -944,7 +904,7 @@ class Decoder(Observable):
             float. Weighted sum out1*weight1+out2*weight2...
         """
         #return sum(f*w for f, w in x)
-        (fAcc, _) = reduce(lambda (f1,w1), (f2,w2):(f1*w1 + f2*w2, 1.0),
+        (fAcc, _) = reduce(lambda x1, x2: (x1[0]*x1[1] + x2[0]*x2[1], 1.0),
                            x,
                            (0.0, 1.0))
         return fAcc

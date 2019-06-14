@@ -6,7 +6,13 @@ from cam.sgnmt.decoding.core import PartialHypothesis
 import logging
 
 from cam.sgnmt.utils import load_fst
-import pywrapfst as fst
+try:
+    import pywrapfst as fst
+except ImportError:
+    try:
+        import openfst_python as fst
+    except ImportError:
+        pass # Deal with it in decode.py
 
 
 class FSTBeamDecoder(BeamDecoder):

@@ -3,8 +3,6 @@ import logging
 
 from cam.sgnmt import utils
 from cam.sgnmt.predictors.core import Predictor
-from cam.sgnmt.utils import w2f
-import pywrapfst as fst
 import numpy as np
 
 
@@ -45,8 +43,8 @@ class ParsePredictor(Predictor):
     """
     def __init__(self, slave_predictor, normalize_scores=True, beam_size=4,
                  max_internal_len=35, nonterminal_ids=None):
-        """
-        Create a new parse wrapper for a predictor
+        """Create a new parse wrapper for a predictor
+
         Args:
           slave_predictor: predictor to wrap with parse wrapper
           normalize_scores (bool): whether to normalize posterior scores,
@@ -54,8 +52,7 @@ class ParsePredictor(Predictor):
           beam_size (int): beam size for internal beam search over non-terminals
           max_internal_len (int): number of consecutive non-terminal tokens
                             allowed in internal search before path is ignored
-          nonterminal_ids: file containing non-terminal ids, one per line
-          
+          nonterminal_ids: file containing non-terminal ids, one per line          
         """
         super(ParsePredictor, self).__init__()
         self.predictor = slave_predictor
@@ -87,10 +84,11 @@ class ParsePredictor(Predictor):
 
 
     def predict_next(self, predicting_internally=False):
-        """predict next tokens.
+        """Predict next tokens.
+
         Args: 
-        predicting_internally: will be true if called from internal beam
-                               search, prevents infinite loop
+          predicting_internally: will be true if called from internal 
+                                 beam search, prevents infinite loop
         """
         original_posterior = self.predictor.predict_next()
         all_keys = utils.common_viewkeys(original_posterior)
@@ -209,6 +207,7 @@ class ParsePredictor(Predictor):
         """Returns true if the current node is the same """
         return state1 == state2
 
+
 class TokParsePredictor(ParsePredictor):
     """
     Unlike ParsePredictor, the grammar predicts tokens according to a grammar. 
@@ -220,6 +219,7 @@ class TokParsePredictor(ParsePredictor):
                  beam_size=1, max_internal_len=35, allow_early_eos=False,
                  consume_out_of_class=False):
         """Creates a new parse predictor wrapper.
+
         Args:
             grammar_path (string): Path to the grammar file
             slave_predictor: predictor to wrap
@@ -374,7 +374,6 @@ class TokParsePredictor(ParsePredictor):
             if tok in self.nonterminals:
                 del best_posterior[tok]
         return best_posterior
-
 
     def find_word(self, posterior):
         """Check whether rhs of best option in posterior is a terminal
