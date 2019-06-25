@@ -2,6 +2,7 @@
 #
 #$ -S /bin/bash
 
+# TODO: Change this to your <ACTIVATE.SH> script!
 source /data/mifs_scratch/fs439/exp/t2t/scripts/import_t2t_environment_cpu3.sh
 
 # This script requires the following variables (passed through by qsub via -v)

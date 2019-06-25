@@ -8,11 +8,14 @@ import logging
 import os
 import sys
 
+from cam.sgnmt import utils
+
 YAML_AVAILABLE = True
 try:
     import yaml
 except:
     YAML_AVAILABLE = False
+
 
 def str2bool(v):
     """For making the ``ArgumentParser`` understand boolean values"""
@@ -78,7 +81,6 @@ def run_diagnostics():
               "instructions.")
 
 
-
 def parse_args(parser):
     """http://codereview.stackexchange.com/questions/79008/parse-a-config-file-
     and-add-to-command-line-arguments-using-argparse-in-python """
@@ -90,7 +92,7 @@ def parse_args(parser):
         paths = args.config_file
         delattr(args, 'config_file')
         arg_dict = args.__dict__
-        for path in paths.split(","):
+        for path in utils.split_comma(paths):
             _load_config_file(arg_dict, path)
     return args
 
@@ -544,14 +546,30 @@ def get_parser():
                         help="Whether to remove </S> symbol on output.")
     group.add_argument("--src_wmap", default="",
                         help="Path to the source side word map (Format: <word>"
-                        " <id>). This is used to map the words in --src_test "
-                        "to their word IDs. If empty, SGNMT expects the input "
-                        "words to be in integer representation.")
+                        " <id>). See --preprocessing and --postprocessing for "
+                        "more details.")
     group.add_argument("--trg_wmap", default="",
-                        help="Path to the target side word map (Format: <word>"
-                        " <id>). This is used to generate log output and the "
-                        "output formats text and nbest. If empty, we directly "
-                        "write word IDs.")
+                        help="Path to the source side word map (Format: <word>"
+                        " <id>). See --preprocessing and --postprocessing for "
+                        "more details.")
+    group.add_argument("--wmap", default="",
+                        help="Sets --src_wmap and --trg_wmap at the same time")
+    group.add_argument("--preprocessing", default="id",
+                        choices=['id','word', 'char', 'bpe'],
+                        help="Preprocessing strategy for source sentences.\n"
+                        "* 'id': Input sentences are expected in indexed "
+                        "representation (321 123 456 4444 ...).\n"
+                        "* 'word': Apply --src_wmap on the input.\n"
+                        "* 'char': Split into characters, then apply "
+                        "(character-level) --src_wmap.\n"
+                        "* 'bpe': Apply Sennrich's subword_nmt segmentation")
+    group.add_argument("--postprocessing", default="id",
+                        choices=['id','wmap', 'char', 'subword_nmt'],
+                        help="Postprocessing strategy for output sentences. "
+                        "See --preprocessing for more.")
+    group.add_argument("--bpe_codes", default="",
+                        help="Must be set if preprocessing=bpe. Path to the "
+                        "BPE codes file from Sennrich's subword_nmt.")
     
     ## Predictor options
     
@@ -1264,6 +1282,12 @@ def validate_args(args):
     if "t2t" in args.predictors and args.indexing_scheme != "t2t":
         logging.warn("You are using the t2t predictor, but indexing_scheme "
                      "is not set to t2t.")
+        sanity_check_failed = True
+    if args.preprocessing != "id" and not args.wmap and not args.src_wmap:
+        logging.warn("Your preprocessing method needs a source wmap.")
+        sanity_check_failed = True
+    if args.postprocessing != "id" and not args.wmap and not args.trg_wmap:
+        logging.warn("Your postprocessing method needs a target wmap.")
         sanity_check_failed = True
     if sanity_check_failed and not args.ignore_sanity_checks:
         raise AttributeError("Sanity check failed (see warnings). If you want "

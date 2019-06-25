@@ -13,7 +13,7 @@ http://ucam-smt.github.io/tutorial/sgnmt
 import logging
 import os
 import sys
-from builtins import input
+from cmd import Cmd
 
 from cam.sgnmt import utils, io
 from cam.sgnmt import decode_utils
@@ -24,24 +24,69 @@ args = get_args()
 decode_utils.base_init(args)
 
 
-def _print_shell_help():
-    """Print help text for shell usage in interactive mode."""
-    print("Available SGNMT directives:")
-    print("!sgnmt config <name> <value>  Update the configuration. Some changes")
-    print("                             may require loading the decoder from ")
-    print("                             scratch, some (like changing predictor")
-    print("                             weights) can be done on the fly. For ")
-    print("                             printing help text for all available")
-    print("                             parameters use")
-    print("                               !sgnmt config (without arguments)")
-    print("!sgnmt decode <file_name>     Decode sentences in the given file")
-    print("!sgnmt diagnostics            Run diagnostics")
-    print("!sgnmt quit                   Quit SGNMT")
-    print("!sgnmt help                   Print this help")
+class SGNMTPrompt(Cmd):
+
+    def default(self, cmd_args):
+        """Translate a single sentence."""
+        decode_utils.do_decode(
+            decoder, outputs,
+            [cmd_args.strip()])
+
+    def emptyline(self):
+        pass
+
+    def do_translate(self, cmd_args):
+        """Translate a single sentence."""
+        decode_utils.do_decode(
+            decoder, outputs,
+            [cmd_args.strip()])
+
+    def do_diagnostics(self, cmd_args):
+        """Run diagnostics to check which external libraries are
+        available to SGNMT."""
+        run_diagnostics()
+
+    def do_config(self, cmd_args):
+        """Change SGNMT configuration. Syntax: 'config <key> <value>.
+        For most configuration changes the decoder needs to be
+        rebuilt.
+        """
+        global outputs, decoder, args
+        split_args = cmd_args.split()
+        if len(split_args) < 2:
+            print("Syntax: 'config <key> <new-value>'")
+        else:
+            key, val = (split_args[0], ' '.join(split_args[1:]))
+            try:
+                val = int(val)
+            except:
+                try:
+                    val = float(val)
+                except:
+                    if val == "true":
+                        val = True
+                    elif val == "false":
+                        val = False
+            setattr(args, key, val)
+            print("Setting %s=%s..." % (key, val))
+            outputs = decode_utils.create_output_handlers()
+            if key in ["wmap", "src_wmap", "trg_wmap", 
+                       "preprocessing", "postprocessing", "bpe_codes"]:
+                io.initialize(args)
+            elif not key in ['outputs', 'output_path']:
+                decoder = decode_utils.create_decoder()
+
+    def do_quit(self, cmd_args):
+        """Quits SGNMT."""
+        raise SystemExit
+
+    def do_EOF(self, line):
+        "Quits SGNMT"
+        print("quit")
+        return True
 
 
-io.load_src_wmap(args.src_wmap)
-io.load_trg_wmap(args.trg_wmap)
+io.initialize(args)
 decoder = decode_utils.create_decoder()
 outputs = decode_utils.create_output_handlers()
 
@@ -57,58 +102,16 @@ if args.input_method == 'file':
                       % args.src_test)
 elif args.input_method == 'dummy':
     decode_utils.do_decode(decoder, outputs, False)
-else: # Interactive mode: shell or stdin
-    print("Start interactive mode.")
+elif args.input_method == "stdin":
+    decode_utils.do_decode(decoder,
+                           outputs,
+                           [line.strip() for line in sys.stdin])
+else: # Interactive mode: shell
+    print("Starting interactive mode...")
     print("PID: %d" % os.getpid())
-    print("Test sentences are read directly from stdin.")
-    print("!sgnmt help lists all available directives")
-    print("Quit with ctrl-c or !sgnmt quit")
-    quit_sgnmt = False
-    sys.stdout.flush()
-    while not quit_sgnmt:
-        # Read input from stdin or keyboard
-        if args.input_method == 'shell':
-            input_ = input("sgnmt> ")
-        else: # stdin input method
-            input_ = sys.stdin.readline()
-            if not input_:
-                break
-            logging.debug("Process input line: %s" % input_.strip())
-        input_ = input_.strip().split()
-        
-        try:
-            if input_[0] == "!sgnmt": # SGNMT directives
-                cmd = input_[1]
-                if cmd == "help":
-                    _print_shell_help()
-                elif cmd == "decode":
-                    with open(input_[2]) as f:
-                        decode_utils.do_decode(
-                            decoder, outputs,
-                            [line.strip() for line in f])
-                elif cmd == "quit":
-                    quit_sgnmt = True
-                elif cmd == "diagnostics":
-                    run_diagnostics()
-                elif cmd == "config":
-                    if len(input_) == 2:
-                        get_parser().print_help()
-                    elif len(input_) >= 4:
-                        key,val = (input_[2], ' '.join(input_[3:]))
-                        setattr(args, key, val) # TODO: non-string args!
-                        outputs = decode_utils.create_output_handlers()
-                        if not key in ['outputs', 'output_path']:
-                            decoder = decode_utils.create_decoder(args)
-                    else:
-                        logging.error("Could not parse SGNMT directive")
-                else:
-                    logging.error("Unknown directive '%s'. Use '!sgnmt help' "
-                                  "for help or exit with '!sgnmt quit'" % cmd)
-            elif input_[0] == 'quit' or input_[0] == 'exit':
-                quit_sgnmt = True
-            else: # Sentence to translate
-                decode_utils.do_decode(decoder, outputs, [" ".join(input_)])
-        except:
-            logging.error("Error in last statement: %s" % sys.exc_info()[0])
-        sys.stdout.flush()
+    print("Display help with 'help'")
+    print("Quit with ctrl-d or 'quit'")
+    prompt = SGNMTPrompt()
+    prompt.prompt = "sgnmt> "
+    prompt.cmdloop()
 
