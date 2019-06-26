@@ -56,7 +56,6 @@ from cam.sgnmt.predictors.automata import FstPredictor, \
                                          NondeterministicFstPredictor
 from cam.sgnmt.predictors.bow import BagOfWordsPredictor, \
                                      BagOfWordsSearchPredictor
-from cam.sgnmt.predictors.ffnnlm import NPLMPredictor
 from cam.sgnmt.predictors.forced import ForcedPredictor, ForcedLstPredictor
 from cam.sgnmt.predictors.grammar import RuleXtractPredictor
 from cam.sgnmt.predictors.length import WordCountPredictor, NBLengthPredictor, \
@@ -83,6 +82,7 @@ from cam.sgnmt.predictors.tf_t2t import T2TPredictor, \
                                         FertilityT2TPredictor
 from cam.sgnmt.predictors.tf_nizza import NizzaPredictor, LexNizzaPredictor
 from cam.sgnmt.predictors.tokenization import Word2charPredictor, FSTTokPredictor
+from cam.sgnmt.predictors.pytorch_fairseq import FairseqPredictor
 
 
 args = None
@@ -108,7 +108,7 @@ def base_init(new_args):
         sys.stdout = codecs.getwriter('UTF-8')(sys.stdout)
         sys.stdin = codecs.getreader('UTF-8')(sys.stdin)
         logging.warn("SGNMT is tested with Python 3, but you are using "
-                     "Python 2. Expect the unexpected or switch to 3.7.")
+                     "Python 2. Expect the unexpected or switch to >3.5.")
     # Set up logger
     logger = logging.getLogger(__name__)
     logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s')
@@ -122,12 +122,12 @@ def base_init(new_args):
     elif args.verbosity == 'error':
         logging.getLogger().setLevel(logging.ERROR)
     # Set reserved word IDs
-    if args.indexing_scheme == 'blocks':
-        utils.switch_to_blocks_indexing()
-    elif args.indexing_scheme == 'tf':
-        utils.switch_to_tf_indexing()
+    if args.indexing_scheme == 'fairseq':
+        utils.switch_to_fairseq_indexing()
     elif args.indexing_scheme == 't2t':
         utils.switch_to_t2t_indexing()
+    else:
+        raise NotImplementedError("Indexing scheme not implemented")
     # Log summation (how to compute log(exp(l1)+exp(l2)) for log values l1,l2)
     if args.log_sum == 'tropical':
         utils.log_sum = utils.log_sum_tropical_semiring
@@ -301,6 +301,11 @@ def add_predictors(decoder):
                                  n_cpu_threasd=args.n_cpu_threads,
                                  max_terminal_id=args.syntax_max_terminal_id,
                                  pop_id=args.syntax_pop_id)
+            elif pred == "fairseq":
+                p = FairseqPredictor(_get_override_args("fairseq_path"),
+                                     args.fairseq_user_dir,
+                                     args.fairseq_lang_pair,
+                                     args.n_cpu_threads)
             elif pred == "bracket":
                 p = BracketPredictor(args.syntax_max_terminal_id,
                                      args.syntax_pop_id,

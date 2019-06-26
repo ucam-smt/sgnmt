@@ -79,6 +79,24 @@ def run_diagnostics():
         print("KenLM is not available. This affects the following components: "
               "Predictors: kenlm. Check the documentation for further "
               "instructions.")
+    try:
+        import torch
+        print("Checking PyTorch.... %sOK (%s)%s"
+              % (OKGREEN, torch.__version__, ENDC))
+    except ImportError:
+        print("Checking PyTorch.... %sNOT FOUND%s" % (FAIL, ENDC))
+        print("PyTorch is not available. This affects the following "
+              "components: Predictors: fairseq, onmtpy. Check the "
+              "documentation for further instructions.")
+    try:
+        import fairseq
+        print("Checking fairseq.... %sOK (%s)%s"
+              % (OKGREEN, fairseq.__version__, ENDC))
+    except ImportError:
+        print("Checking fairseq.... %sNOT FOUND%s" % (FAIL, ENDC))
+        print("fairseq is not available. This affects the following "
+              "components: Predictors: fairseq. Check the "
+              "documentation for further instructions.")
 
 
 def parse_args(parser):
@@ -176,11 +194,10 @@ def get_parser():
                         "line. Words need to be indexed, i.e. use word IDs "
                         "instead of their string representations.")
     group.add_argument("--indexing_scheme", default="t2t",
-                        choices=['blocks', 'tf', 't2t'],
+                        choices=['t2t', 'fairseq'],
                         help="This parameter defines the reserved IDs.\n\n"
-                        "* 'blocks': eps,unk: 0, <s>: 1, </s>: 2.\n"
-                        "* 'tf': unk: 3, <s>: 1, </s>: 2.\n"
-                        "* 't2t': unk: 3, <s>: 2, </s>: 1.")
+                        "* 't2t': unk: 3, <s>: 2, </s>: 1.\n"
+                        "* 'fairseq': unk: 3, <s>: 0, </s>: 2.")
     group.add_argument("--ignore_sanity_checks", default=False, type='bool',
                        help="SGNMT terminates when a sanity check fails by "
                        "default. Set this to true to ignore sanity checks.")
@@ -562,7 +579,11 @@ def get_parser():
                         "* 'word': Apply --src_wmap on the input.\n"
                         "* 'char': Split into characters, then apply "
                         "(character-level) --src_wmap.\n"
-                        "* 'bpe': Apply Sennrich's subword_nmt segmentation")
+                        "* 'bpe': Apply Sennrich's subword_nmt segmentation \n"
+                        "SGNMT style (as in $SGNMT/scripts/subword-nmt)\n"
+                        "* 'bpe@@': Apply Sennrich's subword_nmt segmentation "
+                        "with original default values (removing </w>, using @@"
+                        " separator)\n")
     group.add_argument("--postprocessing", default="id",
                         choices=['id','wmap', 'char', 'subword_nmt'],
                         help="Postprocessing strategy for output sentences. "
@@ -607,6 +628,9 @@ def get_parser():
                         "lexnizza_max_shortlist_length, lexnizza_trg2src_model, "
                         "lexnizza_trg2src_hparams_set, lexnizza_trg2src_"
                         "checkpoint_dir, lexnizza_min_id\n"
+                        "* 'fairseq': fairseq predictor.\n"
+                        "         Options: fairseq_path, fairseq_user_dir, "
+                        "fairseq_lang_pair, n_cpu_threads\n"
                         "* 'bracket': Well-formed bracketing.\n"
                         "             Options: syntax_max_terminal_id, "
                         "syntax_pop_id, syntax_max_depth, extlength_path\n"
@@ -821,44 +845,6 @@ def get_parser():
                        "scheme is set to length_norm, use Google-style length "
                        " normalization (Wu et al., 2016) rather than simply "
                        "dividing by translation length.")
-    group.add_argument("--syntax_max_depth", default=30, type=int,
-                       help="Maximum depth of generated trees. After this "
-                       "depth is reached, only terminals and POP are allowed "
-                       "on the next layer.")
-    group.add_argument("--syntax_root_id", default=-1, type=int,
-                       help="Must be set for the layerbylayer predictor. ID "
-                       "of the initial target root label.")
-    group.add_argument("--syntax_pop_id", default="-1", type=str,
-                       help="ID of the closing bracket in output syntax trees."
-                       " layerbylayer and t2t predictors support single "
-                       "integer values. The bracket predictor can take a comma"
-                       "-separated list of integers.")
-    group.add_argument("--syntax_min_terminal_id", default=0,
-                       type=int,
-                       help="All token IDs smaller than this are considered to "
-                       "be non-terminal symbols except the ones specified by "
-                       "--syntax_terminal_list")
-    group.add_argument("--syntax_max_terminal_id", default=30003,
-                       type=int,
-                       help="All token IDs larger than this are considered to "
-                       "be non-terminal symbols except the ones specified by "
-                       "--syntax_terminal_list")
-    group.add_argument("--syntax_terminal_list", default="",
-                       help="List of IDs which are explicitly treated as "
-                       "terminals, in addition to all IDs lower or equal "
-                       "--syntax_max_terminal_id. This can be used to "
-                       "exclude the POP symbol from the list of non-terminals "
-                       "even though it has a ID higher than max_terminal_id.")
-    group.add_argument("--syntax_nonterminal_ids", default="",
-                       help="Explicitly define non-terminals with a file "
-                       "containing their ids. Useful when non-terminals do "
-                       "not occur consecutively in data (e.g. internal bpe "
-                       "units.)")
-    group.add_argument("--osm_type", default="osm", type=str,
-                       help="Set of operations used for OSM predictor.\n"
-                       "- 'osm': Original OSNMT of Stahlberg et al. (2018)\n"
-                       "- 'srcosm': Original OSNMT where IDs>7 are POP\n"
-                       "- 'pbosm': Phrase-based OSNMT")
     group.add_argument("--t2t_usr_dir", default="",
                        help="Available for the t2t predictor. See the "
                        "--t2t_usr_dir argument in tensor2tensor.")
@@ -918,6 +904,55 @@ def get_parser():
     group.add_argument("--lexnizza_min_id", default=0, type=int,
                         help="Word IDs lower than this are not considered by "
                         "lexnizza. Can be used to filter out frequent words.")
+    group.add_argument("--fairseq_path", default="",
+                       help="Points to the model file (*.pt) for the fairseq "
+                       "predictor. Like --path in fairseq-interactive.")
+    group.add_argument("--fairseq_user_dir", default="",
+                       help="fairseq user directory for additional models.")
+    group.add_argument("--fairseq_lang_pair", default="",
+                       help="Language pair such as 'en-fr' for fairseq. Used "
+                       "to load fairseq dictionaries")
+
+    # Structured predictors
+    group = parser.add_argument_group('Structured predictor options')
+    group.add_argument("--syntax_max_depth", default=30, type=int,
+                       help="Maximum depth of generated trees. After this "
+                       "depth is reached, only terminals and POP are allowed "
+                       "on the next layer.")
+    group.add_argument("--syntax_root_id", default=-1, type=int,
+                       help="Must be set for the layerbylayer predictor. ID "
+                       "of the initial target root label.")
+    group.add_argument("--syntax_pop_id", default="-1", type=str,
+                       help="ID of the closing bracket in output syntax trees."
+                       " layerbylayer and t2t predictors support single "
+                       "integer values. The bracket predictor can take a comma"
+                       "-separated list of integers.")
+    group.add_argument("--syntax_min_terminal_id", default=0,
+                       type=int,
+                       help="All token IDs smaller than this are considered to "
+                       "be non-terminal symbols except the ones specified by "
+                       "--syntax_terminal_list")
+    group.add_argument("--syntax_max_terminal_id", default=30003,
+                       type=int,
+                       help="All token IDs larger than this are considered to "
+                       "be non-terminal symbols except the ones specified by "
+                       "--syntax_terminal_list")
+    group.add_argument("--syntax_terminal_list", default="",
+                       help="List of IDs which are explicitly treated as "
+                       "terminals, in addition to all IDs lower or equal "
+                       "--syntax_max_terminal_id. This can be used to "
+                       "exclude the POP symbol from the list of non-terminals "
+                       "even though it has a ID higher than max_terminal_id.")
+    group.add_argument("--syntax_nonterminal_ids", default="",
+                       help="Explicitly define non-terminals with a file "
+                       "containing their ids. Useful when non-terminals do "
+                       "not occur consecutively in data (e.g. internal bpe "
+                       "units.)")
+    group.add_argument("--osm_type", default="osm", type=str,
+                       help="Set of operations used for OSM predictor.\n"
+                       "- 'osm': Original OSNMT of Stahlberg et al. (2018)\n"
+                       "- 'srcosm': Original OSNMT where IDs>7 are POP\n"
+                       "- 'pbosm': Phrase-based OSNMT")
 
     # Length predictors
     group = parser.add_argument_group('Length predictor options')
@@ -945,7 +980,7 @@ def get_parser():
                         "consists of blank separated '<length>:<logprob>' "
                         "pairs.")
     
-    # UNK count predictors
+    # Count predictors
     group = parser.add_argument_group('Count predictor options')
     group.add_argument("--unk_count_lambdas", default="1.0",
                         help="Model parameters for the UNK count model: comma-"
@@ -1201,7 +1236,6 @@ def get_parser():
         group.add_argument("--t2t_unk_id%s" % n, default=3, type=int,
                         help="Overrides --t2t_unk_id for the %s t2t "
                         "predictor" % w)
-
         group.add_argument("--pred_trg_vocab_size%s" % n, default=0, type=int,
                         help="Overrides --pred_trg_vocab_size for the %s t2t "
                         "predictor" % w)
@@ -1225,6 +1259,8 @@ def get_parser():
                         help="Overrides --ngramc_path for the %s ngramc" % w)
         group.add_argument("--ngramc_order%s" % n, default=0, type=int,
                         help="Overrides --ngramc_order for the %s ngramc" % w)
+        group.add_argument("--fairseq_path%s" % n, default="",
+                        help="Overrides --fairseq_path for the %s fairseq" % w)
     return parser
 
 
@@ -1282,6 +1318,10 @@ def validate_args(args):
     if "t2t" in args.predictors and args.indexing_scheme != "t2t":
         logging.warn("You are using the t2t predictor, but indexing_scheme "
                      "is not set to t2t.")
+        sanity_check_failed = True
+    if "fairseq" in args.predictors and args.indexing_scheme != "fairseq":
+        logging.warn("You are using the fairseq predictor, but indexing_scheme "
+                     "is not set to fairseq.")
         sanity_check_failed = True
     if args.preprocessing != "id" and not args.wmap and not args.src_wmap:
         logging.warn("Your preprocessing method needs a source wmap.")

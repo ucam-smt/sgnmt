@@ -44,34 +44,21 @@ NEG_INF = float("-inf")
 
 INF = float("inf")
 
+
 EPS_P = 0.00001
 
-def switch_to_tf_indexing():
+
+def switch_to_fairseq_indexing():
     """Calling this method overrides the global definitions of the 
     reserved  word ids ``GO_ID``, ``EOS_ID``, and ``UNK_ID``
-    with the TensorFlow indexing scheme. This scheme is used the 
-    TensorFlow NMT and RNNLM models. 
+    with the fairseq indexing scheme. 
     """
     global GO_ID
     global EOS_ID
     global UNK_ID
-    GO_ID = 1
+    GO_ID = 0
     EOS_ID = 2
     UNK_ID = 3
-
-
-def switch_to_blocks_indexing():
-    """Calling this method overrides the global definitions of the 
-    reserved  word ids ``GO_ID``, ``EOS_ID``, and ``UNK_ID``
-    with the Blocks indexing scheme. This scheme is used in the
-    Blocks NMT implementation and it's SGNMT extensions. 
-    """
-    global GO_ID
-    global EOS_ID
-    global UNK_ID
-    GO_ID = 1
-    EOS_ID = 2
-    UNK_ID = 0
 
 
 def switch_to_t2t_indexing():

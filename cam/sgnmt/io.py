@@ -8,6 +8,7 @@ representations, and output files also contain indexed sentences.
 import logging
 from cam.sgnmt import utils
 import codecs
+import re
 
 
 def encode(src_sentence):
@@ -64,6 +65,8 @@ def initialize(args):
         encoder = CharEncoder()
     elif args.preprocessing == "bpe":
         encoder = BPEEncoder(args.bpe_codes)
+    elif args.preprocessing == "bpe@@":
+        encoder = BPEEncoder(args.bpe_codes, "@@", True)
     else:
         raise NotImplementedError("Unknown preprocessing")
     if args.postprocessing == "id":
@@ -74,6 +77,8 @@ def initialize(args):
         decoder = CharDecoder()
     elif args.postprocessing == "bpe":
         decoder = BPEDecoder()
+    elif args.postprocessing == "bpe@@":
+        decoder = BPEAtAtDecoder()
     else:
         raise NotImplementedError("Unknown postprocessing")
 
@@ -171,39 +176,77 @@ class CharDecoder(Decoder):
 # The BPE implementation is adapted from Rico Sennrich's subword_nmt 
 # repository:
 # https://github.com/rsennrich/subword-nmt
-# For learning BPE encodings we recommend using the version of 
-# subword_nmt in SGNMT's scripts/ directory to avoid version mismatch.
-
 
 class BPE(object):
-    """Adapted from the BPE class in subword-nmt. An important
-    difference is that we use an empty separator symbol by default
-    since word endings are marked with </w>.
-    """
 
-    def __init__(self, codes_path, separator=''):
-        
+    def __init__(self, codes_path, separator='@@', remove_eow=False):
+
         with codecs.open(codes_path, encoding='utf-8') as codes:
-            self.bpe_codes = [tuple(item.split()) for item in codes]
-         
+            codes.seek(0)
+            offset=1
+
+            # check version information
+            firstline = codes.readline()
+            if firstline.startswith('#version:'):
+                self.version = tuple([int(x) for x in re.sub(r'(\.0+)*$','', firstline.split()[-1]).split(".")])
+                offset += 1
+            else:
+                self.version = (0, 1)
+                codes.seek(0)
+
+            self.bpe_codes = [tuple(item.strip('\r\n ').split(' ')) for (n, item) in enumerate(codes)]
+
+        for i, item in enumerate(self.bpe_codes):
+            if len(item) != 2:
+                sys.stderr.write('Error: invalid line {0} in BPE codes file: {1}\n'.format(i+offset, ' '.join(item)))
+                sys.stderr.write('The line should exist of exactly two subword units, separated by whitespace\n')
+                sys.exit(1)
+
         # some hacking to deal with duplicates (only consider first instance)
-        self.bpe_codes = dict([(code,i)
-                for (i,code) in reversed(list(enumerate(self.bpe_codes)))])
+        self.bpe_codes = dict([(code,i) for (i,code) in reversed(list(enumerate(self.bpe_codes)))])
 
         self.separator = separator
 
+        self.cache = {}
+
+        self.remove_eow = remove_eow
+
+    def process_line(self, line):
+        """segment line, dealing with leading and trailing whitespace"""
+
+        out = ""
+
+        leading_whitespace = len(line)-len(line.lstrip('\r\n '))
+        if leading_whitespace:
+            out += line[:leading_whitespace]
+
+        out += self.segment(line)
+
+        trailing_whitespace = len(line)-len(line.rstrip('\r\n '))
+        if trailing_whitespace and trailing_whitespace != len(line):
+            out += line[-trailing_whitespace:]
+
+        return out
+
     def segment(self, sentence):
         """segment single sentence (whitespace-tokenized string) with BPE encoding"""
+        segments = self.segment_tokens(sentence.strip('\r\n ').split(' '))
+        return ' '.join(segments)
 
+    def segment_tokens(self, tokens):
+        """segment a sequence of tokens with BPE encoding"""
         output = []
-        for word in sentence.split():
-            new_word = self.encode(word)
+        for word in tokens:
+            # eliminate double spaces
+            if not word:
+                continue
+            new_word = [out for out in self.encode(word)]
 
             for item in new_word[:-1]:
                 output.append(item + self.separator)
             output.append(new_word[-1])
 
-        return ' '.join(output)
+        return output
 
     def get_pairs(self, word):
         """Return set of symbol pairs in a word.
@@ -217,17 +260,24 @@ class BPE(object):
             prev_char = char
         return pairs
 
-    def encode(self, orig, cache={}):
+    def encode(self, orig):
         """Encode word based on list of BPE merge operations, which are applied consecutively
         """
 
-        if orig in ["<s>", "</s>"]:
-            return [orig]
-        if orig in cache:
-            return cache[orig]
+        if orig in self.cache:
+            return self.cache[orig]
+  
+        if self.version == (0, 1):
+            word = tuple(orig) + ('</w>',)
+        elif self.version == (0, 2): # more consistent handling of word-final segments
+            word = tuple(orig[:-1]) + ( orig[-1] + '</w>',)
+        else:
+            raise NotImplementedError
 
-        word = tuple(orig) + ('</w>',)
         pairs = self.get_pairs(word)
+
+        if not pairs:
+            return orig
 
         while True:
             bigram = min(pairs, key = lambda pair: self.bpe_codes.get(pair, float('inf')))
@@ -258,21 +308,22 @@ class BPE(object):
             else:
                 pairs = self.get_pairs(word)
 
-        # don't print end-of-word symbols
-        #if word[-1] == '</w>':
-        #    word = word[:-1]
-        #elif word[-1].endswith('</w>'):
-        #    word = word[:-1] + (word[-1].replace('</w>',''),)
+        if self.remove_eow:
+            # don't print end-of-word symbols
+            if word[-1] == '</w>':
+                word = word[:-1]
+            elif word[-1].endswith('</w>'):
+                word = word[:-1] + (word[-1].replace('</w>',''),)
 
-        cache[orig] = word
+        self.cache[orig] = word
         return word
 
 
 class BPEEncoder(Encoder):
     """Encoder for BPE mapping."""
 
-    def __init__(self, codes_path):
-        self.bpe = BPE(codes_path)
+    def __init__(self, codes_path, separator='', remove_eow=False):
+        self.bpe = BPE(codes_path, separator, remove_eow)
 
     def encode(self, src_sentence):
         bpe_str = self.bpe.segment(src_sentence)
@@ -289,11 +340,19 @@ class BPEEncoder(Encoder):
 
 
 class BPEDecoder(Decoder):
-    """"Decoder for BPE mapping."""
+    """"Decoder for BPE mapping SGNMT style."""
 
     def decode(self, trg_sentence):
         return "".join(
            trg_wmap.get(w, "<UNK>") for w in trg_sentence).replace("</w>", " ")
+
+
+class BPEAtAtDecoder(Decoder):
+    """"Decoder for BPE mapping with @@ separator."""
+
+    def decode(self, trg_sentence):
+        return " ".join(
+           trg_wmap.get(w, "<UNK>") for w in trg_sentence).replace("@@ ", "")
 
 
 # Word maps
