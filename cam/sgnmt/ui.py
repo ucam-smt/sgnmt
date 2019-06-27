@@ -22,8 +22,10 @@ import argparse
 import logging
 import os
 import sys
+import platform
 
 from cam.sgnmt import utils
+from cam import sgnmt
 
 YAML_AVAILABLE = True
 try:
@@ -42,8 +44,11 @@ def run_diagnostics():
     OKGREEN = '\033[92m'
     FAIL = '\033[91m'
     ENDC = '\033[0m'
+    print("Checking SGNMT version.... %s%s%s" 
+          % (OKGREEN, sgnmt.__version__, ENDC))
     if sys.version_info > (3, 0):
-        print("Checking Python3.... %sOK%s" % (OKGREEN, ENDC))
+        print("Checking Python3.... %sOK (%s)%s" 
+              % (OKGREEN, platform.python_version(), ENDC))
     else:
         print("Checking Python3.... %sNOT FOUND %s%s"
               % (FAIL, sys.version_info, ENDC))
