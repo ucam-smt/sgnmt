@@ -8,8 +8,13 @@ A wide variety of search strategies is available for complex decoding problems.
 
 SGNMT is compatible with the following NMT toolkits:
 
--  [Tensor2Tensor](https://github.com/tensorflow/tensor2tensor) ([TensorFlow](https://www.tensorflow.org/>))
+-  [Tensor2Tensor](https://github.com/tensorflow/tensor2tensor) ([TensorFlow](https://www.tensorflow.org/))
 -  [fairseq](https://github.com/pytorch/fairseq) ([PyTorch](https://pytorch.org/))
+
+Old SGNMT versions (0.x) are compatible with:
+
+- [(extended) TF seq2seq tutorial](https://github.com/ehasler/tensorflow) ([TensorFlow](https://www.tensorflow.org/))
+- [Blocks](http://blocks.readthedocs.io/en/latest/) ([Theano](http://deeplearning.net/software/theano/))
 
 
 Features:
