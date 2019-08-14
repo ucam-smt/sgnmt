@@ -33,7 +33,7 @@ class ForcedPredictor(Predictor):
     1 along this path, and 0 otherwise.
     """
     
-    def __init__(self, trg_test_file):
+    def __init__(self, trg_test_file, spurious_words=[]):
         """Creates a new forced decoding predictor.
         
         Args:
@@ -41,6 +41,8 @@ class ForcedPredictor(Predictor):
                                     the target sentences. Must have the
                                     same number of lines as the number
                                     of source sentences to decode
+            spurious_words (list): List of words that are permitted to
+                                   occur anywhere in the sequence
         """
         super(ForcedPredictor, self).__init__()
         self.trg_sentences = []
@@ -49,6 +51,7 @@ class ForcedPredictor(Predictor):
                 self.trg_sentences.append([int(w) 
                             for w in line.strip().split()] + [utils.EOS_ID])
         self.n_consumed = 0 
+        self.spurious_words = set(spurious_words)
         
     def get_unk_probability(self, posterior):
         """Returns negative infinity unconditionally: Words which are
@@ -62,11 +65,13 @@ class ForcedPredictor(Predictor):
         key is either the next word in the target sentence or (if the
         target sentence has no more words) the end-of-sentence symbol.
         """
+        ret = {w: 0.0 for w in self.spurious_words}
         if self.n_consumed < len(self.cur_trg_sentence):
-            return {utils.EOS_ID : NEG_INF,
-                    self.cur_trg_sentence[self.n_consumed] : 0.0}
+            ret[utils.EOS_ID] = NEG_INF
+            ret[self.cur_trg_sentence[self.n_consumed]] = 0.0
         else:
-            return {utils.EOS_ID : 0.0}
+            ret[utils.EOS_ID] = 0.0
+        return ret
     
     def initialize(self, src_sentence):
         """Fetches the corresponding target sentence and resets the
@@ -86,6 +91,8 @@ class ForcedPredictor(Predictor):
         Args:
             word (int): Next word to consume
         """
+        if word in self.spurious_words:
+            return
         if self.n_consumed < len(self.cur_trg_sentence):
             trg_word = self.cur_trg_sentence[self.n_consumed]
             if trg_word != utils.UNK_ID and trg_word != word:

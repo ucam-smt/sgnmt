@@ -43,7 +43,9 @@ from cam.sgnmt.decoding.bigramgreedy import BigramGreedyDecoder
 from cam.sgnmt.decoding.bucket import BucketDecoder
 from cam.sgnmt.decoding.core import UnboundedVocabularyPredictor
 from cam.sgnmt.decoding.core import Hypothesis
-from cam.sgnmt.decoding.dfs import DFSDecoder, SimpleDFSDecoder
+from cam.sgnmt.decoding.dfs import DFSDecoder, \
+                                   SimpleDFSDecoder, \
+                                   SimpleLengthDFSDecoder
 from cam.sgnmt.decoding.flip import FlipDecoder
 from cam.sgnmt.decoding.greedy import GreedyDecoder
 from cam.sgnmt.decoding.heuristics import GreedyHeuristic, \
@@ -327,9 +329,18 @@ def add_predictors(decoder):
                                      max_depth=args.syntax_max_depth,
                                      extlength_path=args.extlength_path)
             elif pred == "osm":
-                p = OSMPredictor(args.osm_type)
+                p = OSMPredictor(args.src_wmap,
+                                 args.trg_wmap,
+                                 use_jumps=args.osm_use_jumps,
+                                 use_auto_pop=args.osm_use_auto_pop,
+                                 use_unpop=args.osm_use_unpop,
+                                 use_pop2=args.osm_use_pop2,
+                                 use_src_eop=args.osm_use_src_eop,
+                                 use_copy=args.osm_use_copy)
             elif pred == "forcedosm":
-                p = ForcedOSMPredictor(args.trg_test)
+                p = ForcedOSMPredictor(args.src_wmap, 
+                                       args.trg_wmap, 
+                                       args.trg_test)
             elif pred == "fst":
                 p = FstPredictor(_get_override_args("fst_path"),
                                  args.use_fst_weights,
@@ -343,7 +354,9 @@ def add_predictors(decoder):
                                                  args.fst_skip_bos_weight,
                                                  to_log=args.fst_to_log)
             elif pred == "forced":
-                p = ForcedPredictor(args.trg_test)
+                p = ForcedPredictor(
+                                args.trg_test, 
+                                utils.split_comma(args.forced_spurious, int))
             elif pred == "bow":
                 p = BagOfWordsPredictor(
                                 args.trg_test,
@@ -431,11 +444,10 @@ def add_predictors(decoder):
                     else: # idxmap predictor for bounded predictors
                         p = IdxmapPredictor(src_path, trg_path, p, 1.0)
                 elif wrapper == "maskvocab":
-                    words = utils.split_comma(args.maskvocab_words, int)
                     if isinstance(p, UnboundedVocabularyPredictor): 
-                        p = UnboundedMaskvocabPredictor(words, p) 
+                        p = UnboundedMaskvocabPredictor(args.maskvocab_vocab, p)
                     else: # idxmap predictor for bounded predictors
-                        p = MaskvocabPredictor(words, p)
+                        p = MaskvocabPredictor(args.maskvocab_vocab, p)
                 elif wrapper == "weightnt":
                     p = WeightNonTerminalPredictor(
                         p, 
@@ -502,7 +514,7 @@ def add_predictors(decoder):
                     p = Word2charPredictor(map_path, p)
                 elif wrapper == "skipvocab":
                     # skipvocab always wraps unbounded predictors
-                    p = SkipvocabPredictor(args.skipvocab_max_id, 
+                    p = SkipvocabPredictor(args.skipvocab_vocab, 
                                            args.skipvocab_stop_size, 
                                            args.beam, 
                                            p)
@@ -600,6 +612,8 @@ def create_decoder():
             decoder = DFSDecoder(args)
         elif args.decoder == "simpledfs":
             decoder = SimpleDFSDecoder(args)
+        elif args.decoder == "simplelendfs":
+            decoder = SimpleLengthDFSDecoder(args)
         elif args.decoder == "restarting":
             decoder = RestartingDecoder(args,
                                         args.hypo_recombination,

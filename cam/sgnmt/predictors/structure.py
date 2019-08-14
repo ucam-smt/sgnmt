@@ -20,14 +20,21 @@ balanced bracket expressions, and the OSM predictor prevents any sequence
 of operations which cannot be compiled to a string.
 """
 
+import logging
+
 from cam.sgnmt import utils
 from cam.sgnmt.predictors.core import Predictor, UnboundedVocabularyPredictor
 
+# Default operation IDs
 OSM_EOP_ID = 4
-OSM_GAP_ID = 5
+
+OSM_SRC_POP_ID = 4
+OSM_SET_MARKER_ID = 5
 OSM_JUMP_FWD_ID = 6
 OSM_JUMP_BWD_ID = 7
-OSM_EOP2_ID = 8
+OSM_SRC_POP2_ID = 8
+OSM_COPY_ID = 8
+OSM_SRC_UNPOP_ID = 9
 
 
 def load_external_lengths(path):
@@ -55,40 +62,132 @@ def load_external_lengths(path):
     return lengths
 
 
+def update_trg_osm_ids(wmap_path):
+    """Update the OSM_*_ID variables using a target word map.
+
+    Args:
+        wmap_path (string): Path to the wmap file.
+    """
+    global OSM_SRC_POP_ID, OSM_SET_MARKER_ID, OSM_JUMP_FWD_ID, \
+           OSM_JUMP_BWD_ID, OSM_SRC_POP2_ID, OSM_COPY_ID, \
+           OSM_SRC_UNPOP_ID
+    if not wmap_path:
+        return
+    with open(wmap_path) as f:
+        for line in f:
+            word, word_id = line.strip().split()
+            if word == "<SRC_POP>":
+                OSM_SRC_POP_ID = int(word_id)
+                logging.debug("OSM SRC_POP = %d" % OSM_SRC_POP_ID)
+            elif word == "<SET_MARKER>":
+                OSM_SET_MARKER_ID = int(word_id)
+                logging.debug("OSM SET_MARKER = %d" % OSM_SET_MARKER_ID)
+            elif word == "<JUMP_FWD>":
+                OSM_JUMP_FWD_ID = int(word_id)
+                logging.debug("OSM JUMP_FWD = %d" % OSM_JUMP_FWD_ID)
+            elif word == "<JUMP_BWD>":
+                OSM_JUMP_BWD_ID = int(word_id)
+                logging.debug("OSM JUMP_BWD = %d" % OSM_JUMP_BWD_ID)
+            elif word == "<SRC_POP2>":
+                OSM_SRC_POP2_ID = int(word_id)
+                logging.debug("OSM SRC_POP2 = %d" % OSM_SRC_POP2_ID)
+            elif word == "<COPY>":
+                OSM_COPY_ID = int(word_id)
+                logging.debug("OSM COPY = %d" % OSM_COPY_ID)
+            elif word == "<SRC_UNPOP>":
+                OSM_SRC_UNPOP_ID = int(word_id)
+                logging.debug("SRC_UNPOP = %d" % OSM_SRC_UNPOP_ID)
+
+
+def update_src_osm_ids(wmap_path):
+    """Update the OSM_*_ID variables using a source word map.
+
+    Args:
+        wmap_path (string): Path to the wmap file.
+    """
+    global OSM_EOP_ID
+    if not wmap_path:
+        return
+    with open(wmap_path) as f:
+        for line in f:
+            word, word_id = line.strip().split()
+            if word == "<EOP>":
+                OSM_EOP_ID = int(word_id)
+                logging.debug("OSM EOP = %d" % OSM_EOP_ID)
+
+
 class OSMPredictor(Predictor):
     """This predictor applies the following constraints to an OSM output:
 
-      - The number of EOP (end-of-phrase) tokens must not exceed the number
-        of source tokens.
-      - JUMP_FWD and JUMP_BWD tokens are constraint to avoid jumping out of
-        bounds.
+      - The number of POP tokens must be equal to the number of source
+        tokens
+      - JUMP_FWD and JUMP_BWD tokens are constraint to avoid jumping out 
+        of bounds.
+
+    The predictor supports the original OSNMT operation set (default)
+    plus a number of variations that are set by the use_* arguments in
+    the constructor.
     """
     
-    def __init__(self, osm_type="osm"):
-        """Creates a new osm predictor."""
+    def __init__(self, src_wmap, trg_wmap, use_jumps=True, use_auto_pop=False, 
+                 use_unpop=False, use_pop2=False, use_src_eop=False,
+                 use_copy=False):
+        """Creates a new osm predictor.
+
+        Args:
+            src_wmap (string): Path to the source wmap. Used to grap
+                               EOP id.
+            trg_wmap (string): Path to the target wmap. Used to update
+                               IDs of operations.
+            use_jumps (bool): If true, use SET_MARKER, JUMP_FWD and
+                              JUMP_BWD operations
+            use_auto_pop (bool): If true, each word insertion
+                                 automatically moves read head
+            use_unpop (bool): If true, use SRC_UNPOP to move read head
+                              to the left.
+            use_pop2 (bool): If true, use two read heads to align
+                             phrases
+            use_src_eop (bool): If true, expect EOP tokens in the src
+                                sentence
+            use_copy (bool): If true, move read head at COPY operations
+        """
         super(OSMPredictor, self).__init__()
-        if osm_type == "osm":
-            self.pop_ids = set([OSM_EOP_ID])
-        elif osm_type == "pbosm":
-            self.pop_ids = set([OSM_EOP_ID, OSM_EOP2_ID])
-        elif osm_type == "srcosm":
-            self.pop_ids = None
-        else:
-            raise AttributeError("Unknown osm_type '%s'" % osm_type)
-        self.illegal_sequences = [
-            #[OSM_JUMP_FWD_ID, OSM_JUMP_BWD_ID],
-            #[OSM_JUMP_BWD_ID, OSM_JUMP_FWD_ID],
-            #[OSM_JUMP_FWD_ID, OSM_GAP_ID, OSM_JUMP_FWD_ID],
-            #[OSM_JUMP_FWD_ID, OSM_GAP_ID, OSM_JUMP_BWD_ID],
-            #[OSM_JUMP_BWD_ID, OSM_GAP_ID, OSM_JUMP_FWD_ID],
-            #[OSM_JUMP_BWD_ID, OSM_GAP_ID, OSM_JUMP_BWD_ID],
-            [OSM_GAP_ID, OSM_GAP_ID]
-        ]
+        update_trg_osm_ids(trg_wmap)
+        self.use_jumps = use_jumps
+        self.use_auto_pop = use_auto_pop
+        self.use_unpop = use_unpop
+        self.use_src_eop = use_src_eop
+        if use_src_eop:
+            update_src_osm_ids(src_wmap)
+        self.pop_ids = set([OSM_SRC_POP_ID])
+        if use_pop2:
+            self.pop_ids.add(OSM_SRC_POP2_ID)
+        if use_copy:
+            self.pop_ids.add(OSM_COPY_ID)
+        self.illegal_sequences = []
+        if use_jumps:
+            self.illegal_sequences.extend([
+                #[OSM_JUMP_FWD_ID, OSM_JUMP_BWD_ID],
+                #[OSM_JUMP_BWD_ID, OSM_JUMP_FWD_ID],
+                #[OSM_JUMP_FWD_ID, OSM_SET_MARKER_ID, OSM_JUMP_FWD_ID],
+                #[OSM_JUMP_FWD_ID, OSM_SET_MARKER_ID, OSM_JUMP_BWD_ID],
+                #[OSM_JUMP_BWD_ID, OSM_SET_MARKER_ID, OSM_JUMP_FWD_ID],
+                #[OSM_JUMP_BWD_ID, OSM_SET_MARKER_ID, OSM_JUMP_BWD_ID],
+                [OSM_SET_MARKER_ID, OSM_SET_MARKER_ID]
+            ])
+        if use_auto_pop:
+            self.no_auto_pop = set()
+            if use_jumps:
+                self.no_auto_pop.add(OSM_JUMP_FWD_ID)
+                self.no_auto_pop.add(OSM_JUMP_BWD_ID)
+                self.no_auto_pop.add(OSM_SET_MARKER_ID)
+            if use_unpop:
+                self.no_auto_pop.add(OSM_SRC_UNPOP_ID)
 
     def _is_pop(self, token):
-        if self.pop_ids is None:
-            return token > OSM_JUMP_BWD_ID
-        return token in self.pop_ids
+        if token in self.pop_ids:
+            return True
+        return self.use_auto_pop and token not in self.no_auto_pop
     
     def initialize(self, src_sentence):
         """Sets the number of source tokens.
@@ -96,10 +195,13 @@ class OSMPredictor(Predictor):
         Args:
             src_sentence (list): Not used
         """
-        self.src_len = len(src_sentence)
+        if self.use_src_eop:
+            self.src_len = src_sentence.count(OSM_EOP_ID) + 1
+        else:
+            self.src_len = len(src_sentence)
         self.n_holes = 0
         self.head = 0
-        self.n_eop = 0
+        self.n_pop = 0
         self.history = []
 
     def predict_next(self):
@@ -109,14 +211,17 @@ class OSMPredictor(Predictor):
             dict.
         """
         ret = {}
-        if self.n_eop >= self.src_len:
+        if self.n_pop >= self.src_len:
             return {utils.EOS_ID: 0.0} # Force EOS
         else:
             ret[utils.EOS_ID] = utils.NEG_INF
-        if self.head <= 0:
-            ret[OSM_JUMP_BWD_ID] = utils.NEG_INF
-        if self.head >= self.n_holes:
-            ret[OSM_JUMP_FWD_ID] = utils.NEG_INF
+        if self.use_unpop and self.n_pop <= 0:
+            ret[OSM_SRC_UNPOP_ID] = utils.NEG_INF
+        if self.use_jumps:
+            if self.head <= 0:
+                ret[OSM_JUMP_BWD_ID] = utils.NEG_INF
+            if self.head >= self.n_holes:
+                ret[OSM_JUMP_FWD_ID] = utils.NEG_INF
         for seq in self.illegal_sequences:
             hist = seq[:-1]
             if self.history[-len(hist):] == hist:
@@ -124,29 +229,33 @@ class OSMPredictor(Predictor):
         return ret
         
     def get_unk_probability(self, posterior):
-        if self.n_eop >= self.src_len: # Force EOS
+        if self.n_pop >= self.src_len: # Force EOS
             return utils.NEG_INF
         return 0.0
     
     def consume(self, word):
         """Updates the number of holes, EOPs, and the head position."""
         if not self._is_pop(word):
-            self.history.append(word)
-        if self._is_pop(word):
-            self.n_eop += 1
-        elif word == OSM_GAP_ID:
-            self.n_holes += 1
-            self.head += 1
-        elif word == OSM_JUMP_FWD_ID:
-            self.head += 1
-        elif word == OSM_JUMP_BWD_ID:
-            self.head -= 1
+            if self.use_unpop and word == OSM_SRC_UNPOP_ID:
+                self.n_pop -= 1
+            else:
+                self.history.append(word)
+        else:
+            self.n_pop += 1
+        if self.use_jumps:
+            if word == OSM_SET_MARKER_ID:
+                self.n_holes += 1
+                self.head += 1
+            elif word == OSM_JUMP_FWD_ID:
+                self.head += 1
+            elif word == OSM_JUMP_BWD_ID:
+                self.head -= 1
     
     def get_state(self):
-        return self.n_holes, self.head, self.n_eop
+        return self.n_holes, self.head, self.n_pop
     
     def set_state(self, state):
-        self.n_holes, self.head, self.n_eop = state
+        self.n_holes, self.head, self.n_pop = state
 
     def is_equal(self, state1, state2):
         """Trivial implementation"""
@@ -164,16 +273,19 @@ class ForcedOSMPredictor(Predictor):
     supressed until all words in the reference have been consumed.
     """
     
-    def __init__(self, trg_test_file):
+    def __init__(self, trg_wmap, trg_test_file):
         """Creates a new forcedosm predictor.
 
         Args:
+            trg_wmap (string): Path to the target wmap file. Used to
+                               grap OSM operation IDs.
             trg_test_file (string): Path to the plain text file with 
                                     the target sentences. Must have the
                                     same number of lines as the number
                                     of source sentences to decode
         """
         super(ForcedOSMPredictor, self).__init__()
+        update_trg_osm_ids(trg_wmap)
         self.trg_sentences = []
         with open(trg_test_file) as f:
             for line in f:
@@ -239,55 +351,6 @@ class ForcedOSMPredictor(Predictor):
                prev_compiled_pos = compiled_pos
                prev_sentence_pos = sentence_pos
         return possible_words
-            
-
-    def _align_old(self):
-        """Aligns the compiled string to the reference and returns the
-        possible words at each position."""
-        possible_words = [set(self.cur_trg_sentence) 
-            for _ in range(len(self.compiled))] # Initially no constraints
-        # Constrain words before first gap
-        for pos, symbol in enumerate(self.compiled):
-            possible_words[pos] = set([self.cur_trg_sentence[pos]])
-            if symbol == "X":
-                break
-        # Constrain using terminalls in self.compiled
-        for pos, symbol in enumerate(self.compiled):
-            if symbol != "X": # Propagate this constraint
-                isymb = int(symbol)
-                possible_words[pos] = set([])
-                first_idx = self.cur_trg_sentence.index(isymb)
-                last_idx = len(self.cur_trg_sentence) - \
-                        self.cur_trg_sentence[::-1].index(isymb) - 1
-                # First, a coarse constraint which disallows changing order
-                rm_after = set(self.cur_trg_sentence[:first_idx] + [isymb]) \
-                    - set(self.cur_trg_sentence[first_idx+1:])
-                rm_before = set(self.cur_trg_sentence[last_idx:] + [isymb]) \
-                    - set(self.cur_trg_sentence[:last_idx])
-                for before_pos in range(pos):
-                    possible_words[before_pos] -= rm_before
-                for after_pos in range(pos+1, len(self.compiled)):
-                    possible_words[after_pos] -= rm_after
-                # Then, we refine constraints until the nearest gap
-                if first_idx == last_idx:
-                    cur_idx = first_idx - 1
-                    for before_pos in range(pos-1, -1, -1):
-                        if self.compiled[before_pos] == "X":
-                            break
-                        possible_words[before_pos] &= set(
-                                [self.cur_trg_sentence[cur_idx]])
-                        cur_idx -= 1
-                    cur_idx = first_idx + 1
-                    for after_pos in range(pos+1, len(self.compiled)):
-                        if cur_idx >= len(self.cur_trg_sentence):
-                            constraint = set([])
-                        else:
-                            constraint = set([self.cur_trg_sentence[cur_idx]])
-                        possible_words[after_pos] &= constraint
-                        if self.compiled[after_pos] == "X":
-                            break
-                        cur_idx += 1
-        return possible_words
 
     def predict_next(self):
         """Apply word reference constraints.
@@ -295,10 +358,10 @@ class ForcedOSMPredictor(Predictor):
         Returns:
             dict.
         """
-        ret = {OSM_EOP_ID: 0.0}
+        ret = {OSM_SRC_POP_ID: 0.0}
         possible_words = self._align()
         if possible_words[self.head]:
-            ret[OSM_GAP_ID] = 0.0
+            ret[OSM_SET_MARKER_ID] = 0.0
         if any(possible_words[:self.head]):
             ret[OSM_JUMP_BWD_ID] = 0.0
         if any(possible_words[self.head+1:]):
@@ -325,13 +388,13 @@ class ForcedOSMPredictor(Predictor):
     
     def consume(self, word):
         """Updates the compiled string and the head position."""
-        if word == OSM_GAP_ID:
+        if word == OSM_SET_MARKER_ID:
             self._insert_op("X")
         elif word == OSM_JUMP_FWD_ID:
             self._jump_op(1)
         elif word == OSM_JUMP_BWD_ID:
             self._jump_op(-1)
-        elif word != OSM_EOP_ID:
+        elif word != OSM_SRC_POP_ID:
             self._insert_op(str(word))
     
     def get_state(self):

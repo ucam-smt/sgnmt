@@ -269,6 +269,7 @@ def get_parser():
                                  'combibeam',
                                  'dfs',
                                  'simpledfs',
+                                 'simplelendfs',
                                  'restarting',
                                  'flip',
                                  'bucket',
@@ -289,6 +290,8 @@ def get_parser():
                         "only one predictor. Good for exhaustive search in "
                         "combination with --score_lower_bounds_file from a "
                         "previous (beam) run.\n"
+                        "* 'simplelendfs': simpledfs variant with length-"
+                        "dependent lower bounds.\n"
                         "* 'restarting': Like DFS but with better admissible "
                         "pruning behavior.\n"
                         "* 'multisegbeam': Beam search for predictors with "
@@ -541,6 +544,11 @@ def get_parser():
                         " list of maximum accumulated values for each predictor"
                         " at each node expansion. Use '-inf' or 'neg_inf' to "
                         "not restrict a specific predictor.")
+    group.add_argument("--simplelendfs_lower_bounds_file", default="",
+                        help="Path to a file with length dependent lower "
+                        "lower bounds for the simplelendfs decoder. Each line "
+                        "must be in the format <len1>:<lower-bound1> ... "
+                        "<lenN>:<lower-boundN>.")
 
     ## Output options
     group = parser.add_argument_group('Output options')
@@ -655,14 +663,16 @@ def get_parser():
                         "             Options: syntax_max_terminal_id, "
                         "syntax_pop_id, syntax_max_depth, extlength_path\n"
                         "* 'osm': Well-formed operation sequences.\n"
-                        "         Options: osm_type\n"
+                        "         Options: osm_use_jumps, osm_use_auto_pop, "
+                        "osm_use_pop2, osm_use_src_eop, osm_use_copy, "
+                        "osm_use_unpop, src_wmap, trg_wmap\n"
                         "* 'forcedosm': Forced decoding under OSM. Use in "
                         "combination with osm predictor.\n"
-                        "         Options: trg_test\n"
+                        "         Options: trg_test, trg_wmap\n"
                         "* 'kenlm': n-gram language model (KenLM).\n"
                         "          Options: lm_pathr\n"
                         "* 'forced': Forced decoding with one reference\n"
-                        "            Options: trg_test\n"
+                        "            Options: trg_test,forced_spurious\n"
                         "* 'forcedlst': Forced decoding with a Moses n-best "
                         "list (n-best list rescoring)\n"
                         "               Options: trg_test, forcedlst_match_unk"
@@ -714,7 +724,7 @@ def get_parser():
                         "            Options: src_idxmap, trg_idxmap\n"
                         "* 'maskvocab': Hides certain words in the SGNMT vocab"
                         "ulary from the masked predictor.\n"
-                        "            Options: maskvocab_words\n"
+                        "            Options: maskvocab_vocab\n"
                         "* 'rank': Uses the rank of a word in the score list "
                         "of the wrapped predictor, not the score itself.\n"
                         "* 'glue': Masks a sentence-level predictor when SGNMT"
@@ -735,7 +745,7 @@ def get_parser():
                         "            Options: word2char_map\n"
                         "* 'skipvocab': Skip a subset of the predictor "
                         "vocabulary.\n"
-                        "               Options: skipvocab_max_id, "
+                        "               Options: skipvocab_vocab, "
                         "skipvocab_stop_size\n"
                         "* 'ngramize': Extracts n-gram posterior from "
                         "predictors without token-level history.\n"
@@ -968,11 +978,27 @@ def get_parser():
                        "containing their ids. Useful when non-terminals do "
                        "not occur consecutively in data (e.g. internal bpe "
                        "units.)")
-    group.add_argument("--osm_type", default="osm", type=str,
-                       help="Set of operations used for OSM predictor.\n"
-                       "- 'osm': Original OSNMT of Stahlberg et al. (2018)\n"
-                       "- 'srcosm': Original OSNMT where IDs>7 are POP\n"
-                       "- 'pbosm': Phrase-based OSNMT")
+    group.add_argument("--osm_use_jumps", default=True, type='bool',
+                        help="If this is true, use SET_MARKER, JUMP_BWD and "
+                        "JUMP_FWD operations to control a target write head")
+    group.add_argument("--osm_use_auto_pop", default=False, type='bool',
+                        help="If this is true, all word insertion operations "
+                        "automatically move the source read head by one.")
+    group.add_argument("--osm_use_unpop", default=False, type='bool',
+                        help="If this is true, use SRC_UNPOP to move the "
+                        "source read head by one to the left.")
+    group.add_argument("--osm_use_pop2", default=False, type='bool',
+                        help="If this is true, use phrase-based OSM with two "
+                        "source read heads.")
+    group.add_argument("--osm_use_src_eop", default=False, type='bool',
+                        help="If this is true, the source sentence is pre-"
+                        "segmented with EOP markers, and SRC_POP operations "
+                        "advance the read head to the next segment.")
+    group.add_argument("--osm_use_copy", default=False, type='bool',
+                        help="If this is true, use COPY operation that "
+                        "automatically move source read head by one. The "
+                        "aligned source token is not copied by SGNMT - this "
+                        "has to be done in post-processing.")
 
     # Length predictors
     group = parser.add_argument_group('Length predictor options')
@@ -1045,9 +1071,10 @@ def get_parser():
     group.add_argument("--ngramc_discount_factor", default=-1.0, type=float,
                        help="If this is non-negative, discount ngram counts "
                        "by this factor each time the ngram is consumed")
-    group.add_argument("--skipvocab_max_id", default=30003, type=int,
-                        help="All tokens above this threshold are skipped "
-                        "by the skipvocab predictor wrapper.")
+    group.add_argument("--skipvocab_vocab", default='',
+                        help="Tokens specified here are skipped by the "
+                        "skipvocab predictor wrapper. Accepts strings like "
+                        "'4,7,12', '>66,4', etc.")
     group.add_argument("--skipvocab_stop_size", default=1, type=int,
                         help="The internal beam search of the skipvocab "
                         "predictor wrapper stops if the best stop_size "
@@ -1061,6 +1088,10 @@ def get_parser():
                         "This is only required for the predictors 'forced' "
                         "and 'forcedlst'. For 'forcedlst' this needs to point "
                         "to an n-best list in Moses format.")
+    group.add_argument("--forced_spurious", default="",
+                        help="Comma separated list of token IDs that are "
+                        "allowed to occur anywhere in a sequence when the "
+                        "'forced' predictor is used")
     group.add_argument("--forcedlst_sparse_feat", default="", 
                         help="Per default, the forcedlst predictor uses the "
                         "combined score in the Moses nbest list. Alternatively,"
@@ -1111,10 +1142,10 @@ def get_parser():
                         " to the target side mapping file. The format is "
                         "'<index> <alternative_index>'. The mapping must be "
                         "complete and should be a bijection.")
-    group.add_argument("--maskvocab_words", default="",
-                        help="Only required for maskvocab wrapper predictor. "
-                        "Comma-separated list of token IDs which are masked "
-                        "out.")
+    group.add_argument("--maskvocab_vocab", default="",
+                       help="Token IDs which are masked out by the "
+                       "maskvocab predictor wrapper. Accepts strings like "
+                       "'4,7,12', '>66,4', etc." )
     group.add_argument("--altsrc_test", default="test_en.alt",
                         help="Only required for altsrc wrapper predictor. Path"
                         " to the alternative source sentences.")

@@ -184,6 +184,37 @@ class UnboundedIdxmapPredictor(IdxmapPredictor, UnboundedVocabularyPredictor):
                             for idx, prob in utils.common_iterable(posterior)}
 
 
+class VocabSpec(object):
+    """Helper class for maskvocab and skipvocab predictors."""
+
+    def __init__(self, spec_str):
+        """Takes a string that specifies a vocabulary. Examples:
+          '10,11,12': The tokens 10, 11, and 12
+          '>55': All token IDs larger than 55
+          '<33,99': All token IDs less than 33 and the token 99.
+        
+        Args:
+          spec_str (string): String specification of the vocabulary
+        """
+        self.max_id = None
+        self.min_id = None
+        self.tokens = set()
+        for el in spec_str.split(','):
+          if el[0] == ">":
+            self.min_id = int(el[1:])
+          elif el[0] == "<":
+            self.max_id = int(el[1:])
+          else:
+            self.tokens.add(int(el))
+
+    def contains(self, token):
+        if self.max_id is not None and token < self.max_id:
+            return True
+        if self.min_id is not None and token > self.min_id:
+            return True
+        return token in self.tokens
+
+
 class MaskvocabPredictor(Predictor):
     """This wrapper predictor hides certain words in the SGNMT 
     vocabulary from the predictor. Those words are scored by the
@@ -191,18 +222,16 @@ class MaskvocabPredictor(Predictor):
     only for other words.
     """
     
-    def __init__(self, words, slave_predictor):
-        """Creates a new idxmap wrapper predictor. The index maps have
-        to be plain text files, each line containing the mapping from
-        a SGNMT word index to the slave predictor word index.
+    def __init__(self, vocab_spec, slave_predictor):
+        """Creates a new maskvocab wrapper predictor.
         
         Args:
-            words (set): List of masked words
+            vocab_spec (string): Vocabulary specification (see VocabSpec)
             slave_predictor (Predictor): Instance of the predictor with
                                          a different wmap than SGNMT
         """
         super(MaskvocabPredictor, self).__init__()
-        self.words = set(words)
+        self.vocab_spec = VocabSpec(vocab_spec)
         self.slave_predictor = slave_predictor
 
     def initialize(self, src_sentence):
@@ -212,7 +241,7 @@ class MaskvocabPredictor(Predictor):
     def predict_next(self):
         """Pass through to slave predictor, set masked to 0.0 """
         posterior = self.slave_predictor.predict_next()
-        for w in self.words:
+        for w in self.vocab_spec.tokens:
             posterior[w] = 0.0
         return posterior
         
@@ -222,7 +251,7 @@ class MaskvocabPredictor(Predictor):
     
     def consume(self, word):
         """Pass through to slave predictor """
-        if word not in self.words:
+        if not self.vocab_spec.contains(word):
             self.slave_predictor.consume(word)
     
     def get_state(self):
@@ -356,19 +385,19 @@ class SkipvocabPredictor(Predictor):
     in-vocabulary word scores are collected from the wrapped predictor.
     """
     
-    def __init__(self, max_id, stop_size, beam, slave_predictor):
+    def __init__(self, vocab_spec, stop_size, beam, slave_predictor):
         """Creates a new skipvocab wrapper predictor.
         
         Args:
-            max_id (int): All words greater than this are skipped
+            vocab_spec (string): Vocabulary specification (see VocabSpec)
             stop_size (int): Stop internal beam search when the best
                              stop_size words are in-vocabulary
             beam (int): Beam size of internal beam search
             slave_predictor (Predictor): Wrapped predictor.
         """
         super(SkipvocabPredictor, self).__init__()
+        self.vocab_spec = VocabSpec(vocab_spec)
         self.slave_predictor = slave_predictor
-        self.max_id = max_id
         self.stop_size = stop_size
         self.beam = beam
     
@@ -387,7 +416,7 @@ class SkipvocabPredictor(Predictor):
     def _is_stopping_posterior(self, posterior):
         for word, _ in sorted(utils.common_iterable(posterior),
                               key=lambda h: -h[1])[:self.stop_size]:
-            if word > self.max_id:
+            if self.vocab_spec.contains(word):
                 return False
         return True
  
@@ -422,7 +451,7 @@ class SkipvocabPredictor(Predictor):
                 else:
                     # Look for ways to expand this hypo with OOV words.
                     for word, score in utils.common_iterable(posterior):
-                        if word > self.max_id:
+                        if self.vocab_spec.contains(word):
                             next_hypos.append(SkipvocabInternalHypothesis(
                                 hypo.score + score, pred_state, word))
             next_hypos.sort(key=lambda h: -h.score)
