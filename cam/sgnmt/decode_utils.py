@@ -58,6 +58,7 @@ from cam.sgnmt.decoding.restarting import RestartingDecoder
 from cam.sgnmt.decoding.sepbeam import SepBeamDecoder
 from cam.sgnmt.decoding.syntaxbeam import SyntaxBeamDecoder
 from cam.sgnmt.decoding.mbrbeam import MBRBeamDecoder
+from cam.sgnmt.decoding.lenbeam import LengthBeamDecoder
 from cam.sgnmt.decoding.syncbeam import SyncBeamDecoder
 from cam.sgnmt.decoding.fstbeam import FSTBeamDecoder
 from cam.sgnmt.decoding.predlimitbeam import PredLimitBeamDecoder
@@ -602,6 +603,8 @@ def create_decoder():
             decoder = PredLimitBeamDecoder(args)
         elif args.decoder == "mbrbeam":
             decoder = MBRBeamDecoder(args)
+        elif args.decoder == "lenbeam":
+            decoder = LengthBeamDecoder(args)
         elif args.decoder == "sepbeam":
             decoder = SepBeamDecoder(args)
         elif args.decoder == "syntaxbeam":

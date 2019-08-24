@@ -265,6 +265,7 @@ def get_parser():
                                  'predlimitbeam',
                                  'sepbeam',
                                  'mbrbeam',
+                                 'lenbeam',
                                  'syntaxbeam',
                                  'combibeam',
                                  'dfs',
@@ -303,6 +304,8 @@ def get_parser():
                         "symbol diversity.\n"
                         "* 'mbrbeam': Uses an MBR-based criterion to select "
                         "the next hypotheses at each time step.\n"
+                        "* 'lenbeam': Beam search that adds EOS extensions "
+                        "at each length to the results set.\n"
                         "* 'sepbeam': Associates predictors with hypos in "
                         "beam search and applies only one predictor instead "
                         "of all for hypo expansion.\n"
