@@ -60,7 +60,6 @@ class LengthBeamDecoder(Decoder):
     def decode(self, src_sentence):
         """Decodes a single source sentence using beam search. """
         self.initialize_predictors(src_sentence)
-        self.max_len = int(len(src_sentence) * 1.3) + 1  #TODO: Temp hack!
         hypos = [PartialHypothesis(self.get_predictor_states())]
         for _ in range(self.max_len):
             next_hypos = []
